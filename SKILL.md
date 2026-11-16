@@ -1,5 +1,5 @@
 ---
-name: unslopovich
+name: unslopovich-topcoat
 description: Find and fix AI-generated, vibe-coded, or template-looking UI and UX in mobile apps, web apps, and websites. Mobile - SwiftUI, UIKit, Jetpack Compose, React Native, Expo, Flutter, Ionic, Capacitor, Angular Native, NativeScript. Web - React, Next.js, Vue, Nuxt, Svelte, Astro, Angular, plain HTML and CSS, Tailwind. Use when an app or site looks generic or AI-made, a mobile app feels like a website in a phone, or when asked to review, audit, critique, polish, unslop, or make screens feel native or designed. Commands - review, treat, scan, chart, follow-up.
 argument-hint: "[review | treat | scan | chart | follow-up] [screens, pages, or path]"
 ---
