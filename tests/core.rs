@@ -221,6 +221,30 @@ fn catalog_and_document_links_are_valid() {
     assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
 }
 #[test]
+fn catalog_frontmatter_accepts_windows_line_endings() {
+    let root = TempDir::new().unwrap();
+    let checkout = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let checkout = Path::new(&checkout);
+    for source in ferris_atelier::files(checkout, true).unwrap() {
+        let relative = source
+            .strip_prefix(checkout.canonicalize().unwrap())
+            .unwrap();
+        let extension = source.extension().and_then(|s| s.to_str()).unwrap_or("");
+        if !matches!(extension, "md" | "toml") {
+            continue;
+        }
+        let text = fs::read_to_string(&source).unwrap();
+        put(
+            root.path(),
+            relative.to_str().unwrap(),
+            &text.replace("\r\n", "\n").replace('\n', "\r\n"),
+        );
+    }
+    let result = check::check(root.path()).unwrap();
+    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+}
+
+#[test]
 fn binary_json_and_exit_codes_are_stable() {
     let root = TempDir::new().unwrap();
     let compiled_binary = Path::new(env!("CARGO_BIN_EXE_ferris-atelier"));

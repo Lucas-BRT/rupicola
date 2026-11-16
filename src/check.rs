@@ -22,7 +22,8 @@ pub fn check(root: &Path) -> Result<Check, String> {
     let mut error = |path, message| result.diagnostics.push(Diagnostic { path, message });
     let skill_path = root.join("SKILL.md");
     let skill = read(&skill_path)?;
-    let frontmatter = skill
+    let normalized_skill = skill.replace("\r\n", "\n");
+    let frontmatter = normalized_skill
         .strip_prefix("---\n")
         .and_then(|s| s.split_once("\n---"));
     if let Some((metadata, _)) = frontmatter {
