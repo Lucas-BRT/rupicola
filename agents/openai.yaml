@@ -1,4 +1,4 @@
 interface:
-  display_name: "Unslopovich"
-  short_description: "Find and fix AI-looking UI in mobile and web apps, user friction first"
-  default_prompt: "Use $unslopovich to review this app's main screens."
+  display_name: "Ferris Atelier"
+  short_description: "Build and improve Rust web and desktop interfaces"
+  default_prompt: "Use $ferris-atelier to develop this Rust interface."

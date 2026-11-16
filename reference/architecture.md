@@ -1,0 +1,3 @@
+# Choosing an environment
+
+Preserve existing stacks unless migration is requested or a hard requirement proves incompatible. Prefer web for link distribution, shared access and centralized delivery; evaluate SSR/CSR against content, interaction and network costs. Consider desktop for sustained local workflows, deep file/system integration and multiple windows. Consider WebView when frontend reuse plus local integration justifies engine and IPC complexity. Offline alone does not choose the environment. Apply required accessibility, OS, integration and distribution constraints before preferences. Prototype and measure when performance decides the choice. Record rationale and reconsideration triggers.

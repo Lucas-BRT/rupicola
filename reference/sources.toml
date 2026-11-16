@@ -1,0 +1,81 @@
+schema_version = 1
+reviewed_on = "2026-11-16"
+verification = "Guidance source references only; no framework runtime compatibility certification."
+
+[[framework]]
+id = "dioxus"
+url = "https://dioxuslabs.com/learn/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "egui"
+url = "https://github.com/emilk/egui"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "gpui"
+url = "https://github.com/zed-industries/zed/tree/main/crates/gpui"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "gtk4"
+url = "https://gtk-rs.org/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "iced"
+url = "https://github.com/iced-rs/iced"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "leptos"
+url = "https://book.leptos.dev/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "libadwaita"
+url = "https://gnome.pages.gitlab.gnome.org/libadwaita/doc/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "libcosmic"
+url = "https://pop-os.github.io/libcosmic-book/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "relm4"
+url = "https://relm4.org/book/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "slint"
+url = "https://docs.slint.dev/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "tauri"
+url = "https://v2.tauri.app/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "topcoat"
+url = "https://github.com/tokio-rs/topcoat"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
+
+[[framework]]
+id = "yew"
+url = "https://yew.rs/docs/"
+runtime_tested = false
+supported_versions = "Inspect the target project and matching upstream documentation"
