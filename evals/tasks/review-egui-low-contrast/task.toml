@@ -1,0 +1,15 @@
+id = "review-egui-low-contrast"
+framework = "egui"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/main.rs of this egui app for accessibility and legibility problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "low-text-contrast"
+keywords = ["contrast", "from_gray(200)", "from_gray(210)", "4.5"]
+file = "src/main.rs"
+description = "Secondary text is light gray (about 200-210) on a white panel, a contrast ratio near 1.6:1, far below the 4.5:1 minimum."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

@@ -1,0 +1,6 @@
+id = "trigger-ratatui-negative"
+framework = "none"
+kind = "trigger"
+split = "dev"
+should_trigger = false
+prompt = "Write a clap-based CLI that prints a progress bar while hashing files in a directory."

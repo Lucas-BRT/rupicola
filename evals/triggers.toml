@@ -1,0 +1,632 @@
+# Trigger evaluation set. `expect = true` means the skill should be invoked.
+# Description tuning uses split = dev only; holdout is for milestones.
+
+[[prompt]]
+id = "exp-00"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Create a GPUI window with a sidebar and a main pane that lists open files."
+
+[[prompt]]
+id = "exp-01"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Add keyboard shortcuts to my GPUI editor using actions and key bindings."
+
+[[prompt]]
+id = "exp-02"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "My GPUI view re-renders too often; how do I structure entities and notify?"
+
+[[prompt]]
+id = "exp-03"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Build a libcosmic application with a settings page and a navigation bar."
+
+[[prompt]]
+id = "exp-04"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Port my iced widget to libcosmic so it follows the COSMIC theme."
+
+[[prompt]]
+id = "exp-05"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "Add a context drawer to my libcosmic app."
+
+[[prompt]]
+id = "exp-06"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Write an Iced counter app where the button triggers an async task and shows a spinner."
+
+[[prompt]]
+id = "exp-07"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Review my Iced update function for blocking calls."
+
+[[prompt]]
+id = "exp-08"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "How do I do a multi-window Iced application?"
+
+[[prompt]]
+id = "exp-09"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Create a Topcoat page with a signup form and inline validation."
+
+[[prompt]]
+id = "exp-10"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Review the view! templates in my Topcoat app for accessibility problems."
+
+[[prompt]]
+id = "exp-11"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "Add a dark theme toggle to my Topcoat site."
+
+[[prompt]]
+id = "exp-12"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Build a Leptos component with a searchable table and server functions."
+
+[[prompt]]
+id = "exp-13"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "My Leptos app hydrates slowly; review the page for obvious causes."
+
+[[prompt]]
+id = "exp-14"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "Add a modal dialog to my Leptos app with focus trapping."
+
+[[prompt]]
+id = "exp-15"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Create a Yew function component that fetches JSON and shows loading and error states."
+
+[[prompt]]
+id = "exp-16"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Convert my Yew class component to function components."
+
+[[prompt]]
+id = "exp-17"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "Add a system tray and a settings window to my Tauri app."
+
+[[prompt]]
+id = "exp-18"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "My Tauri webview feels janky; review the frontend and IPC usage."
+
+[[prompt]]
+id = "exp-19"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Plan a Tauri app with a React frontend and Rust file watching."
+
+[[prompt]]
+id = "exp-20"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "Build a Dioxus desktop app with a todo list and local persistence."
+
+[[prompt]]
+id = "exp-21"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Add routing and a layout component to my Dioxus web app."
+
+[[prompt]]
+id = "exp-22"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Create an egui tool window with a plot and a text filter."
+
+[[prompt]]
+id = "exp-23"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "My egui app freezes when loading a file; fix it."
+
+[[prompt]]
+id = "exp-24"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Write a Slint UI with a login form and wire its callbacks from Rust."
+
+[[prompt]]
+id = "exp-25"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Make my Slint app respect system dark mode."
+
+[[prompt]]
+id = "exp-26"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "Create a gtk4-rs window with a list view and a header bar."
+
+[[prompt]]
+id = "exp-27"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Build a libadwaita preferences window in Rust."
+
+[[prompt]]
+id = "exp-28"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Write a Relm4 component with a factory for a dynamic list."
+
+[[prompt]]
+id = "exp-29"
+category = "explicit"
+expect = true
+split = "holdout"
+prompt = "Review my Relm4 app for state handling mistakes."
+
+[[prompt]]
+id = "imp-00"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Build a native desktop app in Rust that shows a live log viewer with filtering."
+
+[[prompt]]
+id = "imp-01"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "I want a Rust GUI for my command-line image tool with a preview and sliders."
+
+[[prompt]]
+id = "imp-02"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Create a cross-platform desktop notes app written in Rust."
+
+[[prompt]]
+id = "imp-03"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Make a Rust web frontend compiled to WebAssembly with a dashboard page."
+
+[[prompt]]
+id = "imp-04"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "My Rust desktop app's window stutters while resizing; find out why."
+
+[[prompt]]
+id = "imp-05"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Design the interface of a Linux-native Rust app that fits the GNOME look."
+
+[[prompt]]
+id = "imp-06"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Build a Rust GUI that looks native on the COSMIC desktop."
+
+[[prompt]]
+id = "imp-07"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Add a preferences dialog to our Rust desktop application."
+
+[[prompt]]
+id = "imp-08"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Review the accessibility of my Rust GUI application, keyboard focus in particular."
+
+[[prompt]]
+id = "imp-09"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "I need a small settings window for a Rust daemon, on Linux and Windows."
+
+[[prompt]]
+id = "imp-10"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Plan how to ship a Rust app with a graphical interface on macOS, Windows and Linux."
+
+[[prompt]]
+id = "imp-11"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Our Rust frontend compiles to WASM and the first paint is slow; review it."
+
+[[prompt]]
+id = "imp-12"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Create a form with validation in a Rust single-page web app."
+
+[[prompt]]
+id = "imp-13"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Improve the empty and error states of the list screen in my Rust desktop tool."
+
+[[prompt]]
+id = "imp-14"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Which Rust toolkit should we pick for a data-heavy desktop dashboard?"
+
+[[prompt]]
+id = "imp-15"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Make my Rust app's buttons and text readable at 200 percent scaling."
+
+[[prompt]]
+id = "imp-16"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Add a dark mode to the Rust desktop app in this repository."
+
+[[prompt]]
+id = "imp-17"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Our Rust GUI blocks the UI thread when it reads files; help restructure it."
+
+[[prompt]]
+id = "imp-18"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Build a menu bar and keyboard shortcuts for a Rust desktop editor."
+
+[[prompt]]
+id = "imp-19"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Create a full-stack Rust web app with server-rendered pages and interactive widgets."
+
+[[prompt]]
+id = "imp-20"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Review the UI code in this Rust project for usability problems."
+
+[[prompt]]
+id = "imp-21"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Build a Rust desktop client with a sidebar, tabs and a status bar."
+
+[[prompt]]
+id = "imp-22"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Add drag and drop of files to the window of my Rust application."
+
+[[prompt]]
+id = "imp-23"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "I want a tray icon and a small popup window written in Rust."
+
+[[prompt]]
+id = "imp-24"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Make the Rust app's table virtualised so 100k rows scroll smoothly."
+
+[[prompt]]
+id = "imp-25"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Write the screen for onboarding in our Rust mobile-style desktop app."
+
+[[prompt]]
+id = "imp-26"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Help me choose between a webview and a native toolkit for a Rust app."
+
+[[prompt]]
+id = "imp-27"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Redesign the layout of the Rust GUI so it works in a narrow window."
+
+[[prompt]]
+id = "imp-28"
+category = "implicit"
+expect = true
+split = "dev"
+prompt = "Audit the localisation and right-to-left support of a Rust desktop app."
+
+[[prompt]]
+id = "imp-29"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Create an interface for a Rust audio tool with knobs and meters."
+
+[[prompt]]
+id = "neg-00"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Add a JSON endpoint to this axum service that returns the ten most recent orders."
+
+[[prompt]]
+id = "neg-01"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Write a clap CLI that prints a progress bar while hashing files."
+
+[[prompt]]
+id = "neg-02"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Build a ratatui terminal dashboard that shows CPU usage."
+
+[[prompt]]
+id = "neg-03"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Create a React component with a searchable table in TypeScript."
+
+[[prompt]]
+id = "neg-04"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Write a tokio task that retries an HTTP request with backoff."
+
+[[prompt]]
+id = "neg-05"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Add pagination to my sqlx query that lists orders."
+
+[[prompt]]
+id = "neg-06"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Optimise this Rust function that parses CSV files."
+
+[[prompt]]
+id = "neg-07"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Write a Rust macro that derives a builder."
+
+[[prompt]]
+id = "neg-08"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Explain lifetimes in this Rust struct."
+
+[[prompt]]
+id = "neg-09"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Write a serde deserializer for a custom date format."
+
+[[prompt]]
+id = "neg-10"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Implement a Rust binary tree with iterators."
+
+[[prompt]]
+id = "neg-11"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Create a Flutter screen with a bottom navigation bar."
+
+[[prompt]]
+id = "neg-12"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Write Qt C++ code for a custom table model."
+
+[[prompt]]
+id = "neg-13"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Build a Vue 3 form with validation."
+
+[[prompt]]
+id = "neg-14"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Write a Python Tkinter window with a menu."
+
+[[prompt]]
+id = "neg-15"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Style a pure HTML and CSS landing page with a hero section."
+
+[[prompt]]
+id = "neg-16"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Create a Bevy game with a spinning cube."
+
+[[prompt]]
+id = "neg-17"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Write a Rust library that computes SHA-256 streaming."
+
+[[prompt]]
+id = "neg-18"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Set up GitHub Actions to cross-compile a Rust CLI."
+
+[[prompt]]
+id = "neg-19"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Add unit tests to my Rust async job queue."
+
+[[prompt]]
+id = "neg-20"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Write an Actix Web middleware that logs request ids."
+
+[[prompt]]
+id = "neg-21"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Create a Rust gRPC service with tonic."
+
+[[prompt]]
+id = "neg-22"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Fix the borrow checker error in this Rust code."
+
+[[prompt]]
+id = "neg-23"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Write a Dockerfile for a Rust web API."
+
+[[prompt]]
+id = "neg-24"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Build a Rust WebAssembly module that resizes images and exposes one function."
+
+[[prompt]]
+id = "neg-25"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Write a Rust cli with a TUI table using crossterm."
+
+[[prompt]]
+id = "neg-26"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Design a Postgres schema for a booking system."
+
+[[prompt]]
+id = "neg-27"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Create an Electron app with a React renderer."
+
+[[prompt]]
+id = "neg-28"
+category = "negative"
+expect = false
+split = "dev"
+prompt = "Write SwiftUI code for a settings screen."
+
+[[prompt]]
+id = "neg-29"
+category = "negative"
+expect = false
+split = "holdout"
+prompt = "Profile this Rust program with perf and explain the flamegraph."

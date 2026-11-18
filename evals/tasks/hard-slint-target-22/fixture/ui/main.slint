@@ -1,0 +1,17 @@
+component IconButton inherits Rectangle {
+    in property <length> size;
+    callback clicked;
+    width: root.size;
+    height: root.size;
+    accessible-role: button;
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+export component Toolbar inherits Window {
+    HorizontalLayout {
+        spacing: 0px;
+        IconButton { size: 32px; accessible-label: "Save"; }
+        IconButton { size: 22px; accessible-label: "Undo"; }
+        IconButton { size: 22px; accessible-label: "Redo"; }
+    }
+}

@@ -1,0 +1,15 @@
+id = "ux-egui-table"
+framework = "egui"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/main.rs of this egui table for data-presentation problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "numbers-not-aligned-or-formatted"
+keywords = ["right-align", "right align", "right-aligned", "tabular", "decimal", "to_string", "format", "locale"]
+file = "src/main.rs"
+description = "Amounts are printed with f64::to_string and default left alignment, so decimals and magnitudes do not line up and values like 3 and 12.25 mix decimal counts; no locale formatting or units."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

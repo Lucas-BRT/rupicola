@@ -1,0 +1,15 @@
+id = "review-iced-blocking-view"
+framework = "iced"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/main.rs of this Iced app for responsiveness and correctness problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "blocking-io-in-view"
+keywords = ["read_to_string", "blocking", "blocks the ui", "ui thread"]
+file = "src/main.rs"
+description = "view reads a file with std::fs::read_to_string, blocking the UI thread on every redraw."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

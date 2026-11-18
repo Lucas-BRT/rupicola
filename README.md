@@ -76,6 +76,12 @@ ferris-atelier discover /path/to/project --json
 ferris-atelier scan /path/to/project --json
 ferris-atelier scan page.rs --framework leptos --json
 ferris-atelier check /path/to/ferris-atelier --json
+ferris-atelier diff before.png after.png --out diff.png
+ferris-atelier frames frames-dir
+ferris-atelier palette reference.png
+ferris-atelier sheet shots --out sheet.png
+ferris-atelier matrix --cmd '<capture command>' --out shots --states default,empty --themes light,dark --dry-run
+ferris-atelier audit tree.json --json
 ferris-atelier rules --json
 ferris-atelier modules --json
 ```
@@ -91,7 +97,7 @@ ferris-atelier modules --json
 | `2` | Candidates requiring contextual review |
 | `3` | No supported analysis, or unsupported files without candidates |
 
-Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
+`diff`, `frames` and `audit` exit `0` when clean and `2` when they find differences or problems; `matrix` exits `1` when a capture failed. They read PNG files and a JSON UI tree, never launch an application themselves (`matrix` runs only the command you give it), and measure, not certify. See [visual verification](reference/visual-verification.md). Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
 
 Traversal skips hidden directories, nested symlinks, generated output, `target/` and dependency folders. Tests/examples/fixtures/benches are excluded unless `--include-tests` is supplied. An explicit symlink root is resolved before traversal.
 
@@ -116,7 +122,26 @@ cargo run --locked -- check .
 cargo build --release --locked
 ```
 
-`check` validates required modules, direct links, local documentation links and source records. Tests exercise offline discovery, parsing, suppressions, traversal, diagnostics and CLI exit codes. They do not run the UI frameworks or evaluate AI-host behavior. The guides document patterns rather than shipping compiled framework application samples. Official reference URLs and verification limits are recorded in [source records](reference/sources.toml).
+`check` validates required modules, direct links, local documentation links, source records and evaluation task definitions under `evals/tasks/`. Tests exercise offline discovery, parsing, suppressions, traversal, diagnostics and CLI exit codes. They do not run the UI frameworks or evaluate AI-host behavior. The guides document patterns rather than shipping compiled framework application samples. Official reference URLs and verification limits are recorded in [source records](reference/sources.toml).
+
+## Examples
+
+`examples/` holds one crate per toolkit (egui, Slint, Iced, GTK4 with libadwaita, GPUI, libcosmic) that reproduces web-style effects natively: a popover (anchored with flip and shift, or by the toolkit widget), a shared-element transition (not in libcosmic), and a scroll-linked reveal. Each crate is its own workspace, excluded from the main one, and records its dependency versions in its lockfile; GPUI carries a one-line patched copy of `xattr` (see its comment in `Cargo.toml`). All six were run and inspected as images: egui (`egui_kittest`) and Iced (`iced_test`) render offscreen on software Vulkan, and Slint, GPUI, GTK4 and libcosmic were run on a virtual X display and captured; each is also compile-checked (clippy clean). Bugs found this way are listed in each framework module: `cargo check` on a machine that has the toolkits' system libraries, or, where those are missing, with stub `.pc` files on `PKG_CONFIG_PATH` (which suffices for `cargo check`, not for linking). The inspection used software rendering on a virtual display, so it does not cover GPU rendering, a real compositor, transparency or Wayland behavior.
+
+## Evaluation tasks
+
+`evals/tasks/<id>/task.toml` defines a measurable task: prompt, framework, kind (`build`, `review`, `improve`, `plan`, `trigger`), `dev`/`holdout` split, constraints, deterministic verifiers and, for reviews, seeded defects with fixtures. `check` validates the schema offline; it does not run a model or the verifiers. Copy [evals/PREREG.md](evals/PREREG.md) and commit it before each measured run. The 10 tasks present are pilot definitions only; no baseline result or statistical conclusion exists yet.
+
+The `xtask` crate (not shipped in releases) runs and analyzes them:
+
+```console
+cargo run -p xtask -- plan --cond c0=none --cond c1=<git rev> --k 4
+cargo run -p xtask -- run --cond c0=none --cond c1=<git rev> --model <exact-id> --max-usd 20            # dry run
+cargo run -p xtask -- run --cond c0=none --cond c1=<git rev> --model <exact-id> --max-usd 20 --execute  # spawns `claude -p`
+cargo run -p xtask -- analyze evals/results/run --base c0 --cand c1 --csv
+```
+
+`run` is a dry run unless `--execute` is given, is resumable (finished runs are skipped), stops at `--max-usd`, and runs the agent with a clean `CLAUDE_CONFIG_DIR` holding only the credential, so user-level skills, hooks, plugins and MCP servers do not leak into any condition (`--no-isolate` disables this). Every run audits the skills the harness reported against the condition; a mismatch counts as a failure. Each run uses a throwaway directory with the skill extracted from the given revision; the agent is allowed Bash there, so prefer a container. `trigger` measures only whether the skill is invoked, over the prompts in `evals/triggers.toml` (30 explicit, 30 implicit, 30 negative; tune on `dev`, judge on `holdout`), and `trigger-analyze` reports precision, recall, F1 and false-positive rate with prompt-cluster bootstrap CIs. A condition can be `none`, a git revision or `worktree` (current files, to test uncommitted edits). `analyze` reports paired pass rate, a task-cluster bootstrap CI, an exact McNemar test, pass^k and cost; it does not fit mixed-effects models (use `--csv`) and does not yet score review recall or free-text constraints. Skill invocation and false "verified" claims are text heuristics over the trajectory.
 
 ## CI and releases
 

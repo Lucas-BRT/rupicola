@@ -1,0 +1,20 @@
+id = "review-leptos-color-only-state"
+framework = "leptos"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/lib.rs of this Leptos component for accessibility problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "error-by-color-only"
+keywords = ["color alone", "colour alone", "only by color", "color only", "only color", "red border", "text message", "not rely on color"]
+file = "src/lib.rs"
+description = "The invalid state is shown only by switching the border from gray to red; there is no text, icon or aria-invalid."
+[[seeded_defect]]
+id = "placeholder-as-label"
+keywords = ["placeholder", "accessible name", "aria-label"]
+file = "src/lib.rs"
+description = "The input has only a placeholder and no associated label or accessible name."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

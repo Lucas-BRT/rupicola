@@ -7,6 +7,7 @@ use std::path::Path;
 pub struct Check {
     pub schema_version: u8,
     pub markdown_files: usize,
+    pub eval_tasks: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
 pub fn check(root: &Path) -> Result<Check, String> {
@@ -17,6 +18,7 @@ pub fn check(root: &Path) -> Result<Check, String> {
     let mut result = Check {
         schema_version: 1,
         markdown_files: 0,
+        eval_tasks: 0,
         diagnostics: Vec::new(),
     };
     let mut error = |path, message| result.diagnostics.push(Diagnostic { path, message });
@@ -38,6 +40,30 @@ pub fn check(root: &Path) -> Result<Check, String> {
             .any(|s| s.starts_with("description:") && !s.trim_end().ends_with(':'))
         {
             error(skill_path.clone(), "description is required".into());
+        }
+        if let Some(description) = metadata
+            .lines()
+            .find_map(|s| s.strip_prefix("description:"))
+        {
+            let description = description.trim();
+            if description.chars().count() > 1024 {
+                error(
+                    skill_path.clone(),
+                    "description exceeds 1024 characters".into(),
+                );
+            }
+            if description.contains(['<', '>']) {
+                error(
+                    skill_path.clone(),
+                    "description must not contain XML or HTML tags".into(),
+                );
+            }
+            if !description.contains("Use ") || !description.contains("Not for") {
+                error(
+                    skill_path.clone(),
+                    "description must say when to use the skill and when not to".into(),
+                );
+            }
         }
     } else {
         error(skill_path.clone(), "missing YAML frontmatter".into());
@@ -148,5 +174,8 @@ pub fn check(root: &Path) -> Result<Check, String> {
         }
         Err(message) => error(sources_path, message),
     }
+    let mut eval_diagnostics = Vec::new();
+    result.eval_tasks = crate::evals::validate(&root, &mut eval_diagnostics);
+    result.diagnostics.extend(eval_diagnostics);
     Ok(result)
 }

@@ -230,7 +230,10 @@ fn catalog_frontmatter_accepts_windows_line_endings() {
             .strip_prefix(checkout.canonicalize().unwrap())
             .unwrap();
         let extension = source.extension().and_then(|s| s.to_str()).unwrap_or("");
-        if !matches!(extension, "md" | "toml") {
+        if !matches!(extension, "md" | "toml")
+            && !relative.starts_with("evals")
+            && !relative.starts_with("examples")
+        {
             continue;
         }
         let text = fs::read_to_string(&source).unwrap();
@@ -302,4 +305,97 @@ fn nested_symlink_cycles_are_not_followed() {
     put(root.path(), "src/main.rs", "fn main(){}");
     std::os::unix::fs::symlink(root.path(), root.path().join("src/cycle")).unwrap();
     assert_eq!(scan::scan(root.path(), None, false).unwrap().rust_files, 1);
+}
+
+fn task(root: &Path, id: &str, body: &str) {
+    put(root, &format!("evals/tasks/{id}/task.toml"), body);
+}
+const BUILD: &str = "id = \"t\"\nframework = \"iced\"\nkind = \"build\"\nsplit = \"dev\"\nshould_trigger = true\nprompt = \"p\"\n[[verifier]]\nname = \"c\"\ncommand = \"cargo check\"\n";
+fn eval_messages(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    ferris_atelier::evals::validate(root, &mut out);
+    out.into_iter().map(|d| d.message).collect()
+}
+#[test]
+fn eval_tasks_validate_and_flag_each_rule() {
+    let root = TempDir::new().unwrap();
+    task(root.path(), "t", BUILD);
+    assert!(eval_messages(root.path()).is_empty());
+    for (id, body, needle) in [
+        (
+            "a",
+            BUILD.replace("framework = \"iced\"", "framework = \"nope\""),
+            "unknown framework",
+        ),
+        (
+            "b",
+            BUILD.replace("split = \"dev\"", "split = \"test\""),
+            "split must be",
+        ),
+        (
+            "c",
+            BUILD.replace(
+                "[[verifier]]\nname = \"c\"\ncommand = \"cargo check\"\n",
+                "",
+            ),
+            "verifier",
+        ),
+        (
+            "d",
+            BUILD.replace("kind = \"build\"", "kind = \"review\""),
+            "seeded_defect",
+        ),
+        (
+            "e",
+            BUILD.replace("should_trigger = true", "should_trigger = false"),
+            "should_trigger",
+        ),
+        ("f", format!("{BUILD}extra = 1\n"), "unknown field"),
+    ] {
+        let dir = TempDir::new().unwrap();
+        task(
+            dir.path(),
+            id,
+            &body.replace("id = \"t\"", &format!("id = \"{id}\"")),
+        );
+        let messages = eval_messages(dir.path());
+        assert!(
+            messages.iter().any(|m| m.contains(needle)),
+            "{id}: {messages:?}"
+        );
+    }
+}
+#[test]
+fn eval_id_must_match_directory_and_absent_dir_is_fine() {
+    let root = TempDir::new().unwrap();
+    assert!(eval_messages(root.path()).is_empty());
+    task(root.path(), "other", BUILD);
+    assert!(
+        eval_messages(root.path())
+            .iter()
+            .any(|m| m.contains("directory name"))
+    );
+}
+
+#[test]
+fn hardcoded_color_is_a_candidate_only_for_literal_colors_in_ui_functions() {
+    let text = "fn ui(){ let a = Color32::from_rgb(10, 20, 30); let b = Color::from_rgb8(1,2,3); let c = Color32::from_rgb(r, 20, 30); let d = Other::from_rgb(1,2,3); }\nfn helper(){ let e = Color32::from_rgb(1,2,3); }\nconst X: u8 = 1;";
+    let findings = ferris_atelier::scan::source(
+        text,
+        std::path::Path::new("a.rs"),
+        &frameworks(&["egui"]),
+        &[],
+    )
+    .unwrap();
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule == "hardcoded-color")
+        .map(|f| f.line)
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "same-line findings collapse to one: {findings:?}"
+    );
+    assert_eq!(hits[0], 1);
 }

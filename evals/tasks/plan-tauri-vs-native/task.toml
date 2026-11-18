@@ -1,0 +1,10 @@
+id = "plan-tauri-vs-native"
+framework = "tauri"
+kind = "plan"
+split = "dev"
+should_trigger = true
+prompt = "We have a React web dashboard and need a desktop app with local file watching and system tray. Plan the approach and compare Tauri against a native Rust toolkit. Do not write code."
+constraints = ["Do not create or modify source files"]
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

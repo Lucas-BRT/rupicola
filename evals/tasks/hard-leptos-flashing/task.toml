@@ -1,0 +1,15 @@
+id = "hard-leptos-flashing"
+framework = "leptos"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/lib.rs of this Leptos component for accessibility problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "flashes-five-per-second"
+keywords = ["flash", "seizure", "three times", "3 times", "5 times", "5 hz", "5hz", "0.2s", "blink"]
+file = "src/lib.rs"
+description = "The badge blinks every 0.2 s forever (5 flashes per second), more than the three-per-second limit, with no way to pause and no reduced-motion override."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

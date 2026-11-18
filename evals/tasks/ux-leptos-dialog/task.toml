@@ -1,0 +1,20 @@
+id = "ux-leptos-dialog"
+framework = "leptos"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/lib.rs of this Leptos dialog for usability and accessibility problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "generic-ok-label"
+keywords = ["\"ok\"", "ok button", "generic", "vague", "name the action", "specific verb", "describe the action", "unclear"]
+file = "src/lib.rs"
+description = "The destructive confirmation uses the generic labels OK and a vague question; buttons should name the action and the dialog should say what is deleted."
+[[seeded_defect]]
+id = "destructive-default-focus"
+keywords = ["autofocus", "default focus", "initial focus", "focus on cancel", "destructive"]
+file = "src/lib.rs"
+description = "The destructive OK button has autofocus, so an accidental Enter confirms the deletion; safe action should have initial focus."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

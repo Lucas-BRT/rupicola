@@ -1,0 +1,15 @@
+id = "hard-iced-border-contrast"
+framework = "iced"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/main.rs of this Iced app for accessibility problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "input-border-1-9"
+keywords = ["3:1", "1.9", "non-text", "1.4.11", "border contrast", "low-contrast border", "low contrast border", "faint border", "bbbbbb", "0xbb"]
+file = "src/main.rs"
+description = "The text input boundary is #BBBBBB on white, about 1.9:1, below the 3:1 needed to identify the control; the text and placeholder colors are fine."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

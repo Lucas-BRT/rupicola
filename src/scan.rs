@@ -21,6 +21,10 @@ pub const RULES: &[(&str, &str)] = &[
         "Removing an outline needs an alternative visible keyboard focus indicator.",
     ),
     (
+        "hardcoded-color",
+        "A literal color in UI code bypasses theme roles; confirm it is a deliberate brand color or move it to a token.",
+    ),
+    (
         "blocking-ui",
         "Blocking IO or sleeping in a UI lifecycle function may stall interaction; verify execution context.",
     ),
@@ -199,7 +203,7 @@ impl<'ast> Visit<'ast> for Inspector<'_> {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
         let ui = matches!(
             node.sig.ident.to_string().as_str(),
-            "view" | "render" | "update"
+            "view" | "render" | "update" | "ui"
         );
         self.ui_depth += usize::from(ui);
         visit::visit_item_fn(self, node);
@@ -208,7 +212,7 @@ impl<'ast> Visit<'ast> for Inspector<'_> {
     fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
         let ui = matches!(
             node.sig.ident.to_string().as_str(),
-            "view" | "render" | "update"
+            "view" | "render" | "update" | "ui"
         );
         self.ui_depth += usize::from(ui);
         visit::visit_impl_item_fn(self, node);
@@ -235,6 +239,42 @@ impl<'ast> Visit<'ast> for Inspector<'_> {
                 ) {
                     use syn::spanned::Spanned;
                     self.hit("blocking-ui", path.span());
+                }
+                // Color::from_rgb8(0x12, 0x34, 0x56) and similar: all-literal arguments.
+                let segments: Vec<String> = path
+                    .path
+                    .segments
+                    .iter()
+                    .map(|s| s.ident.to_string())
+                    .collect();
+                if let [.., owner, ctor] = segments.as_slice() {
+                    let is_color_type = matches!(
+                        owner.as_str(),
+                        "Color" | "Color32" | "Rgba" | "Srgba" | "Hsla"
+                    );
+                    let is_ctor = matches!(
+                        ctor.as_str(),
+                        "from_rgb"
+                            | "from_rgb8"
+                            | "from_rgba"
+                            | "from_rgba8"
+                            | "from_gray"
+                            | "from_rgba_unmultiplied"
+                            | "from_rgba_premultiplied"
+                    );
+                    let literal = |e: &syn::Expr| match e {
+                        syn::Expr::Lit(_) => true,
+                        syn::Expr::Unary(u) => matches!(&*u.expr, syn::Expr::Lit(_)),
+                        _ => false,
+                    };
+                    if is_color_type
+                        && is_ctor
+                        && !node.args.is_empty()
+                        && node.args.iter().all(literal)
+                    {
+                        use syn::spanned::Spanned;
+                        self.hit("hardcoded-color", path.span());
+                    }
                 }
             }
         }

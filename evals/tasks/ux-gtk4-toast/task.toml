@@ -1,0 +1,15 @@
+id = "ux-gtk4-toast"
+framework = "gtk4"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/main.rs of this libadwaita app for usability and accessibility problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "critical-error-in-short-toast"
+keywords = ["toast", "timeout", "disappear", "persist", "2 seconds", "two seconds", "dialog", "banner", "too short"]
+file = "src/main.rs"
+description = "A save failure, which needs action, is shown in a toast that disappears after 2 seconds; critical errors need a persistent surface such as a banner or dialog and enough time to read."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

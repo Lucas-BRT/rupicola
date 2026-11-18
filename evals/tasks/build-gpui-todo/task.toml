@@ -1,0 +1,13 @@
+id = "build-gpui-todo"
+framework = "gpui"
+kind = "build"
+split = "dev"
+should_trigger = true
+prompt = "Create a minimal GPUI desktop app: a todo list where Enter adds an item, clicking toggles it done, and an empty state is shown when the list is empty."
+constraints = ["Use only gpui and the Rust standard library", "Keep all code in src/main.rs"]
+[[verifier]]
+name = "compiles"
+command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; cargo check --manifest-path "$m"'
+[[verifier]]
+name = "no-unwrap-in-render"
+command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; ferris-atelier scan "$(dirname "$m")" --json'

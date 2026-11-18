@@ -1,0 +1,11 @@
+export component Toolbar inherits Window {
+    HorizontalLayout {
+        spacing: 2px;
+        for icon in ["save", "undo", "redo", "delete"] : Rectangle {
+            width: 16px;
+            height: 16px;
+            background: #cccccc;
+            TouchArea { clicked => { debug(icon); } }
+        }
+    }
+}

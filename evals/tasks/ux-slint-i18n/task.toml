@@ -1,0 +1,20 @@
+id = "ux-slint-i18n"
+framework = "slint"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review ui/main.slint for localization problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "fixed-width-button"
+keywords = ["fixed width", "width: 90px", "90px", "90 px", "truncat", "clip", "longer translation", "text expansion", "expand"]
+file = "ui/main.slint"
+description = "The button has a fixed 90 px width, so longer translations of Save changes will clip."
+[[seeded_defect]]
+id = "concatenated-untranslated-string"
+keywords = ["concatenat", "@tr", "not translat", "untranslated", "plural", "word order", "string building"]
+file = "ui/main.slint"
+description = "The Deleted N files text is built by concatenation and is not wrapped in @tr, so it cannot be translated or pluralized."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

@@ -1,0 +1,20 @@
+id = "review-slint-small-targets"
+framework = "slint"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review ui/main.slint for usability and accessibility problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "small-pointer-targets"
+keywords = ["target size", "touch target", "too small", "24x24", "24 x 24", "24×24", "16x16", "16 x 16", "16×16"]
+file = "ui/main.slint"
+description = "Toolbar buttons are 16x16 px with 2 px spacing, below the 24x24 px minimum target size."
+[[seeded_defect]]
+id = "no-accessible-names"
+keywords = ["accessible name", "accessible-role", "accessible-label", "screen reader", "assistive"]
+file = "ui/main.slint"
+description = "The clickable rectangles expose no accessible role or label, so assistive technology cannot identify them."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

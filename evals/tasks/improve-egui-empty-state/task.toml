@@ -1,0 +1,13 @@
+id = "improve-egui-empty-state"
+framework = "egui"
+kind = "improve"
+split = "dev"
+should_trigger = true
+prompt = "Improve this egui list screen: it shows a blank panel when there are no entries and gives no feedback on failure. Add an empty state and an error state with retry without restructuring the app."
+constraints = ["Do not add dependencies", "Keep the existing App struct and its ui method"]
+[[verifier]]
+name = "compiles"
+command = "cargo check"
+[[verifier]]
+name = "no-new-deps"
+command = "git diff --exit-code -- Cargo.toml"

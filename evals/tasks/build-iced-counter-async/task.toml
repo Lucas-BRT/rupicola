@@ -1,0 +1,13 @@
+id = "build-iced-counter-async"
+framework = "iced"
+kind = "build"
+split = "dev"
+should_trigger = true
+prompt = "Create an Iced app that loads a number from a slow async source on a button press, shows a loading state, handles failure with a retry button, and ignores stale results if pressed twice."
+constraints = ["No blocking calls inside view or update", "Keep a single main.rs"]
+[[verifier]]
+name = "compiles"
+command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; cargo check --manifest-path "$m"'
+[[verifier]]
+name = "scan-clean"
+command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; ferris-atelier scan "$(dirname "$m")" --json'

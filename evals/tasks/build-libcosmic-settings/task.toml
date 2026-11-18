@@ -1,0 +1,10 @@
+id = "build-libcosmic-settings"
+framework = "libcosmic"
+kind = "build"
+split = "dev"
+should_trigger = true
+prompt = "Create a libcosmic application with a settings page: a dark-mode toggle and a text field for a display name, with the name persisted across restarts."
+constraints = ["Use libcosmic widgets, not custom-drawn controls", "Persist with the standard config mechanism of the toolkit or serde plus a file"]
+[[verifier]]
+name = "compiles"
+command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; cargo check --manifest-path "$m"'

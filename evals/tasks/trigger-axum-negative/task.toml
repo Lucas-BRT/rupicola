@@ -1,0 +1,6 @@
+id = "trigger-axum-negative"
+framework = "none"
+kind = "trigger"
+split = "dev"
+should_trigger = false
+prompt = "Add a JSON endpoint to this axum service that returns the ten most recent orders, with pagination and sqlx."

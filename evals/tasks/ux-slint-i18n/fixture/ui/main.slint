@@ -1,0 +1,10 @@
+export component Toolbar inherits Window {
+    in property <int> count;
+    VerticalLayout {
+        Button {
+            width: 90px;
+            text: @tr("Save changes");
+        }
+        Text { text: "Deleted " + count + " files"; }
+    }
+}

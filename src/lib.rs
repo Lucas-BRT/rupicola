@@ -2,7 +2,9 @@
 //! No inspected project code is compiled or executed by these functions.
 pub mod check;
 pub mod discover;
+pub mod evals;
 pub mod scan;
+pub mod visual;
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};

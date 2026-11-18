@@ -1,0 +1,13 @@
+id = "build-topcoat-form"
+framework = "topcoat"
+kind = "build"
+split = "dev"
+should_trigger = true
+prompt = "Create a Topcoat page with a signup form: labeled name and email inputs, inline validation errors, and a disabled submit button while submitting."
+constraints = ["Every input has a programmatically associated label", "Do not remove focus outlines"]
+[[verifier]]
+name = "compiles"
+command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; cargo check --manifest-path "$m"'
+[[verifier]]
+name = "scan-clean"
+command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; ferris-atelier scan "$(dirname "$m")" --json'

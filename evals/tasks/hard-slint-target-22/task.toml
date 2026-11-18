@@ -1,0 +1,15 @@
+id = "hard-slint-target-22"
+framework = "slint"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review ui/main.slint for accessibility and usability problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "targets-22px"
+keywords = ["22px", "22 px", "22x22", "22 x 22", "22×22", "target size"]
+file = "ui/main.slint"
+description = "Undo and Redo buttons are 22x22 px with no spacing, below the 24x24 px minimum target size; Save at 32 px is fine."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''

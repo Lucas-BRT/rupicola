@@ -1,3 +1,7 @@
+[workspace]
+members = ["xtask"]
+exclude = ["evals", "examples"]
+
 [package]
 name = "ferris-atelier"
 version = "0.1.0"
@@ -17,6 +21,7 @@ toml = "=0.9.12"
 syn = { version = "=2.0.119", features = ["full", "visit"] }
 proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
 pulldown-cmark = "=0.13.6"
+png = "=0.18.1"
 
 [dev-dependencies]
 tempfile = "=3.27.0"

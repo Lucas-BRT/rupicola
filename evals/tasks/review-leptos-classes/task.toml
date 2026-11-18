@@ -1,0 +1,20 @@
+id = "review-leptos-classes"
+framework = "leptos"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "Review src/lib.rs of this Leptos app for usability and accessibility problems. Report findings only; do not edit code."
+constraints = ["Do not modify any file"]
+[[seeded_defect]]
+id = "focus-outline-removed"
+keywords = ["outline-none", "focus outline", "focus ring", "focus indicator", "focus is invisible", "focus visible"]
+file = "src/lib.rs"
+description = "Search input removes the focus outline with outline-none and provides no replacement indicator."
+[[seeded_defect]]
+id = "transition-all"
+keywords = ["transition-all"]
+file = "src/lib.rs"
+description = "Card uses transition-all, animating layout properties and ignoring reduced motion."
+[[verifier]]
+name = "no-source-changes"
+command = '''test -z "$(git status --porcelain -- . ':!.claude')"'''
