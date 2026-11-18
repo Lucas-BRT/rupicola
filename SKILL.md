@@ -1,6 +1,6 @@
 ---
 name: ferris-atelier
-description: Plan, build, review, and improve Rust user interfaces for web and desktop. Use for Rust UI architecture, framework selection, interaction, accessibility, and visual design in libcosmic, GPUI, Iced, Topcoat, Leptos, Yew, Tauri, Dioxus, egui, Slint, GTK4, libadwaita, and Relm4.
+description: Rust UI skill. Load it first whenever the user mentions a GUI, window, widget, view, form, layout, theme, dark mode, accessibility or keyboard focus in a Rust project, or names libcosmic, GPUI, Iced, Topcoat, Leptos, Yew, Tauri, Dioxus, egui, eframe, Slint, GTK4, libadwaita or Relm4. Use it to plan, build, review or improve the interface. Not for backend, CLI or TUI work (axum, clap, ratatui), game engines, or non-Rust UIs (React, Flutter, Qt).
 ---
 # Ferris Atelier
 
@@ -45,14 +45,17 @@ Select by the task; recipes have conditions and counterexamples.
 - navigation: [principles](reference/ux/navigation.md).
 - input: [principles](reference/ux/input.md).
 - feedback: [principles](reference/ux/feedback.md).
-- motion: [principles](reference/ux/motion.md).
+- motion: [principles](reference/ux/motion.md) and the [motion library](reference/motion/index.md), a catalog of tactics to apply proactively.
 - data: [principles](reference/ux/data.md).
 - content: [principles](reference/ux/content.md).
 - accessibility: [principles](reference/ux/accessibility.md).
 - localization: [principles](reference/ux/localization.md).
 
+## Tactics library
+- UI and UX tactics catalog, applied proactively and without the user naming them: [tactics library](reference/tactics/index.md).
+
 ## Environment and platform
-- web: [environment](reference/environments/web.md).
+- web: [environment](reference/environments/web.md); newer web platform features with support status and when not to use them: [modern web features](reference/web/modern-css.md).
 - desktop: [environment](reference/environments/desktop.md).
 - webview: [environment](reference/environments/webview.md).
 - linux: [platform](reference/platforms/linux.md).
@@ -60,12 +63,16 @@ Select by the task; recipes have conditions and counterexamples.
 - macos: [platform](reference/platforms/macos.md).
 - Rust state/runtime boundaries: [integration](reference/rust/integration.md).
 - Choosing architecture: [decision criteria](reference/architecture.md).
+- Shared rules for every framework and UX module: [common](reference/common.md).
 - Reports and evidence: [reports](reference/reports.md).
 - Verification and performance: [verification](reference/verification.md).
 - Project records: [context format](reference/project-context.md).
 
 Keep factual claims and data truthful. Prioritize task failures and accessibility over stylistic preferences. A hue, card or animation alone is not a confirmed defect. Build and exercise changed flows using the project tooling; run relevant tests. Record version/feature/target and limits.
 
+## Visual verification
+- Look at the result, measure it and critique it: [visual verification](reference/visual-verification.md) and [visual critique](reference/critique.md). Never open windows on the user's desktop without agreement.
+
 ## Rust-native tooling
 
-`ferris-atelier discover <path> --json` inventories declared frameworks. `ferris-atelier scan <path> --json` returns static candidates and explicit coverage. `ferris-atelier check <skill-path> --json` validates module links and evaluation definitions. `rules` and `modules` expose small machine-readable catalogs with `--json`. Install with `cargo install --path <skill-path> --locked`. Helpers run without a model service or API key; they do not replace framework documentation or runtime checks.
+`ferris-atelier discover <path> --json` inventories declared frameworks. `ferris-atelier scan <path> --json` returns static candidates and explicit coverage. `ferris-atelier check <skill-path> --json` validates module links and evaluation definitions. `diff`, `frames`, `palette`, `sheet`, `matrix` and `audit` support visual verification: compare PNGs, check animation frames, extract a palette, build a contact sheet, run a capture command over a state matrix, and audit a JSON UI tree. `rules` and `modules` expose small machine-readable catalogs with `--json`. Install with `cargo install --path <skill-path> --locked`. Helpers run without a model service or API key; they do not replace framework documentation or runtime checks.

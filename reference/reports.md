@@ -7,3 +7,5 @@ For code-only reviews, state that input behavior, assistive technology and runti
 Record checks with command, target/features, environment and outcome. A successful host build does not prove another OS works. Screenshots do not prove keyboard or semantic behavior. When comparing revisions, preserve scope, data, viewport/window size and appearance.
 
 Store reports under `.ferris-atelier/visits/` only when the project context enables visit recording or the user asks. Use unique timestamp/scope filenames and never overwrite an earlier visit.
+
+Label each finding's evidence as measured, seen (name the image), opinion or unverified (name what was missing), as in [visual verification](visual-verification.md) and [visual critique](critique.md).

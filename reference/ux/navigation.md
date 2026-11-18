@@ -1,19 +1,27 @@
-# Finding and returning
+# Navigation
 
-Read when the task affects finding and returning.
+Shared adaptation rules: [common](../common.md). The rules are self-contained; do not fetch the source to apply them.
 
-## Recipe
+## Rules
 
-Problem: the task may become hard to understand or operate when this concern is ignored.
+1. The user can always tell where they are: highlight the current destination and show a title or breadcrumb for deep content.
+2. Keep navigation in the same place and order on every screen; do not reorder items by usage.
+3. Pick the pattern by size of the destination set: tabs for 2 to 5 peer views of the same object, a sidebar for about 5 to 15 top-level destinations, search or a command palette beyond that. These counts are heuristics.
+4. Back behaves predictably: it returns to the previous state, with scroll position and entered data kept. A modal never replaces the main navigation stack.
+5. Primary destinations are reachable by keyboard (Tab order, shortcuts, arrow keys inside tab lists and sidebars) and exposed with proper roles.
+6. On desktop widths do not hide primary navigation behind a hamburger menu; collapse it only when the window is narrow.
 
-Technique: Preserve orientation, back/history where applicable and predictable command locations. Make recurring destinations discoverable.
+## Examples
 
-When to avoid or adapt: Progressive disclosure helps secondary choices but can bury frequent actions.
+- Bad: opening "Settings" as a full-screen replacement with no way to know how to return. Good: a titled page or dialog with a visible Back or Close and Escape support.
+- Bad: tabs that jump when a badge appears. Good: reserve badge space so labels do not shift.
+- Web or Leptos: a tab strip uses `role="tablist"`, `role="tab"` with `aria-selected`, and arrow keys move between tabs.
+- libadwaita: `adw::NavigationSplitView` for sidebar plus content that collapses on narrow windows.
 
-Verification: Complete the main task with keyboard and return to the previous context without lost state.
+## Check
 
-## Adaptation and evidence
+Reach every top-level destination with the keyboard only; navigate back and forward and confirm state is restored; resize narrow and confirm navigation is still reachable.
 
-Use the actual framework and renderer APIs. DOM techniques apply to DOM renderers; desktop widgets require their own semantic/input mechanisms. Preserve applicable OS conventions and project identity. These are contextual heuristics unless the linked standard defines an applicable requirement.
+## Adapt
 
-[Source](https://developer.gnome.org/hig/patterns/nav.html). Check the applicable version and scope before making a compliance claim.
+Follow the platform: GNOME and COSMIC favor sidebars and header bars, macOS toolbars and sidebars, Windows navigation views. [Source](https://www.nngroup.com/articles/navigation-ia-tests/), kept for audit.

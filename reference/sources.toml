@@ -13,24 +13,28 @@ id = "egui"
 url = "https://github.com/emilk/egui"
 runtime_tested = false
 supported_versions = "Inspect the target project and matching upstream documentation"
+compiled_example = "eframe 0.37.0, example only, cargo check"
 
 [[framework]]
 id = "gpui"
 url = "https://github.com/zed-industries/zed/tree/main/crates/gpui"
 runtime_tested = false
 supported_versions = "Inspect the target project and matching upstream documentation"
+compiled_example = "gpui 0.2.2 with a patched xattr, example only, cargo check with stub pkg-config files"
 
 [[framework]]
 id = "gtk4"
 url = "https://gtk-rs.org/"
 runtime_tested = false
 supported_versions = "Inspect the target project and matching upstream documentation"
+compiled_example = "gtk4 0.11 and libadwaita 0.9, example only, cargo check with stub pkg-config files"
 
 [[framework]]
 id = "iced"
 url = "https://github.com/iced-rs/iced"
 runtime_tested = false
 supported_versions = "Inspect the target project and matching upstream documentation"
+compiled_example = "iced 0.14.0, example only, cargo check"
 
 [[framework]]
 id = "leptos"
@@ -43,12 +47,14 @@ id = "libadwaita"
 url = "https://gnome.pages.gitlab.gnome.org/libadwaita/doc/"
 runtime_tested = false
 supported_versions = "Inspect the target project and matching upstream documentation"
+compiled_example = "covered by the gtk4 example (libadwaita 0.9), cargo check with stub pkg-config files"
 
 [[framework]]
 id = "libcosmic"
 url = "https://pop-os.github.io/libcosmic-book/"
 runtime_tested = false
 supported_versions = "Inspect the target project and matching upstream documentation"
+compiled_example = "libcosmic git be7937d, example only, cargo check with stub pkg-config files"
 
 [[framework]]
 id = "relm4"
@@ -61,6 +67,7 @@ id = "slint"
 url = "https://docs.slint.dev/"
 runtime_tested = false
 supported_versions = "Inspect the target project and matching upstream documentation"
+compiled_example = "slint 1.19.0, example only, cargo check with a stub fontconfig.pc"
 
 [[framework]]
 id = "tauri"

@@ -1,19 +1,34 @@
-# Clear labels and onboarding
+# Interface text
 
-Read when the task affects clear labels and onboarding.
+Shared adaptation rules: [common](../common.md). The rules are self-contained; do not fetch the source to apply them.
 
-## Recipe
+## Rules
 
-Problem: the task may become hard to understand or operate when this concern is ignored.
+1. Buttons start with a specific verb and name the object: "Save changes", "Delete account", "Add member". Avoid "OK", "Submit", "Click here".
+2. A label says what the field is, in the same words used elsewhere. Pick one term per concept (do not alternate "project", "workspace" and "folder").
+3. Write for the task, not the implementation: no internal error codes, enum names or Rust type names in user text.
+4. Use sentence case consistently, a single punctuation style and the active voice. Keep dialogs to a title that states the decision and a short body.
+5. Placeholders show an example format, never the label (WCAG 3.3.2); required and optional are marked in text.
+6. Truncate with an ellipsis only when the full text is available (tooltip, wrap or detail view), and never truncate an error message.
+7. Never concatenate sentence fragments; use whole messages with named placeholders so translators can reorder words.
 
-Technique: Name actions by outcome. Explain errors with cause and next step; use real product facts and contextual onboarding.
+## Examples
 
-When to avoid or adapt: Do not invent testimonials or force a welcome sequence before a recurring task.
+- Bad: button "OK" on a dialog titled "Warning". Good: title "Discard unsaved changes?", buttons "Keep editing" and "Discard changes".
+- Bad: label "Name" in the signup and "Full name" in the profile for the same field. Good: "Full name" in both.
+- Bad: `format!("Deleted {} " + if n == 1 {"file"} else {"files"})`. Good: a catalog message with plural variants (Fluent):
 
-Verification: Read labels without surrounding decoration and verify every factual claim against supplied evidence.
+```ftl
+deleted-files = { $count ->
+    [one] Deleted one file
+   *[other] Deleted { $count } files
+}
+```
 
-## Adaptation and evidence
+- Bad: "Invalid input". Good: "Enter an email address like name@example.com".
 
-Use the actual framework and renderer APIs. DOM techniques apply to DOM renderers; desktop widgets require their own semantic/input mechanisms. Preserve applicable OS conventions and project identity. These are contextual heuristics unless the linked standard defines an applicable requirement.
+## Check
 
-[Source](https://www.nngroup.com/articles/ten-usability-heuristics/). Check the applicable version and scope before making a compliance claim.
+Read every button and error out of context: does each say what will happen? Search for repeated concepts with different names and for strings built with `format!` plus plural logic.
+
+[Source](https://www.w3.org/WAI/WCAG22/Understanding/labels-or-instructions.html), kept for audit.

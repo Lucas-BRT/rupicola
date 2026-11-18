@@ -1,19 +1,25 @@
-# Reading and comparable information
+# Text legibility
 
-Read when the task affects reading and comparable information.
+Shared adaptation rules: [common](../common.md). The rules below are self-contained; do not fetch the source to apply them.
 
-## Recipe
+## Rules
 
-Problem: the task may become hard to understand or operate when this concern is ignored.
+1. Text must still work at 200% size and with user spacing overrides (WCAG 1.4.4, 1.4.12): no clipping, no overlap, no fixed-height text boxes.
+2. Use relative or toolkit-scaled units so system text-size settings apply. Do not hard-code pixel sizes for body text in toolkits that offer a scale factor.
+3. Heuristics (not standards): body text around 16 px or the platform default, line height near 1.4 to 1.6, line length roughly 45 to 75 characters. Wide screens should widen margins, not lines.
+4. Limit the type scale to a few sizes with a clear hierarchy; use weight and size, not color alone, to show importance.
+5. Prefer the platform UI font unless identity requires otherwise; verify that custom fonts cover every shipped locale (see localization).
+6. Right-align numbers in tables with tabular figures so columns compare at a glance.
 
-Technique: Use semantic text roles, readable line length and spacing. Align comparable numbers and retain locale-aware formatting.
+## Examples
 
-When to avoid or adapt: One fixed font size or exactly two weights is not a universal requirement.
+- Bad: a text box with a fixed height of 20 px that clips at 200% text size. Good: height follows content, with a minimum.
+- Bad: body text at 11 px in `#888888`. Good: the platform default size (or about 14 to 16 px) and a color that passes 4.5:1.
+- Bad: a paragraph spanning 140 characters on a 4K window. Good: `max-width: 65ch` (or a clamp container) with margins growing instead.
+- Bad: a table column of amounts in a proportional font, ragged. Good: right-aligned with tabular figures (`font-variant-numeric: tabular-nums` on the web).
 
-Verification: Enlarge text and test long translations; inspect clipping, fallback glyphs and tabular alignment.
+## Check
 
-## Adaptation and evidence
+Render the changed screen at 100% and 200% text size and at the narrowest supported window; look for clipped or overlapping text. Check the longest realistic string, not the placeholder.
 
-Use the actual framework and renderer APIs. DOM techniques apply to DOM renderers; desktop widgets require their own semantic/input mechanisms. Preserve applicable OS conventions and project identity. These are contextual heuristics unless the linked standard defines an applicable requirement.
-
-[Source](https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html). Check the applicable version and scope before making a compliance claim.
+[Source](https://www.w3.org/WAI/WCAG22/Understanding/resize-text.html), kept for audit.

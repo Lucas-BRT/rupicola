@@ -1,19 +1,26 @@
-# Grouping and recognition
+# Perception and hierarchy
 
-Read when the task affects grouping and recognition.
+Shared adaptation rules: [common](../common.md). The rules are self-contained; do not fetch the source to apply them.
 
-## Recipe
+## Rules
 
-Problem: the task may become hard to understand or operate when this concern is ignored.
+1. Proximity groups. Space between related items is clearly smaller than space between groups (a ratio of about 1:2 or more); a label sits closer to its own field than to the previous one.
+2. Build hierarchy with size, weight and contrast, and keep to about three emphasis levels per screen. If everything is bold, nothing is.
+3. One primary action per view or dialog, visually dominant; secondary actions are quieter. Destructive actions are never the default focus.
+4. Hick's law: decision time grows with the number of equal choices (about log2(n + 1)). Group, default and progressively disclose instead of showing 12 peer options.
+5. Fitts's law: time to hit a target grows with distance and shrinks with size. Put frequent actions near the pointer or on screen edges and make them large; never put destructive buttons next to frequent ones.
+6. Alignment: one left edge per column of content; align baselines of text in a row, not box tops.
 
-Technique: Group related labels and controls by proximity and consistent behavior. Use familiar concepts before invented navigation.
+## Examples
 
-When to avoid or adapt: A border around every group may increase clutter; recognition can improve through spacing alone.
+- Bad: a form where every label has 24 px above and below it, so labels float between fields. Good: 4 px between a label and its field, 20 px between field groups.
+- Bad: "Save", "Save as", "Export", "Share", "Delete" as five equal filled buttons. Good: "Save" filled, "Save as" and "Export" in an overflow menu, "Delete" separated and styled as destructive.
+- Bad: a settings page of 30 switches in one list. Good: 5 headed groups, the 3 most-changed settings first, advanced ones collapsed.
 
-Verification: Ask a user to locate the next action without explanation.
+## Check
 
-## Adaptation and evidence
+Squint test: blur the screenshot and confirm the primary action and the main grouping still show. Count equal-weight choices in each view.
 
-Use the actual framework and renderer APIs. DOM techniques apply to DOM renderers; desktop widgets require their own semantic/input mechanisms. Preserve applicable OS conventions and project identity. These are contextual heuristics unless the linked standard defines an applicable requirement.
+## Adapt
 
-[Source](https://www.nngroup.com/articles/ten-usability-heuristics/). Check the applicable version and scope before making a compliance claim.
+Desktop shells (GNOME, COSMIC, Windows, macOS) define their own spacing and default-button conventions; follow them over the numbers above. [Source](https://www.nngroup.com/articles/gestalt-proximity/), kept for audit.

@@ -1,5 +1,7 @@
 # gpui
 
+Shared rules for verification, existing projects and review: [common](../common.md).
+
 Use for custom-rendered desktop tools. Crate signals: `gpui, gpui_platform`. Dependency presence is a discovery hint; confirm actual use, features and renderer.
 
 ## Version and sources
@@ -10,22 +12,16 @@ Use for custom-rendered desktop tools. Crate signals: `gpui, gpui_platform`. Dep
 
 Start from a matching official example. Application opens a window whose root Entity implements Render. Keep state in entities and express commands through actions.
 
-For an existing application, preserve its entrypoint and shared components. For a new application, select the smallest matching official example, verify its license and dependency revision, and build it before extending it. Implement one real task with loading, empty and error states when relevant.
-
 ## State and interaction
 
 Use the framework executor and contexts; do not hold mutable context borrows across asynchronous work. Preserve focus handles, stable element IDs and action dispatch. Virtualize large lists.
-
-Keep keyboard navigation, visible focus, labeled controls and meaningful disabled/pressed states. Consult the relevant UX module when the task changes those behaviors.
 
 ## Platform and compatibility
 
 div() is not DOM. Do not prescribe CSS or ARIA. Check platform backend features, text input, IME and the actual accessibility implementation.
 
-## Verification
+## Version gotchas
 
-Inspect existing project commands first. Run `cargo check --locked -p <package>` for the actual feature/target selection when available, then the framework's documented run/build command. Web/WASM and generated-source pipelines may require their own CLI rather than a host-only Cargo check. Exercise the changed task, failure/retry, keyboard focus, resize and text scaling. Record the command, features, target and observed result; unavailable execution remains unverified. Distribution follows the relevant OS guide.
+Checked by compiling [the example](../../examples/gpui-web-effects/src/main.rs) against gpui 0.2.2; recheck for any other revision. With a fresh dependency resolution gpui 0.2.2 does not build on Linux: it pulls `xattr 0.2.3` (through `zed-async-tar`), which uses `libc::ENOATTR`, removed in libc 0.2.190 while `mio` requires libc 0.2.190 or newer. The example carries a one-line patched copy in `vendor/xattr` through `[patch.crates-io]`. System libraries (xcb, xkbcommon, fontconfig, wayland) are needed to link. Entry point: `Application::new().run(|cx| cx.open_window(..))` and `Render::render(&mut self, window, cx)`. `anchored().snap_to_window_with_margin(..)` inside `deferred(..).with_priority(..)` places overlays and snaps them into the window; `on_mouse_down_out` is the light dismiss. `with_animation(id, Animation::new(duration).with_easing(gpui::ease_in_out), |el, delta| ..)` restarts when the id changes. `canvas(prepaint, paint)` can record an element's `Bounds` during prepaint; `ScrollHandle::offset()` gives the scroll position for scroll-linked effects.
 
-## Review counterexample
-
-Do not replace a functioning project architecture merely to match this module. Identify a concrete task failure or requirement before proposing migration or new dependencies.
+Found by running the example on a virtual X display (software Vulkan) and looking at the screenshots: a ghost element kept in state after its close animation stayed on top of the card and swallowed its clicks, so it was dropped with a delayed task (`cx.spawn(async move |this, cx| { cx.background_executor().timer(..).await; this.update(cx, ..) })`). A scroll-linked reveal left the last rows dim at the end of the list; compare against the real scroll range from `ScrollHandle::max_offset()` rather than constants (a hand-computed range was off by a row gap and never triggered). Card labels are top left unless the card is `flex().items_center().justify_center()`. The first frame was black under Xvfb until the first input event. Windows opened centered, so screen coordinates differ from window coordinates. Run it with `env -u WAYLAND_DISPLAY DISPLAY=:99 VK_ICD_FILENAMES=<lavapipe icd>`.

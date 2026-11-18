@@ -5,6 +5,8 @@
 3. Identify real inputs, state ownership, events, asynchronous boundaries and loading/error/retry behavior. Do not invent product data or introduce a runtime by habit.
 4. Implement the smallest complete functional flow, reusing components and toolkit primitives. Keep tasks cancellable or reject stale results; preserve focus and entered data.
 5. Build using the actual target/features and run meaningful checks. Exercise the flow and changed interaction where possible. Read reference/verification.md for evidence boundaries.
+5a. Tactics the feature's own states and inputs require (labels, validation, empty, loading and error states, keyboard path, platform conventions) are in scope: choose them from the [tactics library](../tactics/index.md) without being asked and keep them minimal. Motion that the feature's own states need (a new surface entering and leaving, loading, press feedback) is in scope: pick it from [motion library](../motion/index.md) without being asked, keep it minimal and give it a reduced-motion fallback. Decorative motion beyond that stays out of the diff.
+5b. Look at the result when a capture is possible, following [visual verification](../visual-verification.md) (never on the user's desktop without agreement); otherwise report it as visually unverified.
 6. Report changes, observed checks and concrete remaining limits. Stop when the scoped flow works; unrelated enhancements stay outside the diff.
 
 Resolve questions from the repository before asking. Existing user authorization applies to necessary in-scope work. New publishing, account mutations or expanded scope require their own authorization.

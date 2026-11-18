@@ -1,5 +1,7 @@
 # slint
 
+Shared rules for verification, existing projects and review: [common](../common.md).
+
 Use for declarative desktop ui with rust models. Crate signals: `slint`. Dependency presence is a discovery hint; confirm actual use, features and renderer.
 
 ## Version and sources
@@ -10,22 +12,16 @@ Use for declarative desktop ui with rust models. Crate signals: `slint`. Depende
 
 Use a matching official Rust example and distinguish .slint declarations from Rust callbacks/model integration.
 
-For an existing application, preserve its entrypoint and shared components. For a new application, select the smallest matching official example, verify its license and dependency revision, and build it before extending it. Implement one real task with loading, empty and error states when relevant.
-
 ## State and interaction
 
 Keep declarative properties and model updates synchronized. Move heavy work off the UI thread and return updates using the version-supported event-loop API.
-
-Keep keyboard navigation, visible focus, labeled controls and meaningful disabled/pressed states. Consult the relevant UX module when the task changes those behaviors.
 
 ## Platform and compatibility
 
 Check backend availability, accessibility, build integration and applicable licensing terms before distribution. A web backend does not imply equivalent accessibility.
 
-## Verification
+## Version gotchas
 
-Inspect existing project commands first. Run `cargo check --locked -p <package>` for the actual feature/target selection when available, then the framework's documented run/build command. Web/WASM and generated-source pipelines may require their own CLI rather than a host-only Cargo check. Exercise the changed task, failure/retry, keyboard focus, resize and text scaling. Record the command, features, target and observed result; unavailable execution remains unverified. Distribution follows the relevant OS guide.
+Checked by compiling [the example](../../examples/slint-web-effects/src/main.rs) against slint 1.19.0; recheck for any other version. Widgets such as `CheckBox` need `import { CheckBox } from "std-widgets.slint";`. `Flickable` `viewport-y` and `viewport-height` are deprecated: use `content-y` and `content-height`. Top-level functions are not allowed: put reusable functions in a `global` (`export global Motion { pure public function .. }`) and call `Motion.name(..)`. Add `#[edition = "1.19"]` to the `slint!` macro to avoid the language-edition warning. Inside the `slint!` macro, hex colors such as `#466eb4` break the Rust lexer (read as an exponent) and `\{}` string interpolation does not parse: use `rgb(..)` and string concatenation, or move the UI to a `.slint` file built with `slint-build`. On Linux the default build needs the fontconfig development files.
 
-## Review counterexample
-
-Do not replace a functioning project architecture merely to match this module. Identify a concrete task failure or requirement before proposing migration or new dependencies.
+Found by running the example on a virtual X display and looking at the screenshots: in a `VerticalLayout` without `alignment: start`, spare window height is spread over the headings and leaves large gaps. Under a bare X server (no window manager) `preferred-width`/`preferred-height` on the `Window` were ignored (the window took the layout's width, 378 px, instead of 560): set `width` and `height` for the initial size. `PopupWindow` with `close-policy: close-on-click-outside` closed on an outside click as intended. Run it with `env -u WAYLAND_DISPLAY WINIT_UNIX_BACKEND=x11 DISPLAY=:99` so it uses the virtual display and not the desktop session.

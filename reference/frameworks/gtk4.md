@@ -1,5 +1,7 @@
 # gtk4
 
+Shared rules for verification, existing projects and review: [common](../common.md).
+
 Use for gtk desktop applications. Crate signals: `gtk4`. Dependency presence is a discovery hint; confirm actual use, features and renderer.
 
 ## Version and sources
@@ -10,22 +12,16 @@ Use for gtk desktop applications. Crate signals: `gtk4`. Dependency presence is 
 
 Start from the matching gtk-rs application example. Inspect application/window lifecycle and GLib main-context integration.
 
-For an existing application, preserve its entrypoint and shared components. For a new application, select the smallest matching official example, verify its license and dependency revision, and build it before extending it. Implement one real task with loading, empty and error states when relevant.
-
 ## State and interaction
 
 Keep widget access on the appropriate main thread. Use weak references where signal captures would retain widgets cyclically. Update list models instead of rebuilding all rows.
-
-Keep keyboard navigation, visible focus, labeled controls and meaningful disabled/pressed states. Consult the relevant UX module when the task changes those behaviors.
 
 ## Platform and compatibility
 
 System GTK libraries and versions matter. Linux integration does not prove Windows/macOS packaging or behavior. Follow the destination desktop conventions.
 
-## Verification
+## Version gotchas
 
-Inspect existing project commands first. Run `cargo check --locked -p <package>` for the actual feature/target selection when available, then the framework's documented run/build command. Web/WASM and generated-source pipelines may require their own CLI rather than a host-only Cargo check. Exercise the changed task, failure/retry, keyboard focus, resize and text scaling. Record the command, features, target and observed result; unavailable execution remains unverified. Distribution follows the relevant OS guide.
+Checked by compiling [the example](../../examples/gtk4-web-effects/src/main.rs) against gtk4 0.11 and libadwaita 0.9; recheck for any other version. `gtk::Popover` flips and stays inside the window by itself and `set_autohide(true)` is the light dismiss, so no placement code is needed. `Widget::compute_bounds(&ancestor)` returns the rectangle in that ancestor's coordinates (use a `gtk::Overlay` for ghosts). `adw::TimedAnimation::new(&widget, from, to, ms, adw::CallbackAnimationTarget::new(..))` with `set_easing(adw::Easing::..)`, `connect_done` and `play()`; the user setting is `gtk::Settings::is_gtk_enable_animations()`. Linking needs the GTK4 and libadwaita development files; a `cargo check` still needs their pkg-config entries.
 
-## Review counterexample
-
-Do not replace a functioning project architecture merely to match this module. Identify a concrete task failure or requirement before proposing migration or new dependencies.
+Found by running the example on a virtual X display (`GDK_BACKEND=x11 GSK_RENDERER=cairo`) and looking at the screenshots: a bare `gtk::Frame` used as a ghost draws only a thin border and looks hollow; use a `gtk::Box` with the libadwaita `card` style class (also good for list rows). The popover opened under the button and closed on Escape and on an outside press. Without a compositor the popover surface shows a black rectangle around it; that is the virtual display, not the example.
