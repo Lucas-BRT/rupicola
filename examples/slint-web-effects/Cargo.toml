@@ -1,0 +1,10 @@
+[package]
+name = "slint-web-effects"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+slint = "1.19.0"
+
+[workspace]

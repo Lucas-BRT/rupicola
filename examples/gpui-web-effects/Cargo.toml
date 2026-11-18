@@ -1,0 +1,16 @@
+[package]
+name = "gpui-web-effects"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+gpui = "0.2.2"
+
+
+# gpui 0.2.2 pulls xattr 0.2.3 (through zed-async-tar), which does not build with libc >= 0.2.190
+# on Linux (ENOATTR was removed). The patched copy below changes one line; see vendor/xattr.
+[patch.crates-io]
+xattr = { path = "vendor/xattr" }
+
+[workspace]
