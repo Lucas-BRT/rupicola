@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use ferris_atelier::{FRAMEWORKS, TOPICS, check, discover, scan, visual};
+use ferris_atelier::{FRAMEWORKS, TOPICS, capture, check, discover, scan, visual};
 use std::{path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
@@ -56,6 +56,40 @@ enum Command {
         dir: PathBuf,
         #[arg(long, default_value_t = 8)]
         threshold: u8,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Assemble PNG frames or a raw RGBA/BGRA stdin stream into a constant-framerate MP4 via ffmpeg.
+    Video {
+        /// Directory of PNG frames (omit when using --raw to read pixels from stdin).
+        dir: Option<PathBuf>,
+        /// Output MP4 file path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Target constant frame rate.
+        #[arg(long, default_value_t = 60.0)]
+        fps: f64,
+        /// Read raw pixel frames from stdin instead of a PNG directory.
+        #[arg(long)]
+        raw: bool,
+        /// Frame width in pixels (required with --raw).
+        #[arg(long)]
+        width: Option<u32>,
+        /// Frame height in pixels (required with --raw).
+        #[arg(long)]
+        height: Option<u32>,
+        /// Pixel format for --raw input: rgba, premultiplied-rgba, bgra, premultiplied-bgra.
+        #[arg(long, default_value = "rgba")]
+        pixel_format: String,
+        /// Also save lossless PNG frames to this directory when reading --raw stdin.
+        #[arg(long)]
+        save_frames: Option<PathBuf>,
+        /// x264 CRF quality (0..=51, lower is sharper).
+        #[arg(long, default_value_t = 18)]
+        crf: u8,
+        /// x264 encoder preset (e.g. ultrafast, fast, medium).
+        #[arg(long, default_value = "fast")]
+        preset: String,
         #[arg(long)]
         json: bool,
     },
@@ -274,6 +308,67 @@ fn run(cli: Cli) -> Result<u8, String> {
                     2
                 },
             )
+        }
+        Command::Video {
+            dir,
+            out,
+            fps,
+            raw,
+            width,
+            height,
+            pixel_format,
+            save_frames,
+            crf,
+            preset,
+            json: output_json,
+        } => {
+            let options = capture::VideoOptions {
+                fps,
+                crf,
+                preset,
+                ..capture::VideoOptions::default()
+            };
+            let report = if raw {
+                if dir.is_some() {
+                    return Err("cannot combine a PNG directory with --raw".into());
+                }
+                let width = width.ok_or("--width is required with --raw")?;
+                let height = height.ok_or("--height is required with --raw")?;
+                let format = capture::PixelFormat::parse(&pixel_format)?;
+                let stdin = std::io::stdin();
+                capture::encode_raw_stream(
+                    stdin.lock(),
+                    width,
+                    height,
+                    format,
+                    &out,
+                    save_frames.as_deref(),
+                    &options,
+                )?
+            } else {
+                let dir = dir.ok_or("provide a PNG directory, or pass --raw to read from stdin")?;
+                if save_frames.is_some() {
+                    return Err("--save-frames is only valid with --raw".into());
+                }
+                capture::encode_png_dir(&dir, &out, &options)?
+            };
+            if output_json {
+                json(&report)?;
+            } else {
+                println!(
+                    "{} ({} frames, {}x{} -> {}x{}, {:.2} fps, {:.2}s, {} bytes)",
+                    report.out.display(),
+                    report.frame_count,
+                    report.width,
+                    report.height,
+                    report.encoded_width,
+                    report.encoded_height,
+                    report.fps,
+                    report.duration_secs,
+                    report.bytes
+                );
+            }
+            Ok(0)
         }
         Command::Palette {
             image,

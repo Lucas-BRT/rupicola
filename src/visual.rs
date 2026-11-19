@@ -226,6 +226,13 @@ pub fn analyze_frames(dir: &Path, threshold: u8) -> Result<Frames, String> {
         .iter()
         .map(|p| load(p))
         .collect::<Result<Vec<_>, _>>()?;
+    analyze_images(&images, threshold)
+}
+
+pub fn analyze_images(images: &[Image], threshold: u8) -> Result<Frames, String> {
+    if images.len() < 3 {
+        return Err("need at least 3 frames".into());
+    }
     let mut ratios = Vec::new();
     for pair in images.windows(2) {
         let (d, _) = diff_images(&pair[0], &pair[1], threshold);

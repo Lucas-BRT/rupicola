@@ -1,5 +1,6 @@
 //! Static, offline helpers for the Ferris Atelier skill.
 //! No inspected project code is compiled or executed by these functions.
+pub mod capture;
 pub mod check;
 pub mod discover;
 pub mod evals;

@@ -78,6 +78,8 @@ ferris-atelier scan page.rs --framework leptos --json
 ferris-atelier check /path/to/ferris-atelier --json
 ferris-atelier diff before.png after.png --out diff.png
 ferris-atelier frames frames-dir
+ferris-atelier video frames-dir --out anim.mp4 --fps 60
+ferris-atelier video --raw --width 560 --height 780 --fps 60 --pixel-format premultiplied-rgba --save-frames frames-dir --out anim.mp4
 ferris-atelier palette reference.png
 ferris-atelier sheet shots --out sheet.png
 ferris-atelier matrix --cmd '<capture command>' --out shots --states default,empty --themes light,dark --dry-run
@@ -97,7 +99,7 @@ ferris-atelier modules --json
 | `2` | Candidates requiring contextual review |
 | `3` | No supported analysis, or unsupported files without candidates |
 
-`diff`, `frames` and `audit` exit `0` when clean and `2` when they find differences or problems; `matrix` exits `1` when a capture failed. They read PNG files and a JSON UI tree, never launch an application themselves (`matrix` runs only the command you give it), and measure, not certify. See [visual verification](reference/visual-verification.md). Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
+`diff`, `frames` and `audit` exit `0` when clean and `2` when they find differences or problems; `matrix` exits `1` when a capture failed; `video` exits `0` on a valid MP4 and `1` on input or `ffmpeg` errors (including missing `ffmpeg`). Use `video` and `ferris_atelier::capture::RamCapture` whenever you need to audit UI animations or transitions in the background without Xvfb or touching the user's live desktop: render offscreen frames into RAM at deterministic timestamps (e.g., `iced_tiny_skia` -> `tiny_skia::Pixmap`), measure per-frame CPU raster time, inspect lossless PNGs with `frames`/`sheet`/`diff`, and assemble a CFR MP4 (`libx264`, `yuv420p`, even-dimension padding) with `video` for smooth motion review. Use a real compositor capture (PipeWire `ScreenCast` v5 `persist_mode = 2` + `restore_token`) only when compositor-level behavior (`xdg_popup`, `autosize`, real 60 Hz `wl_callback`) must be verified. These helpers never launch an application themselves (`matrix` runs only the command you give it), and measure, not certify. See [visual verification](reference/visual-verification.md). Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
 
 Traversal skips hidden directories, nested symlinks, generated output, `target/` and dependency folders. Tests/examples/fixtures/benches are excluded unless `--include-tests` is supplied. An explicit symlink root is resolved before traversal.
 
