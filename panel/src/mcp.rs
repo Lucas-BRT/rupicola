@@ -70,10 +70,10 @@ async fn dispatch(panel: &Panel, project: &str, request: &JsonValue) -> PageResu
     let params = &request["params"];
     Ok(match request["method"].as_str() {
         Some("initialize") => {
-            let version = match params["protocolVersion"].as_str() {
-                Some(version @ ("2025-03-26" | "2025-06-18" | "2025-11-25")) => version,
-                _ => "2025-11-25",
-            };
+            let version = params["protocolVersion"]
+                .as_str()
+                .filter(|version| matches!(*version, "2025-03-26" | "2025-06-18" | "2025-11-25"))
+                .unwrap_or("2025-11-25");
             json!({"result": {"protocolVersion": version, "capabilities": {"tools": {}},
                 "serverInfo": {"name": "rupicola", "version": env!("CARGO_PKG_VERSION")}}})
         }
