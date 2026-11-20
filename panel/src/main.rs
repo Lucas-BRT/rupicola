@@ -100,10 +100,10 @@ struct Args {
     bind: Option<Ipv4Addr>,
     #[arg(long)]
     port: Option<u16>,
-    /// Public HTTPS origin when running behind a reverse proxy (or RUPICOLA_PUBLIC_ORIGIN).
+    /// Public HTTPS origin when running behind a reverse proxy (or `RUPICOLA_PUBLIC_ORIGIN`).
     #[arg(long)]
     public_origin: Option<String>,
-    /// Managed directory for incoming captures (or RUPICOLA_UPLOADS). Required in cloud mode.
+    /// Managed directory for incoming captures (or `RUPICOLA_UPLOADS`). Required in cloud mode.
     #[arg(long)]
     uploads: Option<PathBuf>,
     /// Run a self-contained health probe against the local listener and exit.
@@ -113,7 +113,7 @@ struct Args {
 
 #[derive(clap::Subcommand)]
 enum Action {
-    /// Send a capture to the shared panel using RUPICOLA_PUBLISH_TOKEN.
+    /// Send a capture to the shared panel using `RUPICOLA_PUBLISH_TOKEN`.
     Publish {
         run: PathBuf,
         #[arg(long)]
@@ -212,6 +212,10 @@ struct Run {
 }
 
 #[tokio::main]
+#[expect(
+    clippy::too_many_lines,
+    reason = "server startup keeps initialization, configuration, and serving in order"
+)]
 async fn main() -> Result<(), BoxError> {
     let args = Args::parse();
     let configured_port = args
@@ -477,6 +481,10 @@ struct Comparison {
     before: Option<String>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the capture detail view keeps its markup and presentation branches together"
+)]
 async fn detail(
     comparison: Comparison,
     account: Account,

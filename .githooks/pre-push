@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cargo +1.99.1 fmt --check
-cargo +1.99.1 clippy --locked --workspace --all-targets -- -D warnings
+cargo fmt --check
+cargo clippy --locked --workspace --all-targets -- -D warnings

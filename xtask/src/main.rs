@@ -4,6 +4,7 @@ use clap::{Args, Parser, Subcommand};
 use rupicola::evals::{Task, load};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -125,7 +126,7 @@ fn setup_config(no_isolate: bool) -> R<(Option<PathBuf>, Cleanup)> {
         let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
         let creds = Path::new(&home).join(".claude/.credentials.json");
         let _ = fs::remove_dir_all(dir);
-        fs::create_dir_all(dir).map_err(e)?;
+        fs::create_dir_all(dir).map_err(|error| error.to_string())?;
         fs::copy(&creds, dir.join(".credentials.json")).map_err(|x| {
             format!(
                 "cannot copy {} (use --no-isolate to skip isolation): {x}",
@@ -137,9 +138,6 @@ fn setup_config(no_isolate: bool) -> R<(Option<PathBuf>, Cleanup)> {
 }
 
 type R<T> = Result<T, String>;
-fn e<T: ToString>(x: T) -> String {
-    x.to_string()
-}
 
 #[allow(clippy::type_complexity)]
 fn matrix(m: &Matrix) -> R<(Vec<Task>, Vec<(String, String)>)> {
@@ -175,13 +173,16 @@ fn order(tasks: &[Task], conds: &[(String, String)], k: usize) -> Vec<(usize, us
 }
 
 fn copy_dir(from: &Path, to: &Path) -> R<()> {
-    fs::create_dir_all(to).map_err(e)?;
-    for entry in fs::read_dir(from).map_err(e)?.flatten() {
+    fs::create_dir_all(to).map_err(|error| error.to_string())?;
+    for entry in fs::read_dir(from)
+        .map_err(|error| error.to_string())?
+        .flatten()
+    {
         let (src, dst) = (entry.path(), to.join(entry.file_name()));
         if src.is_dir() {
             copy_dir(&src, &dst)?;
         } else {
-            fs::copy(&src, &dst).map_err(e)?;
+            fs::copy(&src, &dst).map_err(|error| error.to_string())?;
         }
     }
     Ok(())
@@ -199,13 +200,12 @@ fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
     let start = Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
             Ok(None) if start.elapsed() > timeout => {
                 let _ = child.kill();
                 break;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(200)),
-            Err(_) => break,
+            Ok(Some(_)) | Err(_) => break,
         }
     }
     match child.wait_with_output() {
@@ -228,7 +228,7 @@ fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
 
 /// Extracts a skill version into `dest`.
 fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
-    fs::create_dir_all(dest).map_err(e)?;
+    fs::create_dir_all(dest).map_err(|error| error.to_string())?;
     let skip = "--exclude=evals --exclude=xtask --exclude=target --exclude=.git";
     // `worktree` takes the current files, tracked or not, so uncommitted edits can be measured.
     let (rev, desc_file) = match rev.split_once('+') {
@@ -256,7 +256,7 @@ fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
     if let Some(file) = desc_file {
         let text = fs::read_to_string(root.join(file)).map_err(|x| format!("{file}: {x}"))?;
         let skill = dest.join("SKILL.md");
-        let body = fs::read_to_string(&skill).map_err(e)?;
+        let body = fs::read_to_string(&skill).map_err(|error| error.to_string())?;
         let replaced: Vec<String> = body
             .lines()
             .map(|l| {
@@ -267,7 +267,7 @@ fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
                 }
             })
             .collect();
-        fs::write(&skill, replaced.join("\n")).map_err(e)?;
+        fs::write(&skill, replaced.join("\n")).map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -362,6 +362,14 @@ fn analyze_trajectory(path: &Path) -> Value {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the evaluation workflow keeps fixture setup, execution, and scoring in order"
+)]
 fn execute_one(
     task: &Task,
     task_dir: &Path,
@@ -381,7 +389,7 @@ fn execute_one(
     let root = std::env::temp_dir().join("rupicola-eval").join(&id);
     let _ = fs::remove_dir_all(&root);
     let work = root.join("w");
-    fs::create_dir_all(&work).map_err(e)?;
+    fs::create_dir_all(&work).map_err(|error| error.to_string())?;
     let fixture = task_dir.join("fixture");
     if fixture.is_dir() {
         copy_dir(&fixture, &work)?;
@@ -419,14 +427,14 @@ fn execute_one(
         .args(["--max-budget-usd", &run_usd.to_string()])
         .current_dir(&work)
         .stdin(Stdio::null())
-        .stdout(File::create(&traj).map_err(e)?)
+        .stdout(File::create(&traj).map_err(|error| error.to_string())?)
         .stderr(Stdio::null())
         .spawn()
         .map_err(|x| format!("cannot start `claude`: {x}"))?;
     let start = Instant::now();
     let mut timed_out = false;
     loop {
-        match child.try_wait().map_err(e)? {
+        match child.try_wait().map_err(|error| error.to_string())? {
             Some(_) => break,
             None if start.elapsed() > timeout => {
                 let _ = child.kill();
@@ -503,6 +511,10 @@ fn execute_one(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
+)]
 fn run(
     m: &Matrix,
     execute: bool,
@@ -527,8 +539,8 @@ fn run(
         return Ok(());
     }
     let (config, _cleanup) = setup_config(no_isolate)?;
-    fs::create_dir_all(out).map_err(e)?;
-    fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&json!({"model": model, "conditions": m.conds, "split": m.split, "k": m.k, "run_usd": run_usd, "max_usd": max_usd})).unwrap()).map_err(e)?;
+    fs::create_dir_all(out).map_err(|error| error.to_string())?;
+    fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&json!({"model": model, "conditions": m.conds, "split": m.split, "k": m.k, "run_usd": run_usd, "max_usd": max_usd})).unwrap()).map_err(|error| error.to_string())?;
     let mut spent = 0.0;
     for (n, (t, c, rep)) in list.into_iter().enumerate() {
         let (task, cond) = (&tasks[t], &conds[c]);
@@ -572,12 +584,21 @@ fn run(
             rec["pass"],
             rec["cost_usd"].as_f64().unwrap_or(0.0)
         );
-        fs::write(&file, serde_json::to_string_pretty(&rec).unwrap()).map_err(e)?;
+        fs::write(&file, serde_json::to_string_pretty(&rec).unwrap())
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the evaluation loop keeps per-run setup, execution, and cost accounting together"
+)]
 fn trigger_run(
     m: &Matrix,
     max_turns: u32,
@@ -607,7 +628,7 @@ fn trigger_run(
         return Ok(());
     }
     let (config, _cleanup) = setup_config(no_isolate)?;
-    fs::create_dir_all(out).map_err(e)?;
+    fs::create_dir_all(out).map_err(|error| error.to_string())?;
     fs::write(
         out.join("manifest.json"),
         serde_json::to_string_pretty(
@@ -615,7 +636,7 @@ fn trigger_run(
         )
         .unwrap(),
     )
-    .map_err(e)?;
+    .map_err(|error| error.to_string())?;
     let mut spent = 0.0;
     for rep in 0..m.k {
         for t in &prompts {
@@ -637,15 +658,16 @@ fn trigger_run(
                 let root = std::env::temp_dir().join("rupicola-eval").join(&id);
                 let _ = fs::remove_dir_all(&root);
                 let work = root.join("w");
-                fs::create_dir_all(&work).map_err(e)?;
+                fs::create_dir_all(&work).map_err(|error| error.to_string())?;
                 // A stub project, so "my app" prompts do not become a hunt for missing code.
-                fs::create_dir_all(work.join("src")).map_err(e)?;
+                fs::create_dir_all(work.join("src")).map_err(|error| error.to_string())?;
                 fs::write(
                     work.join("Cargo.toml"),
                     "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
                 )
-                .map_err(e)?;
-                fs::write(work.join("src/main.rs"), "fn main() {}\n").map_err(e)?;
+                .map_err(|error| error.to_string())?;
+                fs::write(work.join("src/main.rs"), "fn main() {}\n")
+                    .map_err(|error| error.to_string())?;
                 let with_skill = rev != "none";
                 if with_skill {
                     install_skill(&m.root, rev, &work.join(".claude/skills/rupicola"))?;
@@ -676,13 +698,17 @@ fn trigger_run(
                     .args(["--max-budget-usd", &run_usd.to_string()])
                     .current_dir(&work)
                     .stdin(Stdio::null())
-                    .stdout(File::create(&traj).map_err(e)?)
+                    .stdout(File::create(&traj).map_err(|error| error.to_string())?)
                     .stderr(Stdio::null())
                     .spawn()
                     .map_err(|x| format!("cannot start `claude`: {x}"))?;
                 let start = Instant::now();
                 loop {
-                    if child.try_wait().map_err(e)?.is_some() {
+                    if child
+                        .try_wait()
+                        .map_err(|error| error.to_string())?
+                        .is_some()
+                    {
                         break;
                     }
                     if start.elapsed() > Duration::from_secs(timeout) {
@@ -716,7 +742,8 @@ fn trigger_run(
                     t.expect,
                     rec["cost_usd"].as_f64().unwrap_or(0.0)
                 );
-                fs::write(&file, serde_json::to_string_pretty(&rec).unwrap()).map_err(e)?;
+                fs::write(&file, serde_json::to_string_pretty(&rec).unwrap())
+                    .map_err(|error| error.to_string())?;
             }
         }
     }
@@ -742,6 +769,10 @@ fn parse_conds(conds: &[String]) -> R<Vec<(String, String)>> {
 }
 
 /// (precision, recall, f1, false-positive rate) from invocation counts on a prompt subset.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn prf(rows: &[(bool, f64)]) -> (f64, f64, f64, f64) {
     let tp: f64 = rows.iter().filter(|r| r.0).map(|r| r.1).sum();
     let pos = rows.iter().filter(|r| r.0).count() as f64;
@@ -773,15 +804,33 @@ fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> R<()
     Ok(())
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the statistical report keeps its cohort selection and result calculations together"
+)]
 fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &str) -> R<()> {
+    type Rates = BTreeMap<String, Vec<f64>>;
+
+    if resamples == 0 {
+        return Err("provide at least one bootstrap resample".into());
+    }
     let mut rows: Vec<Value> = Vec::new();
-    for entry in fs::read_dir(out).map_err(e)?.flatten() {
+    for entry in fs::read_dir(out)
+        .map_err(|error| error.to_string())?
+        .flatten()
+    {
         let p = entry.path();
-        if p.file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("trig__") && n.ends_with(".json"))
-        {
-            rows.push(serde_json::from_str(&fs::read_to_string(&p).map_err(e)?).map_err(e)?);
+        if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n.starts_with("trig__") && matches!(n.rsplit_once('.'), Some((_, "json")))
+        }) {
+            rows.push(
+                serde_json::from_str(&fs::read_to_string(&p).map_err(|error| error.to_string())?)
+                    .map_err(|error| error.to_string())?,
+            );
         }
     }
     let bad = rows.iter().filter(|r| r["config_error"] == true).count();
@@ -790,7 +839,6 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
     }
     rows.retain(|r| r["config_error"] != true);
     // prompt -> (category, expect, per-cond invocation rate over repetitions)
-    type Rates = BTreeMap<String, Vec<f64>>;
     let mut prompts: BTreeMap<String, (String, bool, Rates)> = BTreeMap::new();
     for r in &rows {
         let entry = prompts
@@ -806,7 +854,7 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
             .2
             .entry(r["cond"].as_str().unwrap_or("").to_owned())
             .or_default()
-            .push(hit(r, key) as u8 as f64);
+            .push(f64::from(u8::from(hit(r, key))));
     }
     let rate = |p: &(String, bool, Rates), c: &str| {
         p.2.get(c).map(|v| v.iter().sum::<f64>() / v.len() as f64)
@@ -849,9 +897,7 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let (mut df1, mut dimp, mut dfpr) = (Vec::new(), Vec::new(), Vec::new());
     for _ in 0..resamples {
-        let sample: Vec<&String> = (0..ids.len())
-            .map(|_| ids[(rng.next() % ids.len() as u64) as usize])
-            .collect();
+        let sample: Vec<&String> = (0..ids.len()).map(|_| ids[rng.index(ids.len())]).collect();
         df1.push(metric(&sample, |x| x.2, cand) - metric(&sample, |x| x.2, base));
         dimp.push(imp_recall(&sample, cand) - imp_recall(&sample, base));
         dfpr.push(metric(&sample, |x| x.3, cand) - metric(&sample, |x| x.3, base));
@@ -874,11 +920,9 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
         ),
     ] {
         v.sort_by(f64::total_cmp);
-        let q = |p: f64| v[((v.len() - 1) as f64 * p) as usize];
+        let [low, high] = confidence_bounds(&v);
         println!(
-            "{name} ({cand}-{base}) = {point:+.3}  95% prompt-cluster bootstrap CI [{:+.3}, {:+.3}]",
-            q(0.025),
-            q(0.975)
+            "{name} ({cand}-{base}) = {point:+.3}  95% prompt-cluster bootstrap CI [{low:+.3}, {high:+.3}]"
         );
     }
     // Exact McNemar on (prompt, rep) pairs, positives and negatives separately.
@@ -900,8 +944,8 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
         }
         for (x, y) in cell.values() {
             if let (Some(x), Some(y)) = (x, y) {
-                b += (*x && !*y) as u64;
-                c += (!*x && *y) as u64;
+                b += u64::from(*x && !*y);
+                c += u64::from(!*x && *y);
             }
         }
         println!(
@@ -915,11 +959,19 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
     Ok(())
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn ln_choose(n: u64, k: u64) -> f64 {
     let lf = |x: u64| (1..=x).map(|i| (i as f64).ln()).sum::<f64>();
     lf(n) - lf(k) - lf(n - k)
 }
-/// Exact two-sided sign test on discordant pairs (McNemar exact).
+/// Exact two-sided sign test on discordant pairs (`McNemar` exact).
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn mcnemar_p(b: u64, c: u64) -> f64 {
     let n = b + c;
     if n == 0 {
@@ -931,8 +983,19 @@ fn mcnemar_p(b: u64, c: u64) -> f64 {
         .sum();
     (2.0 * tail).min(1.0)
 }
+fn confidence_bounds(sorted: &[f64]) -> [f64; 2] {
+    let last = sorted.len() - 1;
+    // Floor of 2.5% and 97.5% of the last index.
+    [sorted[last / 40], sorted[last - last.div_ceil(40)]]
+}
+
 struct Rng(u64);
 impl Rng {
+    fn index(&mut self, len: usize) -> usize {
+        let bound = u64::try_from(len).expect("array length fits in u64");
+        usize::try_from(self.next() % bound).expect("remainder is less than array length")
+    }
+
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -941,14 +1004,31 @@ impl Rng {
     }
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the evaluation report shares paired samples between statistics and output formats"
+)]
 fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R<()> {
+    if resamples == 0 {
+        return Err("provide at least one bootstrap resample".into());
+    }
     let mut rows: Vec<Value> = Vec::new();
-    for entry in fs::read_dir(out).map_err(e)?.flatten() {
+    for entry in fs::read_dir(out)
+        .map_err(|error| error.to_string())?
+        .flatten()
+    {
         let p = entry.path();
         if p.extension().is_some_and(|x| x == "json")
             && p.file_name().is_some_and(|n| n != "manifest.json")
         {
-            rows.push(serde_json::from_str(&fs::read_to_string(&p).map_err(e)?).map_err(e)?);
+            rows.push(
+                serde_json::from_str(&fs::read_to_string(&p).map_err(|error| error.to_string())?)
+                    .map_err(|error| error.to_string())?,
+            );
         }
     }
     let mut models: Vec<String> = rows
@@ -968,8 +1048,9 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
         );
         for r in &rows {
             let f = |k: &str| r[k].to_string().trim_matches('"').to_owned();
-            s += &format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{}\n",
+            writeln!(
+                s,
+                "{},{},{},{},{},{},{},{},{},{},{},{}",
                 f("task"),
                 f("cond"),
                 f("rep"),
@@ -982,9 +1063,10 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
                 f("turns"),
                 f("input_tokens"),
                 f("output_tokens")
-            );
+            )
+            .expect("writing to a String cannot fail");
         }
-        fs::write(out.join("rows.csv"), s).map_err(e)?;
+        fs::write(out.join("rows.csv"), s).map_err(|error| error.to_string())?;
     }
     // (task, rep) -> pass per condition
     let mut cell: BTreeMap<(String, u64), (Option<bool>, Option<bool>)> = BTreeMap::new();
@@ -1000,11 +1082,11 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
         match r["cond"].as_str() {
             Some(c) if c == base => {
                 slot.0 = Some(pass);
-                entry.0.push(pass as u8 as f64);
+                entry.0.push(f64::from(u8::from(pass)));
             }
             Some(c) if c == cand => {
                 slot.1 = Some(pass);
-                entry.1.push(pass as u8 as f64);
+                entry.1.push(f64::from(u8::from(pass)));
             }
             _ => {}
         }
@@ -1013,8 +1095,8 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     for (x, y) in cell.values() {
         if let (Some(x), Some(y)) = (x, y) {
             pairs += 1;
-            b += (*x && !*y) as u64;
-            c += (!*x && *y) as u64;
+            b += u64::from(*x && !*y);
+            c += u64::from(!*x && *y);
         }
     }
     let mean = |v: &Vec<f64>| v.iter().sum::<f64>() / v.len().max(1) as f64;
@@ -1030,18 +1112,18 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     let mut boots: Vec<f64> = (0..resamples)
         .map(|_| {
             (0..diffs.len())
-                .map(|_| diffs[(rng.next() % diffs.len() as u64) as usize])
+                .map(|_| diffs[rng.index(diffs.len())])
                 .sum::<f64>()
                 / diffs.len() as f64
         })
         .collect();
     boots.sort_by(f64::total_cmp);
-    let q = |p: f64| boots[((boots.len() - 1) as f64 * p) as usize];
+    let [low, high] = confidence_bounds(&boots);
     let rate = |cond: &str, key: &str| {
         let v: Vec<f64> = rows
             .iter()
             .filter(|r| r["cond"] == cond)
-            .map(|r| (r[key] == true) as u8 as f64)
+            .map(|r| f64::from(u8::from(r[key] == true)))
             .collect();
         mean(&v)
     };
@@ -1064,7 +1146,7 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     };
     println!(
         "model: {}  paired (task,rep) cells: {pairs}  tasks: {}",
-        models.first().map(String::as_str).unwrap_or("?"),
+        models.first().map_or("?", String::as_str),
         diffs.len()
     );
     println!(
@@ -1084,8 +1166,8 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     println!(
         "delta pass ({cand}-{base}) = {:+.3}  95% cluster-bootstrap CI [{:+.3}, {:+.3}] ({resamples} resamples over tasks)",
         mean(&diffs),
-        q(0.025),
-        q(0.975)
+        low,
+        high
     );
     println!(
         "discordant pairs: {base}-only={b} {cand}-only={c}  exact McNemar p={:.4}",

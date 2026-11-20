@@ -203,14 +203,11 @@ fn rewrite_link(current_source: &str, dest: &str) -> Option<String> {
         Some((p, f)) => (p, Some(f)),
         None => (dest, None),
     };
-    if !path_part.ends_with(".md") {
+    if !matches!(path_part.rsplit_once('.'), Some((_, "md"))) {
         return None;
     }
 
-    let base_dir = current_source
-        .rsplit_once('/')
-        .map(|(dir, _)| dir)
-        .unwrap_or("");
+    let base_dir = current_source.rsplit_once('/').map_or("", |(dir, _)| dir);
     let mut parts: Vec<&str> = if base_dir.is_empty() {
         Vec::new()
     } else {

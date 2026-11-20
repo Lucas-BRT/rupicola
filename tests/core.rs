@@ -15,7 +15,7 @@ fn app(root: &Path, deps: &str) {
     );
 }
 fn frameworks(names: &[&str]) -> BTreeSet<String> {
-    names.iter().map(|s| s.to_string()).collect()
+    names.iter().map(std::string::ToString::to_string).collect()
 }
 
 #[test]
@@ -253,8 +253,10 @@ fn binary_json_and_exit_codes_are_stable() {
     let compiled_binary = Path::new(env!("CARGO_BIN_EXE_rupicola"));
     let binary = compiled_binary
         .strip_prefix(env!("CARGO_MANIFEST_DIR"))
-        .map(|relative| Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join(relative))
-        .unwrap_or_else(|_| compiled_binary.to_path_buf());
+        .map_or_else(
+            |_| compiled_binary.to_path_buf(),
+            |relative| Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join(relative),
+        );
     put(
         root.path(),
         "page.rs",
@@ -320,7 +322,7 @@ fn eval_messages(root: &Path) -> Vec<String> {
 fn eval_tasks_validate_and_flag_each_rule() {
     let root = TempDir::new().unwrap();
     task(root.path(), "t", BUILD);
-    assert!(eval_messages(root.path()).is_empty());
+    assert_eq!(eval_messages(root.path()), [] as [std::string::String; 0]);
     for (id, body, needle) in [
         (
             "a",
@@ -368,7 +370,7 @@ fn eval_tasks_validate_and_flag_each_rule() {
 #[test]
 fn eval_id_must_match_directory_and_absent_dir_is_fine() {
     let root = TempDir::new().unwrap();
-    assert!(eval_messages(root.path()).is_empty());
+    assert_eq!(eval_messages(root.path()), [] as [std::string::String; 0]);
     task(root.path(), "other", BUILD);
     assert!(
         eval_messages(root.path())

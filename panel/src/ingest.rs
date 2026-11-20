@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    Arc, BTreeMap, Body, BoxError, Connection, Deserialize, FilePath, Manifest, PageResult, Panel,
+    PathBuf, StatusCode, TransactionBehavior, auth, db_error, fs, header, read_manifest, safe_name,
+};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use http::HeaderMap;
 use serde::Serialize;
@@ -11,7 +14,7 @@ use std::{
 use topcoat::router::{content::Json, to_bytes};
 
 const MAX_MEDIA: usize = 40 * 1024 * 1024;
-const MAX_ENVELOPE: u64 = 64 * 1024 * 1024;
+const MAX_ENVELOPE: usize = 64 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
 pub struct Bundle {
@@ -57,13 +60,13 @@ fn object_key(project: &str, bundle: &Bundle) -> Result<String, serde_json::Erro
     let mut hasher = Sha256::new();
     hasher.update(project.as_bytes());
     serde_json::to_writer(&mut hasher, bundle)?;
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the ingest handler keeps validation, upload, and persistence in execution order"
+)]
 pub async fn publish(
     panel: Arc<Panel>,
     project: String,
@@ -97,7 +100,7 @@ pub async fn publish(
 
     let bytes = tokio::time::timeout(
         std::time::Duration::from_secs(90),
-        to_bytes(body, MAX_ENVELOPE as usize),
+        to_bytes(body, MAX_ENVELOPE),
     )
     .await
     .map_err(|_| StatusCode::REQUEST_TIMEOUT)?

@@ -9,3 +9,6 @@ publish = false
 rupicola = { path = ".." }
 clap = { version = "=4.6.7", features = ["derive"] }
 serde_json = "=1.0.154"
+
+[lints]
+workspace = true

@@ -277,6 +277,9 @@ impl<'ast> Visit<'ast> for Inspector<'_> {
     }
 }
 
+/// # Errors
+///
+/// Returns an error if the input is not valid Rust syntax.
 pub fn source(
     source: &str,
     path: &Path,
@@ -303,6 +306,9 @@ pub fn source(
     Ok(visitor.findings)
 }
 
+/// # Errors
+///
+/// Returns an error if the root cannot be resolved, the scan configuration is invalid or unreadable, or files cannot be enumerated.
 pub fn scan(root: &Path, explicit: Option<&str>, include_tests: bool) -> Result<Scan, String> {
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     let (config, config_root) = config(&root)?;
@@ -350,15 +356,15 @@ pub fn scan(root: &Path, explicit: Option<&str>, include_tests: bool) -> Result<
         let mut frameworks = BTreeSet::new();
         if let Some(id) = explicit {
             frameworks.insert(id.to_owned());
-        } else {
-            for dir in path.parent().unwrap().ancestors() {
+        } else if let Some(parent) = path.parent() {
+            for dir in parent.ancestors() {
                 let manifest = dir.join("Cargo.toml");
                 if manifest.is_file() {
                     let discovered = cache
                         .entry(manifest.clone())
                         .or_insert_with(|| discover::package(&manifest));
                     match discovered {
-                        Ok(Some(p)) => frameworks = p.frameworks.clone(),
+                        Ok(Some(p)) => frameworks.clone_from(&p.frameworks),
                         Ok(None) => {}
                         Err(message) => result.diagnostics.push(Diagnostic {
                             path: manifest,

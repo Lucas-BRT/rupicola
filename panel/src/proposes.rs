@@ -8,6 +8,7 @@ use crate::{
     redirect, safe_name,
 };
 use http::{HeaderMap, StatusCode, header};
+use std::fmt::Write as _;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -40,10 +41,10 @@ pub struct ProposeFilter {
 }
 
 fn now_ms() -> Result<u64, StatusCode> {
-    Ok(SystemTime::now()
+    let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(db_error)?
-        .as_millis() as u64)
+        .map_err(db_error)?;
+    u64::try_from(elapsed.as_millis()).map_err(db_error)
 }
 
 fn data_dir(panel: &Panel) -> &Path {
@@ -66,19 +67,14 @@ fn safe_asset(name: &str) -> bool {
 }
 
 fn content_type_for(name: &str) -> Option<(&'static str, AttachmentKind)> {
-    let lower = name.to_ascii_lowercase();
-    if lower.ends_with(".png") {
-        Some(("image/png", AttachmentKind::Image))
-    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
-        Some(("image/jpeg", AttachmentKind::Image))
-    } else if lower.ends_with(".webp") {
-        Some(("image/webp", AttachmentKind::Image))
-    } else if lower.ends_with(".mp4") {
-        Some(("video/mp4", AttachmentKind::Video))
-    } else if lower.ends_with(".webm") {
-        Some(("video/webm", AttachmentKind::Video))
-    } else {
-        None
+    let (_, extension) = name.rsplit_once('.')?;
+    match extension.to_ascii_lowercase().as_str() {
+        "png" => Some(("image/png", AttachmentKind::Image)),
+        "jpg" | "jpeg" => Some(("image/jpeg", AttachmentKind::Image)),
+        "webp" => Some(("image/webp", AttachmentKind::Image)),
+        "mp4" => Some(("video/mp4", AttachmentKind::Video)),
+        "webm" => Some(("video/webm", AttachmentKind::Video)),
+        _ => None,
     }
 }
 
@@ -138,7 +134,7 @@ fn parse_multipart(boundary: &str, body: &[u8]) -> Result<Vec<MultipartPart>, St
                 for seg in disp.split(';') {
                     let seg = seg.trim();
                     if let Some(val) = seg.strip_prefix("name=\"") {
-                        name = val.trim_end_matches('"').to_owned();
+                        val.trim_end_matches('"').clone_into(&mut name);
                     } else if let Some(val) = seg.strip_prefix("filename=\"") {
                         let f = val.trim_end_matches('"');
                         if !f.is_empty() {
@@ -186,6 +182,10 @@ pub fn load(panel: &Panel, project_id: &str, filter: ProposeFilter) -> PageResul
     Ok(ProposeState { filter, all, mcp })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the proposals view keeps markup and presentation branches together"
+)]
 pub fn render_section<'a>(
     cx: &'a Cx,
     account: &'a Account,
@@ -464,6 +464,10 @@ pub fn render_section<'a>(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the handler keeps validation, attachment handling, and persistence in execution order"
+)]
 pub async fn create(
     panel: Arc<Panel>,
     account: Account,
@@ -629,11 +633,11 @@ pub struct ReviewForm {
     comment: Option<String>,
 }
 
-pub async fn review(
-    panel: Arc<Panel>,
+pub fn review(
+    panel: &Panel,
     account: Account,
     (id, pid): (String, String),
-    form: ReviewForm,
+    form: &ReviewForm,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
     if !account.owner {
@@ -642,7 +646,7 @@ pub async fn review(
     if !safe_name(&id) || !proposal_record::safe_id(&pid) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let root = proposals_root(&panel, &id);
+    let root = proposals_root(panel, &id);
     let path = root.join(format!("{pid}.json"));
     let mut p = proposal_record::read_proposal(&path).map_err(|_| StatusCode::NOT_FOUND)?;
     let ts = now_ms()?;
@@ -667,7 +671,7 @@ pub async fn review(
         "approve" => {
             p.status = Status::Approved;
             proposal_record::write_proposal(&root, &p).map_err(db_error)?;
-            promote_to_design(&panel, &account, &id, &p)?;
+            promote_to_design(panel, &account, &id, &p)?;
         }
         "reject" => {
             p.status = Status::Rejected;
@@ -711,12 +715,12 @@ pub async fn review(
                 dispatched_at_ms: None,
             };
             proposal_record::write_proposal(&root, &child).map_err(db_error)?;
-            if proposal_record::mcp_session_active(data_dir(&panel)).is_some() {
+            if proposal_record::mcp_session_active(data_dir(panel)).is_some() {
                 queue_dispatch(&root, &id, &child, Some(&p))?;
             }
         }
         "dispatch" => {
-            if proposal_record::mcp_session_active(data_dir(&panel)).is_none() {
+            if proposal_record::mcp_session_active(data_dir(panel)).is_none() {
                 return Err(StatusCode::CONFLICT);
             }
             let parent = p
@@ -788,16 +792,17 @@ fn promote_to_design(
     };
     let mut note = String::new();
     if !p.problem_solved.is_empty() {
-        note.push_str(&format!("Problem: {}\n", p.problem_solved));
+        writeln!(note, "Problem: {}", p.problem_solved).expect("writing to a String cannot fail");
     }
     if !p.rationale.is_empty() {
-        note.push_str(&format!("Rationale: {}\n", p.rationale));
+        writeln!(note, "Rationale: {}", p.rationale).expect("writing to a String cannot fail");
     }
     if !p.tactics.is_empty() {
-        note.push_str(&format!("Tactics: {}\n", p.tactics.join(", ")));
+        writeln!(note, "Tactics: {}", p.tactics.join(", "))
+            .expect("writing to a String cannot fail");
     }
     if let Some(summary) = p.extracted.as_ref().and_then(|e| e.summary.as_deref()) {
-        note.push_str(&format!("Summary: {summary}\n"));
+        writeln!(note, "Summary: {summary}").expect("writing to a String cannot fail");
     }
     let ts = now_ms()?;
     let entry_id = format!("{ts}-{}", std::process::id());

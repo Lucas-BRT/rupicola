@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    Arc, BoxError, Connection, Cx, Deserialize, Html, IntoResponse, PageResult, Panel, Response,
+    StatusCode, TransactionBehavior, Value, ViewExt, db_error, header, redirect, safe_name, status,
+    view,
+};
 use crate::components::button::button;
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
@@ -55,23 +59,27 @@ pub async fn init(db: &Connection) -> Result<(), BoxError> {
 }
 
 pub fn token() -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    let mut token = String::with_capacity(2 * bytes.len());
+    for byte in bytes {
+        token.push(char::from(HEX[usize::from(byte >> 4)]));
+        token.push(char::from(HEX[usize::from(byte & 0xf)]));
+    }
+    token
 }
 
 pub fn digest(secret: &str) -> String {
-    Sha256::digest(secret.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    format!("{:x}", Sha256::digest(secret.as_bytes()))
 }
 
 pub fn now() -> i64 {
-    std::time::SystemTime::now()
+    let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs() as i64
+        .as_secs();
+    i64::try_from(secs).unwrap_or(i64::MAX)
 }
 
 fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {

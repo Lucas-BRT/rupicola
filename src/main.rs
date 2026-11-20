@@ -188,7 +188,7 @@ enum Command {
         /// "all" (auto-crawl) or comma-separated routes (e.g. /,/projects,/settings).
         #[arg(long, default_value = "/")]
         pages: String,
-        /// Comma-separated WxH or presets (mobile,tablet,laptop,desktop,wide).
+        /// Comma-separated `WxH` or presets (mobile,tablet,laptop,desktop,wide).
         #[arg(long, default_value = "")]
         viewports: String,
         /// Comma-separated themes (dark,light).
@@ -267,8 +267,8 @@ enum Command {
     },
     /// Run a capture command once per state, theme, scale, size and locale combination.
     Matrix {
-        /// Shell command; it receives RUPICOLA_OUT (PNG path), RUPICOLA_STATE, RUPICOLA_THEME, RUPICOLA_SCALE,
-        /// RUPICOLA_TEXT_SCALE, RUPICOLA_SIZE, RUPICOLA_WIDTH, RUPICOLA_HEIGHT and RUPICOLA_LOCALE.
+        /// Shell command; it receives `RUPICOLA_OUT` (PNG path), `RUPICOLA_STATE`, `RUPICOLA_THEME`, `RUPICOLA_SCALE`,
+        /// `RUPICOLA_TEXT_SCALE`, `RUPICOLA_SIZE`, `RUPICOLA_WIDTH`, `RUPICOLA_HEIGHT` and `RUPICOLA_LOCALE`.
         #[arg(long)]
         cmd: String,
         #[arg(long)]
@@ -349,6 +349,10 @@ enum AuthAction {
     },
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the top-level CLI dispatcher is one exhaustive match on subcommands"
+)]
 fn run(cli: Cli) -> Result<u8, String> {
     match cli.command {
         Command::Mcp => mcp::serve().map(|()| 0).map_err(|e| e.to_string()),
@@ -368,13 +372,12 @@ fn run(cli: Cli) -> Result<u8, String> {
             json: output_json,
         } => {
             let mut scenario = scenario::Scenario::load(&path)?;
-            let out = match out {
-                Some(out) => out,
-                None => {
-                    let (id, label) = service::detect_project()?;
-                    scenario.set_project(id, label);
-                    service::output()?
-                }
+            let out = if let Some(out) = out {
+                out
+            } else {
+                let (id, label) = service::detect_project()?;
+                scenario.set_project(id, label);
+                service::output()?
             };
             let manifest = scenario::web(
                 scenario,
@@ -398,16 +401,15 @@ fn run(cli: Cli) -> Result<u8, String> {
             out,
             json: output_json,
         } => {
-            let (out, project_id, project_label) = match out {
-                Some(out) => (
+            let (out, project_id, project_label) = if let Some(out) = out {
+                (
                     out,
                     project_id.ok_or("--project-id is required with --out")?,
                     project_label.ok_or("--project-label is required with --out")?,
-                ),
-                None => {
-                    let (id, label) = service::detect_project()?;
-                    (service::output()?, id, label)
-                }
+                )
+            } else {
+                let (id, label) = service::detect_project()?;
+                (service::output()?, id, label)
             };
             let options = scenario::CosmicCapture {
                 applet,
@@ -552,7 +554,7 @@ fn run(cli: Cli) -> Result<u8, String> {
                 }
                 println!("{}", result.configuration);
             }
-            Ok(if result.diagnostics.is_empty() { 0 } else { 1 })
+            Ok(u8::from(!result.diagnostics.is_empty()))
         }
         Command::Scan {
             path,
@@ -817,11 +819,7 @@ fn run(cli: Cli) -> Result<u8, String> {
                     );
                 }
             }
-            Ok(if !dry_run && entries.iter().any(|e| !e.ok) {
-                1
-            } else {
-                0
-            })
+            Ok(u8::from(!dry_run && entries.iter().any(|e| !e.ok)))
         }
         Command::Audit {
             tree,
@@ -859,7 +857,7 @@ fn run(cli: Cli) -> Result<u8, String> {
                     eprintln!("{}: {}", d.path.display(), d.message);
                 }
             }
-            Ok(if result.diagnostics.is_empty() { 0 } else { 1 })
+            Ok(u8::from(!result.diagnostics.is_empty()))
         }
         Command::Rules { json: output_json } => {
             if output_json {

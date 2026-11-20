@@ -127,6 +127,7 @@ pub struct ActionSummary {
     pub note: String,
 }
 
+#[must_use]
 pub fn load_config(data_dir: &Path) -> BucketConfig {
     let path = data_dir.join(CONFIG_FILE);
     fs::read(&path)
@@ -135,6 +136,9 @@ pub fn load_config(data_dir: &Path) -> BucketConfig {
         .unwrap_or_default()
 }
 
+/// # Errors
+///
+/// Returns an error if the configuration directory or file cannot be created, or serialization or writing fails.
 pub fn save_config(data_dir: &Path, cfg: &BucketConfig) -> io::Result<()> {
     fs::create_dir_all(data_dir)?;
     let path = data_dir.join(CONFIG_FILE);
@@ -145,6 +149,11 @@ pub fn save_config(data_dir: &Path, cfg: &BucketConfig) -> io::Result<()> {
     fs::rename(&tmp, &path)
 }
 
+#[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "displayed byte counts are rounded to one or two decimal places"
+)]
 pub fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = 1024.0 * 1024.0;
@@ -162,14 +171,14 @@ pub fn format_bytes(bytes: u64) -> String {
 }
 
 fn epoch_ms_to_ymd(ms: u64) -> String {
-    let secs = (ms / 1000) as i64;
+    let secs = i64::try_from(ms / 1000).expect("u64 milliseconds fit in i64 seconds");
     let days = secs.div_euclid(86_400);
     // Civil date from days since 1970-01-01 (Howard Hinnant algorithm)
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
+    let doe = z - era * 146_097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
+    let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
@@ -198,7 +207,7 @@ fn dir_walk_stats(dir: &Path) -> (u64, usize, u64) {
             if ft.is_dir() {
                 stack.push(path);
             } else if ft.is_file() {
-                let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                let len = entry.metadata().map_or(0, |m| m.len());
                 total_bytes += len;
                 files += 1;
                 let fname = entry.file_name();
@@ -220,6 +229,10 @@ fn extract_run_and_rel(media_url: &str) -> Option<(String, String)> {
     Some((run_name.to_string(), rel.to_string()))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the report aggregates capture sizes, references, and retention totals together"
+)]
 pub fn analyze(data_dir: &Path, project_filter: Option<&str>) -> StorageReport {
     let config = load_config(data_dir);
     let captures_dir = data_dir.join("captures");
@@ -549,6 +562,10 @@ pub fn analyze(data_dir: &Path, project_filter: Option<&str>) -> StorageReport {
 }
 
 /// Strip intermediate `samples/*/frame-*.png` files while keeping `sheet.png`, `diff.png`, `clip.mp4`, and `analysis.json`.
+///
+/// # Errors
+///
+/// No errors are currently returned. Files that cannot be removed are skipped.
 pub fn strip_raw_frames(
     data_dir: &Path,
     project_filter: Option<&str>,
@@ -578,7 +595,7 @@ pub fn strip_raw_frames(
                     let name = f.file_name();
                     let s = name.to_string_lossy();
                     if s.starts_with("frame-") && s.ends_with(".png") {
-                        let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+                        let len = f.metadata().map_or(0, |m| m.len());
                         if fs::remove_file(f.path()).is_ok() {
                             freed += len;
                             files += 1;
@@ -608,6 +625,10 @@ pub fn strip_raw_frames(
 }
 
 /// Delete unpinned runs (respecting `keep_latest` most recent runs and optional date filter).
+///
+/// # Errors
+///
+/// No errors are currently returned. Runs that cannot be removed are skipped.
 pub fn prune_unpinned(
     data_dir: &Path,
     project_filter: Option<&str>,
@@ -655,6 +676,10 @@ pub fn prune_unpinned(
 }
 
 /// Delete a single run directory (if not pinned, or if `force` is true).
+///
+/// # Errors
+///
+/// Returns an error if the run is missing, pinned without force, or cannot be removed.
 pub fn delete_run(data_dir: &Path, run_name: &str, force: bool) -> io::Result<ActionSummary> {
     let report = analyze(data_dir, None);
     let Some(run) = report.by_run.iter().find(|r| r.run_name == run_name) else {
@@ -678,6 +703,14 @@ pub fn delete_run(data_dir: &Path, run_name: &str, force: bool) -> io::Result<Ac
 }
 
 /// Offload a capture run (or all runs referenced by a Fix) to the configured external bucket and optionally delete local media files.
+///
+/// # Errors
+///
+/// Returns an error if the bucket is unconfigured, the manifest cannot be read or written, or the transfer command fails.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the workflow keeps transfer, manifest update, and optional local cleanup in execution order"
+)]
 pub fn offload_run(data_dir: &Path, run_name: &str) -> Result<ActionSummary, String> {
     let cfg = load_config(data_dir);
     if cfg.bucket.trim().is_empty() {
@@ -743,14 +776,14 @@ pub fn offload_run(data_dir: &Path, run_name: &str) -> Result<ActionSummary, Str
         }
     }
 
-    let public_base = if !cfg.public_base_url.trim().is_empty() {
+    let public_base = if cfg.public_base_url.trim().is_empty() {
+        format!("s3://{}/{}", cfg.bucket.trim_matches('/'), remote_rel)
+    } else {
         format!(
             "{}/{}",
             cfg.public_base_url.trim_end_matches('/'),
             remote_rel
         )
-    } else {
-        format!("s3://{}/{}", cfg.bucket.trim_matches('/'), remote_rel)
     };
 
     let mut freed = 0u64;
