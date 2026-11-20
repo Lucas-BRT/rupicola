@@ -118,7 +118,7 @@ async fn workspace(cx: &Cx, body: Body, next: Next<'_>) -> Result<Response> {
     Ok(response)
 }
 
-#[route(GET "/")]
+#[route(GET "/dashboard")]
 async fn dashboard(cx: &Cx) -> Result<Response> {
     respond(
         cx,

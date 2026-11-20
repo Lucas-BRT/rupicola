@@ -485,7 +485,7 @@ async fn create_session(panel: &Panel, handle: &str) -> PageResult<Response> {
     )
     .await
     .map_err(db_error)?;
-    let mut response = redirect("/");
+    let mut response = redirect("/dashboard");
     response.headers_mut().append(
         header::SET_COOKIE,
         cookie_header(panel, "rp_session", &session, SESSION_AGE),

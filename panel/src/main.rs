@@ -42,13 +42,13 @@ macro_rules! shell {
                     <div class="workspace">
                         <header class="topbar">
                             <div class="topbar-inner">
-                                <a class="brand" href="/">
+                                <a class="brand" href="/dashboard">
                                     <span class="mark" aria-hidden="true">"R"</span>
                                     <strong>"Rupicola"</strong>
                                     <span class="workspace-tag">(if $panel.secure { "CLOUD" } else { "LOCAL" })</span>
                                 </a>
                                 <nav aria-label="Workspace">
-                                    <a href="/" if $active == "dashboard" { aria-current="page" }>"Dashboard"</a>
+                                    <a href="/dashboard" if $active == "dashboard" { aria-current="page" }>"Dashboard"</a>
                                     <a href="/projects" if $active == "projects" { aria-current="page" }>"Projects"</a>
                                     <a href="/settings" if $active == "settings" { aria-current="page" }>"Settings"</a>
                                 </nav>

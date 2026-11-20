@@ -89,7 +89,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .panel_url
         .or_else(|| std::env::var("RUPICOLA_PANEL_URL").ok())
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "https://rupicola-panel.lucasbrt.dev".to_string());
+        .unwrap_or_else(|| "https://rupicola.lucasbrt.dev/dashboard".to_string());
 
     let shared = Arc::new(SiteConfig { panel_url });
 
