@@ -21,19 +21,21 @@ pub fn token_path() -> Result<PathBuf, String> {
 }
 
 pub fn resolve_token() -> Result<String, String> {
+    let path = token_path()?;
+    if let Ok(raw) = fs::read_to_string(&path)
+        && !raw.trim().is_empty()
+    {
+        return validate_token(&raw);
+    }
     if let Ok(token) = env::var("RUPICOLA_MCP_TOKEN")
         && !token.trim().is_empty()
     {
         return validate_token(&token);
     }
-    let path = token_path()?;
-    let raw = fs::read_to_string(&path).map_err(|e| {
-        format!(
-            "Cannot read {} ({e}); run `rupicola auth set-token` or set RUPICOLA_MCP_TOKEN",
-            path.display()
-        )
-    })?;
-    validate_token(&raw)
+    Err(format!(
+        "Cannot read {} and RUPICOLA_MCP_TOKEN is unset; run `rupicola auth set-token`",
+        path.display()
+    ))
 }
 
 pub fn set_token(token: Option<String>) -> Result<(), String> {
