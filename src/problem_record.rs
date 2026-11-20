@@ -241,12 +241,12 @@ pub fn entries(data_dir: &Path, project: &str) -> io::Result<Vec<Problem>> {
         if path.extension().and_then(|s| s.to_str()) != Some("json") {
             continue;
         }
-        if let Ok(bytes) = fs::read(&path)
-            && let Ok(item) = serde_json::from_slice::<Problem>(&bytes)
-            && item.project_id == project
-            && valid_id(&item.id)
-        {
-            out.push(item);
+        if let Ok(bytes) = fs::read(&path) {
+            if let Ok(item) = serde_json::from_slice::<Problem>(&bytes) {
+                if item.project_id == project && valid_id(&item.id) {
+                    out.push(item);
+                }
+            }
         }
     }
     out.sort_by(|a, b| {
@@ -327,24 +327,24 @@ pub fn infer_from_finding(
     let mut theme = "dark".to_string();
     let mut body = note.trim().to_string();
 
-    if let Some(start) = note.find('[')
-        && let Some(end) = note[start..].find(']')
-    {
-        let inside = &note[start + 1..start + end];
-        body = note[start + end + 1..]
-            .trim_start_matches([':', ' ', '·'])
-            .to_string();
-        if let Some((r, rest)) = inside.split_once('@') {
-            route = r.trim().to_string();
-            let parts: Vec<&str> = rest.split_whitespace().collect();
-            if let Some(vp) = parts.first() {
-                viewport = (*vp).to_string();
+    if let Some(start) = note.find('[') {
+        if let Some(end) = note[start..].find(']') {
+            let inside = &note[start + 1..start + end];
+            body = note[start + end + 1..]
+                .trim_start_matches([':', ' ', '·'])
+                .to_string();
+            if let Some((r, rest)) = inside.split_once('@') {
+                route = r.trim().to_string();
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if let Some(vp) = parts.first() {
+                    viewport = (*vp).to_string();
+                }
+                if let Some(th) = parts.get(1) {
+                    theme = (*th).to_string();
+                }
+            } else {
+                route = inside.trim().to_string();
             }
-            if let Some(th) = parts.get(1) {
-                theme = (*th).to_string();
-            }
-        } else {
-            route = inside.trim().to_string();
         }
     }
 

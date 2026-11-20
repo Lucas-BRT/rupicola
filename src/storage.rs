@@ -471,11 +471,11 @@ pub fn analyze(data_dir: &Path, project_filter: Option<&str>) -> StorageReport {
         dir_walk_stats(&data_dir.join(fix_record::DIRECTORY));
     let (design_bytes, design_files, _) = dir_walk_stats(&data_dir.join("design"));
 
-    if let Some(pid) = project_filter
-        && let Some(p) = project_map.get_mut(pid)
-    {
-        p.proposals_bytes = proposals_bytes;
-        p.total_bytes += proposals_bytes;
+    if let Some(pid) = project_filter {
+        if let Some(p) = project_map.get_mut(pid) {
+            p.proposals_bytes = proposals_bytes;
+            p.total_bytes += proposals_bytes;
+        }
     }
 
     let total_bytes =
@@ -624,10 +624,10 @@ pub fn prune_unpinned(
         if idx < keep_latest && only_date.is_none() {
             continue;
         }
-        if let Some(target_date) = only_date
-            && run.date != target_date
-        {
-            continue;
+        if let Some(target_date) = only_date {
+            if run.date != target_date {
+                continue;
+            }
         }
         if !run.pinned_by_fixes.is_empty() || run.pinned_by_problems > 0 {
             continue;
@@ -791,11 +791,11 @@ pub fn offload_run(data_dir: &Path, run_name: &str) -> Result<ActionSummary, Str
                         cmp.after_url = cmp.after_url.replacen(&needle, &replacement, 1);
                         changed = true;
                     }
-                    if let Some(d) = &mut cmp.diff_url
-                        && d.starts_with(&needle)
-                    {
-                        *d = d.replacen(&needle, &replacement, 1);
-                        changed = true;
+                    if let Some(d) = &mut cmp.diff_url {
+                        if d.starts_with(&needle) {
+                            *d = d.replacen(&needle, &replacement, 1);
+                            changed = true;
+                        }
                     }
                 }
                 if changed {

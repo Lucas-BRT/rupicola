@@ -857,11 +857,18 @@ fn run(cli: Cli) -> Result<u8, String> {
     }
 }
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
-        Ok(code) => ExitCode::from(code),
-        Err(message) => {
+    let builder = std::thread::Builder::new()
+        .name("rupicola-main".to_string())
+        .stack_size(8 * 1024 * 1024);
+    let handle = builder
+        .spawn(|| run(Cli::parse()))
+        .unwrap_or_else(|e| panic!("failed to spawn main thread: {e}"));
+    match handle.join() {
+        Ok(Ok(code)) => ExitCode::from(code),
+        Ok(Err(message)) => {
             eprintln!("error: {message}");
             ExitCode::FAILURE
         }
+        Err(_) => ExitCode::FAILURE,
     }
 }

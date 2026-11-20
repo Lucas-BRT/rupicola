@@ -81,6 +81,7 @@ fn import_bundle(source: &std::path::Path) -> Result<Value, String> {
     }
     let out = service::output()?;
     let staging = out.with_extension("import");
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {

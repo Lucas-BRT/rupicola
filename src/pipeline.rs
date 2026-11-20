@@ -787,19 +787,19 @@ pub fn run_fix(action: FixAction) -> Result<u8, String> {
                 }
             }
             if let Some(c) = comment.filter(|s| !s.trim().is_empty()) {
-                if let Some(pair) = f.comparisons.first_mut()
-                    && let Some(idx) = c.find("/media/")
-                {
-                    let token: String = c[idx..]
-                        .chars()
-                        .take_while(|ch| !ch.is_whitespace())
-                        .collect();
-                    let clean = token.trim_end_matches(['.', ',', ';', ')']);
-                    if clean.ends_with(".mp4")
-                        || clean.ends_with(".webm")
-                        || clean.ends_with(".png")
-                    {
-                        pair.after_url = clean.to_string();
+                if let Some(pair) = f.comparisons.first_mut() {
+                    if let Some(idx) = c.find("/media/") {
+                        let token: String = c[idx..]
+                            .chars()
+                            .take_while(|ch| !ch.is_whitespace())
+                            .collect();
+                        let clean = token.trim_end_matches(['.', ',', ';', ')']);
+                        if clean.ends_with(".mp4")
+                            || clean.ends_with(".webm")
+                            || clean.ends_with(".png")
+                        {
+                            pair.after_url = clean.to_string();
+                        }
                     }
                 }
                 f.reviews.push(FixReview {
