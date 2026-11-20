@@ -25,15 +25,15 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust tooling
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
-      - run: cargo +stable fmt --check
-      - run: cargo +stable clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo +stable run --locked -- check .
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+      - run: cargo +1.99.1 fmt --check
+      - run: cargo +1.99.1 clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo +1.99.1 run --locked -- check .
       - name: Verify release tag matches package version
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
-          actual="$(cargo +stable run --quiet --locked -- --version)"
+          actual="$(cargo +1.99.1 run --quiet --locked -- --version)"
           test "$actual" = "rupicola ${GITHUB_REF_NAME#v}"
 
   tests:
@@ -43,12 +43,10 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            rust: stable
+            rust: '1.99.1'
           - os: windows-2022
-            rust: stable
+            rust: '1.99.1'
           - os: macos-15
-            rust: stable
-          - os: ubuntu-24.04
             rust: '1.99.1'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -151,8 +149,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust target
-        run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
-      - run: cargo +stable build --release --locked --target ${{ matrix.target }}
+        run: rustup toolchain install 1.99.1 --profile minimal --target ${{ matrix.target }}
+      - run: cargo +1.99.1 build --release --locked --target ${{ matrix.target }}
       - name: Package CLI and skill
         shell: bash
         env:
