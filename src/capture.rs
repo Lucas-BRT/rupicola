@@ -133,6 +133,10 @@ impl CaptureConfig {
 
     /// Deterministic timestamp in milliseconds for `frame` (0.0, 16.67, 33.33, ... at 60 fps).
     #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "timestamps are approximate milliseconds at a floating-point frame rate"
+    )]
     pub fn timestamp_ms(&self, frame: usize) -> f64 {
         frame as f64 * (1000.0 / self.fps)
     }
@@ -267,6 +271,10 @@ impl RamCapture {
     }
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the mean is a floating-point timing metric"
+)]
 fn summarize_timings(config: &CaptureConfig, frames: Vec<FrameTiming>) -> CaptureReport {
     let budget_ms = 1000.0 / config.fps;
     let total_render_ms: f64 = frames.iter().map(|t| t.render_ms).sum();
@@ -619,6 +627,10 @@ impl FfmpegPipe {
         let _ = self.child.wait();
     }
 
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "video duration is estimated from frame count and frame rate"
+    )]
     fn finish(
         mut self,
         frame_count: usize,

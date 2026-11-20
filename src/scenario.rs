@@ -257,7 +257,8 @@ impl Scenario {
                     }
                     let pixels =
                         (f64::from(width) * scale).ceil() * (f64::from(height) * scale).ceil();
-                    if pixels * (*samples + 1) as f64 * 4.0 > 268_435_456.0 {
+                    let frame_count = u32::try_from(*samples + 1).map_err(|e| e.to_string())?;
+                    if pixels * f64::from(frame_count) * 4.0 > 268_435_456.0 {
                         return Err(format!("clip {id} exceeds 256 MiB decoded frame budget"));
                     }
                     id
@@ -532,6 +533,10 @@ fn drive_browser(
     serde_json::from_slice(&response.stdout).map_err(|e| format!("read browser result: {e}"))
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "video frame rates and offsets are estimates based on sampled timing"
+)]
 fn analyze_clip(
     output: &Path,
     clip: &mut Clip,

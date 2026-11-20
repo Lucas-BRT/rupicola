@@ -150,6 +150,10 @@ pub fn save_config(data_dir: &Path, cfg: &BucketConfig) -> io::Result<()> {
 }
 
 #[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "displayed byte counts are rounded to one or two decimal places"
+)]
 pub fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = 1024.0 * 1024.0;

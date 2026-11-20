@@ -362,6 +362,10 @@ fn analyze_trajectory(path: &Path) -> Value {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn execute_one(
     task: &Task,
     task_dir: &Path,
@@ -503,6 +507,10 @@ fn execute_one(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
+)]
 fn run(
     m: &Matrix,
     execute: bool,
@@ -579,6 +587,10 @@ fn run(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
+)]
 fn trigger_run(
     m: &Matrix,
     max_turns: u32,
@@ -749,6 +761,10 @@ fn parse_conds(conds: &[String]) -> R<Vec<(String, String)>> {
 }
 
 /// (precision, recall, f1, false-positive rate) from invocation counts on a prompt subset.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn prf(rows: &[(bool, f64)]) -> (f64, f64, f64, f64) {
     let tp: f64 = rows.iter().filter(|r| r.0).map(|r| r.1).sum();
     let pos = rows.iter().filter(|r| r.0).count() as f64;
@@ -780,6 +796,10 @@ fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> R<()
     Ok(())
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &str) -> R<()> {
     if resamples == 0 {
         return Err("provide at least one bootstrap resample".into());
@@ -928,11 +948,19 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
     Ok(())
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn ln_choose(n: u64, k: u64) -> f64 {
     let lf = |x: u64| (1..=x).map(|i| (i as f64).ln()).sum::<f64>();
     lf(n) - lf(k) - lf(n - k)
 }
 /// Exact two-sided sign test on discordant pairs (`McNemar` exact).
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn mcnemar_p(b: u64, c: u64) -> f64 {
     let n = b + c;
     if n == 0 {
@@ -965,6 +993,10 @@ impl Rng {
     }
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
 fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R<()> {
     if resamples == 0 {
         return Err("provide at least one bootstrap resample".into());

@@ -121,6 +121,10 @@ pub struct Diff {
 
 /// Pixels whose largest channel difference exceeds `threshold` count as changed.
 #[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the ratios and channel averages are reported as floating-point metrics"
+)]
 pub fn diff_images(before: &Image, after: &Image, threshold: u8) -> (Diff, Option<Image>) {
     if before.width != after.width || before.height != after.height {
         return (
@@ -343,6 +347,10 @@ fn saturation(c: [u8; 3]) -> f64 {
     }
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "color clustering and population shares are approximate floating-point calculations"
+)]
 pub fn palette(image: &Image, k: usize) -> Palette {
     // Histogram over 4 bits per channel, then greedy merge of nearby buckets.
     let mut buckets: std::collections::HashMap<u16, (u64, [u64; 3])> =
