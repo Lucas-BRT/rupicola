@@ -113,10 +113,15 @@ jobs:
       - name: Trigger Dokploy deploy
         if: github.ref == 'refs/heads/main'
         env:
-          DOKPLOY_DEPLOY_WEBHOOK: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK }}
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
         run: |
-          if [ -n "$DOKPLOY_DEPLOY_WEBHOOK" ]; then
-            curl -fsS -X POST "$DOKPLOY_DEPLOY_WEBHOOK"
+          if [ -n "$DOKPLOY_URL" ] && [ -n "$DOKPLOY_API_KEY" ] && [ -n "$DOKPLOY_COMPOSE_ID" ]; then
+            curl -fsS -X POST "$DOKPLOY_URL/api/compose.deploy" \
+              -H "x-api-key: $DOKPLOY_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"composeId\":\"$DOKPLOY_COMPOSE_ID\"}"
           fi
 
   binaries:
