@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "panel", "xtask"]
+members = [".", "panel", "site", "xtask"]
 default-members = [".", "xtask"]
 exclude = ["evals", "examples"]
 resolver = "2"

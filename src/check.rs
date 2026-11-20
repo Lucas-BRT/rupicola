@@ -105,6 +105,7 @@ pub fn check(root: &Path) -> Result<Check, String> {
                 "src/browser-probe.cjs",
                 "panel/src/panel.js",
                 "panel/dev.sh",
+                "site/src/site.js",
             ]
             .iter()
             .any(|allowed| path == root.join(allowed))

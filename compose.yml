@@ -41,6 +41,33 @@ services:
     networks:
       - dokploy-network
 
+  site:
+    image: ${RUPICOLA_SITE_IMAGE:-lucasbrt/rupicola-site:latest}
+    pull_policy: always
+    init: true
+    restart: unless-stopped
+    expose:
+      - "4732"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "4732"
+      RUPICOLA_PANEL_URL: "${RUPICOLA_PUBLIC_ORIGIN:-https://panel.rupicola.lucasbrt.dev}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "./rupicola-site", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - dokploy-network
+
 volumes:
   rupicola-data:
 
