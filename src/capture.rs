@@ -658,7 +658,7 @@ impl FfmpegPipe {
 
 fn format_fps(fps: f64) -> String {
     if (fps.fract()).abs() < 1e-9 {
-        format!("{}", fps as u64)
+        format!("{:.0}", fps.trunc())
     } else {
         format!("{fps:.6}")
     }

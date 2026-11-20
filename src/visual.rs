@@ -398,10 +398,13 @@ pub fn palette(image: &Image, k: usize) -> Palette {
     let colors: Vec<([u8; 3], f64)> = clusters
         .iter()
         .map(|(n, c)| {
-            (
-                [c[0].round() as u8, c[1].round() as u8, c[2].round() as u8],
-                *n as f64 / total.max(1) as f64,
-            )
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "RGB centroids are weighted averages of byte values and rounded to bytes"
+            )]
+            let rgb = c.map(|channel| channel.round() as u8);
+            (rgb, *n as f64 / total.max(1) as f64)
         })
         .collect();
     let background = colors.first().map(|c| c.0);

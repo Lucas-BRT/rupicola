@@ -601,7 +601,13 @@ fn analyze_clip(
             fs::rename(output.join(&frame.path), output.join(&target))
                 .map_err(|e| e.to_string())?;
             frame.path = target;
-            frame.video_ms = video_fps.map(|fps| (index as f64 * 1000.0 / fps).round() as u64);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "frame offsets are nonnegative and rounded to whole milliseconds at 1–120 FPS"
+            )]
+            let video_ms = video_fps.map(|fps| (index as f64 * 1000.0 / fps).round() as u64);
+            frame.video_ms = video_ms;
             selected_frames.push(frame);
         }
     }
