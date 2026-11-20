@@ -340,7 +340,7 @@ pub fn encode_png_dir(
     for path in &files[1..] {
         let image = visual::load(path)?;
         if image.width != width || image.height != height {
-            let _ = encoder.abort();
+            encoder.abort();
             return Err(format!(
                 "{}: frame dimensions {}x{} do not match first frame {}x{}",
                 path.display(),
@@ -369,7 +369,7 @@ pub fn encode_rgba_images(
     let mut encoder = FfmpegPipe::spawn(width, height, out, options)?;
     for (idx, image) in images.iter().enumerate() {
         if image.width != width || image.height != height {
-            let _ = encoder.abort();
+            encoder.abort();
             return Err(format!(
                 "frame {idx} dimensions {}x{} do not match first frame {}x{}",
                 image.width, image.height, width, height
@@ -412,7 +412,7 @@ pub fn encode_raw_stream<R: Read>(
         match read_exact_or_eof(&mut reader, &mut buf)? {
             ReadFrame::Eof => break,
             ReadFrame::Partial(n) => {
-                let _ = encoder.abort();
+                encoder.abort();
                 return Err(format!(
                     "truncated raw frame {frame_count}: read {n} of {frame_bytes} bytes"
                 ));
@@ -434,7 +434,7 @@ pub fn encode_raw_stream<R: Read>(
     }
 
     if frame_count == 0 {
-        let _ = encoder.abort();
+        encoder.abort();
         return Err("no raw frames received on input stream".into());
     }
 
@@ -459,7 +459,7 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buf: &mut [u8]) -> Result<ReadFram
                 });
             }
             Ok(n) => filled += n,
-            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
             Err(e) => return Err(format!("failed reading raw frame stream: {e}")),
         }
     }
@@ -569,11 +569,10 @@ impl FfmpegPipe {
         Ok(())
     }
 
-    fn abort(mut self) -> Result<(), String> {
+    fn abort(mut self) {
         self.stdin.take();
         let _ = self.child.kill();
         let _ = self.child.wait();
-        Ok(())
     }
 
     fn finish(

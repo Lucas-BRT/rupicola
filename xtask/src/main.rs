@@ -200,13 +200,12 @@ fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
     let start = Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
             Ok(None) if start.elapsed() > timeout => {
                 let _ = child.kill();
                 break;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(200)),
-            Err(_) => break,
+            Ok(Some(_)) | Err(_) => break,
         }
     }
     match child.wait_with_output() {

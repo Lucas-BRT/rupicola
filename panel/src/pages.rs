@@ -728,7 +728,7 @@ async fn project_view(
                         <label for="design-evidence">"Capture evidence (optional)"</label>
                         <select id="design-evidence" name="evidence"><option value="">"None"</option>
                             for (name, _) in &captures {
-                                <option value=(*name)>(related.iter().find(|run| run.key.ends_with(&format!("/{name}"))).map(|run| run.scenario.as_str()).unwrap_or(name))</option>
+                                <option value=(*name)>(related.iter().find(|run| run.key.ends_with(&format!("/{name}"))).map_or(*name, |run| run.scenario.as_str()))</option>
                             }
                         </select>
                         if !records.is_empty() {
