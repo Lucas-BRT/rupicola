@@ -137,9 +137,9 @@ pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>)
     let mut out = Vec::with_capacity(w * h * 4);
     let (mut changed, mut sum, mut max) = (0u64, 0u64, 0u8);
     let mut bbox: Option<[u32; 4]> = None;
-    for y in 0..h {
-        for x in 0..w {
-            let i = (y * w + x) * 4;
+    for y in 0..a.height {
+        for x in 0..a.width {
+            let i = (y as usize * w + x as usize) * 4;
             let d = (0..4)
                 .map(|c| a.rgba[i + c].abs_diff(b.rgba[i + c]))
                 .max()
@@ -148,10 +148,9 @@ pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>)
             max = max.max(d);
             if d > threshold {
                 changed += 1;
-                let (xu, yu) = (x as u32, y as u32);
                 bbox = Some(match bbox {
-                    None => [xu, yu, xu, yu],
-                    Some([x0, y0, x1, y1]) => [x0.min(xu), y0.min(yu), x1.max(xu), y1.max(yu)],
+                    None => [x, y, x, y],
+                    Some([x0, y0, x1, y1]) => [x0.min(x), y0.min(y), x1.max(x), y1.max(y)],
                 });
                 out.extend_from_slice(&[255, 0, 0, 255]);
             } else {
@@ -447,13 +446,17 @@ pub fn sheet(files: &[PathBuf], cols: usize, thumb_w: u32) -> Result<Image, Stri
         .map(|p| {
             let im = load(p)?;
             let tw = thumb_w.min(im.width).max(1);
-            let th =
-                ((u64::from(im.height) * u64::from(tw)) / u64::from(im.width.max(1))).max(1) as u32;
-            let mut px = Vec::with_capacity((tw * th * 4) as usize);
+            let th = u32::try_from(
+                (u64::from(im.height) * u64::from(tw) / u64::from(im.width.max(1))).max(1),
+            )
+            .map_err(|_| "thumbnail height exceeds u32")?;
+            let mut px = Vec::new();
             for y in 0..th {
+                let sy = usize::try_from(u64::from(y) * u64::from(im.height) / u64::from(th))
+                    .map_err(|_| "thumbnail row is out of range")?;
                 for x in 0..tw {
-                    let sx = (u64::from(x) * u64::from(im.width) / u64::from(tw)) as usize;
-                    let sy = (u64::from(y) * u64::from(im.height) / u64::from(th)) as usize;
+                    let sx = usize::try_from(u64::from(x) * u64::from(im.width) / u64::from(tw))
+                        .map_err(|_| "thumbnail column is out of range")?;
                     let i = (sy * im.width as usize + sx) * 4;
                     px.extend_from_slice(&im.rgba[i..i + 4]);
                 }
@@ -469,24 +472,30 @@ pub fn sheet(files: &[PathBuf], cols: usize, thumb_w: u32) -> Result<Image, Stri
     let rows = thumbs.len().div_ceil(cols);
     let cell_w = thumbs.iter().map(|t| t.width).max().unwrap_or(1);
     let cell_h = thumbs.iter().map(|t| t.height).max().unwrap_or(1);
-    let (w, h) = (
-        cols as u32 * (cell_w + pad) + pad,
-        rows as u32 * (cell_h + pad) + pad,
-    );
-    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let dimension = |count, cell: u32| {
+        let count = u32::try_from(count).ok()?;
+        cell.checked_add(pad)?.checked_mul(count)?.checked_add(pad)
+    };
+    let w = dimension(cols, cell_w).ok_or("sheet width exceeds u32")?;
+    let h = dimension(rows, cell_h).ok_or("sheet height exceeds u32")?;
+    let len = (w as usize)
+        .checked_mul(h as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or("sheet buffer is too large")?;
+    let mut rgba = Vec::new();
+    rgba.try_reserve_exact(len).map_err(|e| e.to_string())?;
+    rgba.resize(len, 0);
     for px in rgba.as_chunks_mut::<4>().0 {
         px.copy_from_slice(&[90, 90, 90, 255]);
     }
+    let pad = pad as usize;
     for (n, t) in thumbs.iter().enumerate() {
-        let (ox, oy) = (
-            pad + (n % cols) as u32 * (cell_w + pad),
-            pad + (n / cols) as u32 * (cell_h + pad),
-        );
-        for y in 0..t.height {
-            let dst = (((oy + y) * w + ox) * 4) as usize;
-            let src = (y * t.width * 4) as usize;
-            rgba[dst..dst + (t.width * 4) as usize]
-                .copy_from_slice(&t.rgba[src..src + (t.width * 4) as usize]);
+        let ox = pad + (n % cols) * (cell_w as usize + pad);
+        let oy = pad + (n / cols) * (cell_h as usize + pad);
+        let stride = t.width as usize * 4;
+        for (y, src) in t.rgba.chunks_exact(stride).enumerate() {
+            let dst = ((oy + y) * w as usize + ox) * 4;
+            rgba[dst..dst + stride].copy_from_slice(src);
         }
     }
     Ok(Image {
