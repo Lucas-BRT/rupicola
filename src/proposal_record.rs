@@ -224,6 +224,9 @@ pub fn safe_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// # Errors
+///
+/// Returns an error if the directory or one of its missing parents cannot be created.
 pub fn private_dir(path: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
@@ -235,6 +238,9 @@ pub fn private_dir(path: &Path) -> io::Result<()> {
     builder.create(path)
 }
 
+/// # Errors
+///
+/// Returns an error if the file cannot be accessed, is not a regular file, exceeds the size limit, or cannot be decoded.
 pub fn read_json<T: serde::de::DeserializeOwned>(file: &Path, max_bytes: u64) -> io::Result<T> {
     let metadata = fs::symlink_metadata(file)?;
     if !metadata.is_file() || metadata.len() > max_bytes {
@@ -246,6 +252,9 @@ pub fn read_json<T: serde::de::DeserializeOwned>(file: &Path, max_bytes: u64) ->
     serde_json::from_slice(&fs::read(file)?).map_err(io::Error::other)
 }
 
+/// # Errors
+///
+/// Returns an error if the parent directory or temporary file cannot be created, serialization fails, or the file cannot be written, synced, or renamed.
 pub fn write_atomic(path: &Path, value: &impl serde::Serialize) -> io::Result<()> {
     use io::Write;
     if let Some(parent) = path.parent() {
@@ -269,6 +278,9 @@ pub fn write_atomic(path: &Path, value: &impl serde::Serialize) -> io::Result<()
     result
 }
 
+/// # Errors
+///
+/// Returns an error if the record cannot be read or decoded, exceeds the size limit, or its ID does not match the file name.
 pub fn read_proposal(file: &Path) -> io::Result<Proposal> {
     let p: Proposal = read_json(file, 1024 * 1024)?;
     if file.file_stem().and_then(|s| s.to_str()) != Some(p.id.as_str()) {
@@ -280,6 +292,9 @@ pub fn read_proposal(file: &Path) -> io::Result<Proposal> {
     Ok(p)
 }
 
+/// # Errors
+///
+/// Returns an error if the ID is invalid, serialization fails, or the record cannot be saved.
 pub fn write_proposal(project_root: &Path, proposal: &Proposal) -> io::Result<()> {
     if !safe_id(&proposal.id) {
         return Err(io::Error::new(
@@ -293,6 +308,9 @@ pub fn write_proposal(project_root: &Path, proposal: &Proposal) -> io::Result<()
     )
 }
 
+/// # Errors
+///
+/// Returns an error if the existing proposal directory cannot be opened or iterated.
 pub fn entries(project_root: &Path) -> io::Result<Vec<Proposal>> {
     let mut out = Vec::new();
     let dir = match fs::read_dir(project_root) {
@@ -329,6 +347,9 @@ pub fn mcp_session_active(data_dir: &Path) -> Option<McpSession> {
     Some(session)
 }
 
+/// # Errors
+///
+/// Returns an error if the existing dispatch directory cannot be opened or iterated.
 #[allow(dead_code)]
 pub fn dispatches(project_root: &Path) -> io::Result<Vec<Dispatch>> {
     let mut out = Vec::new();

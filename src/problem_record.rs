@@ -227,6 +227,9 @@ pub fn next_id() -> (String, u64) {
     (format!("{}-{}{:03}", ms, std::process::id(), seq), ms)
 }
 
+/// # Errors
+///
+/// Returns an error if the project ID is invalid or the existing record directory cannot be opened or inspected.
 pub fn entries(data_dir: &Path, project: &str) -> io::Result<Vec<Problem>> {
     if !valid_id(project) {
         return Err(io::Error::new(
@@ -266,6 +269,9 @@ pub fn entries(data_dir: &Path, project: &str) -> io::Result<Vec<Problem>> {
     Ok(out)
 }
 
+/// # Errors
+///
+/// Returns an error if an ID is invalid, the file cannot be read, the file is a symlink, the JSON is invalid, or the record IDs do not match.
 pub fn load(data_dir: &Path, project: &str, id: &str) -> io::Result<Problem> {
     if !valid_id(project) || !valid_id(id) {
         return Err(io::Error::new(
@@ -289,6 +295,9 @@ pub fn load(data_dir: &Path, project: &str, id: &str) -> io::Result<Problem> {
     Ok(item)
 }
 
+/// # Errors
+///
+/// Returns an error if an ID is invalid, serialization fails, or the record cannot be written.
 pub fn save(data_dir: &Path, problem: &Problem) -> io::Result<()> {
     if !valid_id(&problem.project_id) || !valid_id(&problem.id) {
         return Err(io::Error::new(
