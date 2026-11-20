@@ -476,10 +476,10 @@ struct FfmpegPipe {
 
 impl FfmpegPipe {
     fn spawn(width: u32, height: u32, out: &Path, options: &VideoOptions) -> Result<Self, String> {
-        if let Some(parent) = out.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        if let Some(parent) = out.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
         }
         let fps_str = format_fps(options.fps);
         let size_str = format!("{width}x{height}");
