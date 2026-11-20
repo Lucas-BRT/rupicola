@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    Account, Arc, Body, Cx, IntoResponse, PageResult, Panel, Request, Response, Router, StatusCode,
+    auth, design_system, header, ingest, mcp, media, pages, pipeline, proposes, status,
+};
 use topcoat::{
     Result,
     context::{app_context, request_context},
@@ -10,6 +13,8 @@ use topcoat::{
 path_param!(project);
 path_param!(section);
 path_param!(proposal);
+path_param!(version);
+path_param!(proof_name);
 path_param!(problem);
 path_param!(fix);
 path_param!(asset);
@@ -44,6 +49,10 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(offload_storage)
         .route(trigger_probe)
         .route(record_design)
+        .route(design_version)
+        .route(edit_design_version)
+        .route(design_preview)
+        .route(design_proof)
         .route(settings)
         .route(account_action)
         .route(machine_tokens)
@@ -155,13 +164,26 @@ async fn project(cx: &Cx) -> Result<Response> {
 
 #[route(GET "/projects/{project}/{section}")]
 async fn project_section(cx: &Cx) -> Result<Response> {
-    let path = (
-        path_param::<Project>(cx).into(),
-        path_param::<Section>(cx).into(),
-    );
+    let project_id: String = path_param::<Project>(cx).into();
+    let section: String = path_param::<Section>(cx).into();
+    let filter: pages::Filter = parse_query_params(cx)?;
+    if section == "proposes" && super::safe_name(&project_id) {
+        let mut query = url::form_urlencoded::Serializer::new(String::new());
+        query.append_pair("view", "proposals");
+        if let Some(kind) = filter.kind {
+            query.append_pair("kind", &kind);
+        }
+        if let Some(status) = filter.status {
+            query.append_pair("status", &status);
+        }
+        return Ok(super::redirect(&format!(
+            "/projects/{project_id}/design?{}",
+            query.finish()
+        )));
+    }
     respond(
         cx,
-        pages::project_section(panel(cx), account(cx), path, parse_query_params(cx)?).await,
+        pages::project_section(panel(cx), account(cx), (project_id, section), filter).await,
     )
 }
 
@@ -344,19 +366,16 @@ async fn create_proposal(cx: &Cx, body: Body) -> Result<Response> {
 
 #[route(POST "/projects/{project}/proposes/{proposal}/review")]
 async fn review_proposal(cx: &Cx, Form(form): Form<proposes::ReviewForm>) -> Result<Response> {
-    respond(
-        cx,
-        proposes::review(
-            panel(cx),
-            account(cx),
-            (
-                path_param::<Project>(cx).into(),
-                path_param::<Proposal>(cx).into(),
-            ),
-            form,
-        )
-        .await,
-    )
+    let panel = panel(cx);
+    let account = account(cx);
+    let id = (
+        path_param::<Project>(cx).into(),
+        path_param::<Proposal>(cx).into(),
+    );
+    let result = tokio::task::spawn_blocking(move || proposes::review(&panel, account, id, &form))
+        .await
+        .unwrap_or_else(|error| Err(super::db_error(error)));
+    respond(cx, result)
 }
 
 #[route(GET "/projects/{project}/proposes/{proposal}/preview")]
@@ -394,16 +413,14 @@ async fn proposal_asset(cx: &Cx) -> Result<Response> {
 
 #[route(POST "/projects/{project}/probe")]
 async fn trigger_probe(cx: &Cx, Form(form): Form<pages::ProbeForm>) -> Result<Response> {
-    respond(
-        cx,
-        pages::trigger_probe(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            form,
-        )
-        .await,
-    )
+    let panel = panel(cx);
+    let account = account(cx);
+    let id: String = path_param::<Project>(cx).into();
+    let result =
+        tokio::task::spawn_blocking(move || pages::trigger_probe(&panel, &account, &id, form))
+            .await
+            .unwrap_or_else(|error| Err(super::db_error(error)));
+    respond(cx, result)
 }
 
 #[route(POST "/projects/{project}/design/record")]
@@ -539,30 +556,28 @@ async fn save_storage_config(
     cx: &Cx,
     Form(form): Form<pipeline::StorageConfigForm>,
 ) -> Result<Response> {
-    respond(
-        cx,
-        pipeline::save_storage_config_action(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            form,
-        )
-        .await,
-    )
+    let panel = panel(cx);
+    let account = account(cx);
+    let id: String = path_param::<Project>(cx).into();
+    let result = tokio::task::spawn_blocking(move || {
+        pipeline::save_storage_config_action(&panel, &account, &id, &form)
+    })
+    .await
+    .unwrap_or_else(|error| Err(super::db_error(error)));
+    respond(cx, result)
 }
 
 #[route(POST "/projects/{project}/storage/clean")]
 async fn clean_storage(cx: &Cx, Form(form): Form<pipeline::StorageCleanForm>) -> Result<Response> {
-    respond(
-        cx,
-        pipeline::clean_storage_action(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            form,
-        )
-        .await,
-    )
+    let panel = panel(cx);
+    let account = account(cx);
+    let id: String = path_param::<Project>(cx).into();
+    let result = tokio::task::spawn_blocking(move || {
+        pipeline::clean_storage_action(&panel, &account, &id, &form)
+    })
+    .await
+    .unwrap_or_else(|error| Err(super::db_error(error)));
+    respond(cx, result)
 }
 
 #[route(POST "/projects/{project}/storage/offload")]
@@ -570,16 +585,15 @@ async fn offload_storage(
     cx: &Cx,
     Form(form): Form<pipeline::StorageOffloadForm>,
 ) -> Result<Response> {
-    respond(
-        cx,
-        pipeline::offload_storage_action(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            form,
-        )
-        .await,
-    )
+    let panel = panel(cx);
+    let account = account(cx);
+    let id: String = path_param::<Project>(cx).into();
+    let result = tokio::task::spawn_blocking(move || {
+        pipeline::offload_storage_action(&panel, &account, &id, form)
+    })
+    .await
+    .unwrap_or_else(|error| Err(super::db_error(error)));
+    respond(cx, result)
 }
 
 #[route(POST "/mcp")]
@@ -601,5 +615,53 @@ async fn remote_mcp(cx: &Cx, body: Body) -> Result<Response> {
             body,
         )
         .await,
+    )
+}
+
+#[route(POST "/projects/{project}/design/version")]
+async fn design_version(cx: &Cx, Form(form): Form<design_system::ActionForm>) -> Result<Response> {
+    let project_id: String = path_param::<Project>(cx).into();
+    respond(
+        cx,
+        Box::pin(design_system::action(
+            panel(cx),
+            account(cx),
+            &project_id,
+            &form,
+        ))
+        .await,
+    )
+}
+
+#[route(POST "/projects/{project}/design/edit")]
+async fn edit_design_version(
+    cx: &Cx,
+    Form(form): Form<design_system::EditForm>,
+) -> Result<Response> {
+    let project_id: String = path_param::<Project>(cx).into();
+    respond(
+        cx,
+        design_system::edit(&panel(cx), &account(cx), &project_id, form).await,
+    )
+}
+
+#[route(GET "/projects/{project}/design/preview/{version}")]
+async fn design_preview(cx: &Cx) -> Result<Response> {
+    let project_id: String = path_param::<Project>(cx).into();
+    let version: String = path_param::<Version>(cx).into();
+    respond(
+        cx,
+        design_system::preview(&panel(cx), &account(cx), &project_id, &version).await,
+    )
+}
+
+#[route(GET "/projects/{project}/design/proof/{version}/{proof_name}")]
+async fn design_proof(cx: &Cx) -> Result<Response> {
+    let project_id: String = path_param::<Project>(cx).into();
+    let version: String = path_param::<Version>(cx).into();
+    let name: String = path_param::<ProofName>(cx).into();
+    respond(
+        cx,
+        design_system::proof(&panel(cx), &account(cx), &project_id, &version, &name).await,
     )
 }

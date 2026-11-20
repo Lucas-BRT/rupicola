@@ -1,7 +1,7 @@
 use crate::{Diagnostic, FRAMEWORKS, TOPICS, files, read};
 use pulldown_cmark::{Event, Parser, Tag};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
 pub struct Check {
@@ -10,6 +10,9 @@ pub struct Check {
     pub eval_tasks: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
+/// # Errors
+///
+/// Returns an error if the skill directory cannot be resolved or traversed, or a required file cannot be read.
 pub fn check(root: &Path) -> Result<Check, String> {
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     if !root.is_dir() {
@@ -96,7 +99,17 @@ pub fn check(root: &Path) -> Result<Check, String> {
             error(skill_path.clone(), format!("missing direct module link: {relative}"));
         }
     }
-    for path in files(&root, true)? {
+    result.markdown_files = check_documents(&root, &mut error)?;
+    check_sources(&root, &mut error);
+    let mut eval_diagnostics = Vec::new();
+    result.eval_tasks = crate::evals::validate(&root, &mut eval_diagnostics);
+    result.diagnostics.extend(eval_diagnostics);
+    Ok(result)
+}
+
+fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Result<usize, String> {
+    let mut markdown_files = 0;
+    for path in files(root, true)? {
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py")
             && ![
@@ -104,6 +117,9 @@ pub fn check(root: &Path) -> Result<Check, String> {
                 "src/cosmic-capture.sh",
                 "src/browser-probe.cjs",
                 "panel/src/panel.js",
+                "panel/src/design_system/validator.cjs",
+                "panel/src/design_system/examples.js",
+                "panel/tests/design-review.cjs",
                 "panel/dev.sh",
                 "site/src/site.js",
                 "site/src/install.sh",
@@ -119,7 +135,7 @@ pub fn check(root: &Path) -> Result<Check, String> {
         if extension != "md" {
             continue;
         }
-        result.markdown_files += 1;
+        markdown_files += 1;
         let text = match read(&path) {
             Ok(text) => text,
             Err(message) => {
@@ -128,9 +144,7 @@ pub fn check(root: &Path) -> Result<Check, String> {
             }
         };
         for event in Parser::new(&text) {
-            if let Event::Start(Tag::Link { dest_url, .. })
-            | Event::Start(Tag::Image { dest_url, .. }) = event
-            {
+            if let Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) = event {
                 let target = dest_url.as_ref();
                 if target.starts_with('#')
                     || target.starts_with("//")
@@ -143,9 +157,13 @@ pub fn check(root: &Path) -> Result<Check, String> {
                 if target.is_empty() {
                     continue;
                 }
-                let resolved = path.parent().unwrap().join(target);
+                let Some(parent) = path.parent() else {
+                    error(path.clone(), "document has no parent directory".into());
+                    continue;
+                };
+                let resolved = parent.join(target);
                 match resolved.canonicalize() {
-                    Ok(p) if p.starts_with(&root) => {}
+                    Ok(p) if p.starts_with(root) => {}
                     Ok(_) => error(
                         path.clone(),
                         format!("local link escapes the skill directory: {target}"),
@@ -155,6 +173,10 @@ pub fn check(root: &Path) -> Result<Check, String> {
             }
         }
     }
+    Ok(markdown_files)
+}
+
+fn check_sources(root: &Path, mut error: impl FnMut(PathBuf, String)) {
     let sources_path = root.join("reference/sources.toml");
     match read(&sources_path)
         .and_then(|s| toml::from_str::<toml::Value>(&s).map_err(|e| e.to_string()))
@@ -183,8 +205,4 @@ pub fn check(root: &Path) -> Result<Check, String> {
         }
         Err(message) => error(sources_path, message),
     }
-    let mut eval_diagnostics = Vec::new();
-    result.eval_tasks = crate::evals::validate(&root, &mut eval_diagnostics);
-    result.diagnostics.extend(eval_diagnostics);
-    Ok(result)
 }

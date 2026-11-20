@@ -172,6 +172,7 @@ struct Sample {
     elapsed_ms: u64,
 }
 
+#[must_use]
 pub fn identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
@@ -186,6 +187,9 @@ impl Scenario {
         self.project = Project { id, label };
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if the scenario file cannot be read or decoded, or the scenario does not pass validation.
     pub fn load(path: &Path) -> Result<Self, String> {
         let content = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let scenario: Self =
@@ -244,7 +248,8 @@ impl Scenario {
                 } => {
                     if !(2..=60).contains(samples)
                         || !(1..=1000).contains(interval_ms)
-                        || (*samples - 1) as u32 * *interval_ms > 10_000
+                        || (*samples - 1) * usize::try_from(*interval_ms).unwrap_or(usize::MAX)
+                            > 10_000
                     {
                         return Err(format!(
                             "clip {id} needs 2..=60 samples spaced 1..=1000 ms across at most 10 seconds"
@@ -252,7 +257,8 @@ impl Scenario {
                     }
                     let pixels =
                         (f64::from(width) * scale).ceil() * (f64::from(height) * scale).ceil();
-                    if pixels * (*samples + 1) as f64 * 4.0 > 268_435_456.0 {
+                    let frame_count = u32::try_from(*samples + 1).map_err(|e| e.to_string())?;
+                    if pixels * f64::from(frame_count) * 4.0 > 268_435_456.0 {
                         return Err(format!("clip {id} exceeds 256 MiB decoded frame budget"));
                     }
                     id
@@ -279,6 +285,9 @@ struct BrowserRequest<'a> {
     module_path: Option<&'a Path>,
 }
 
+/// # Errors
+///
+/// Returns an error if capture inputs are invalid, the browser driver fails, or capture artifacts cannot be read or written.
 pub fn web(
     scenario: Scenario,
     output: &Path,
@@ -357,6 +366,9 @@ pub struct CosmicCapture {
     pub revision: Option<String>,
 }
 
+/// # Errors
+///
+/// Returns an error if capture inputs are invalid, the host cannot run the isolated COSMIC capture, or artifacts cannot be read or written.
 pub fn cosmic(options: CosmicCapture, output: &Path) -> Result<Manifest, String> {
     if !identifier(&options.project_id) || options.project_label.trim().is_empty() {
         return Err("provide a project label and simple project ID".into());
@@ -467,10 +479,10 @@ fn drive_cosmic(output: &Path, options: &CosmicCapture) -> Result<(), String> {
 }
 
 fn now_ms() -> Result<u64, String> {
-    Ok(SystemTime::now()
+    let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_millis() as u64)
+        .map_err(|e| e.to_string())?;
+    u64::try_from(elapsed.as_millis()).map_err(|e| e.to_string())
 }
 
 fn new_run(output: &Path) -> Result<PathBuf, String> {
@@ -521,6 +533,10 @@ fn drive_browser(
     serde_json::from_slice(&response.stdout).map_err(|e| format!("read browser result: {e}"))
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "video frame rates and offsets are estimates based on sampled timing"
+)]
 fn analyze_clip(
     output: &Path,
     clip: &mut Clip,
@@ -590,7 +606,13 @@ fn analyze_clip(
             fs::rename(output.join(&frame.path), output.join(&target))
                 .map_err(|e| e.to_string())?;
             frame.path = target;
-            frame.video_ms = video_fps.map(|fps| (index as f64 * 1000.0 / fps).round() as u64);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "frame offsets are nonnegative and rounded to whole milliseconds at 1–120 FPS"
+            )]
+            let video_ms = video_fps.map(|fps| (index as f64 * 1000.0 / fps).round() as u64);
+            frame.video_ms = video_ms;
             selected_frames.push(frame);
         }
     }
@@ -607,6 +629,10 @@ fn analyze_clip(
 }
 
 /// Add a human or agent observation without claiming visual verification from capture alone.
+///
+/// # Errors
+///
+/// Returns an error if the note is empty, the manifest is invalid or unreadable, the evidence is outside the run or missing, or the review cannot be written.
 pub fn review(path: &Path, note: String, evidence: Option<PathBuf>) -> Result<(), String> {
     if note.trim().is_empty() {
         return Err("provide a concrete inspection note".into());

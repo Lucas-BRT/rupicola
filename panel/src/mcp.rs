@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    Arc, Body, PageResult, Panel, Response, StatusCode, auth, db_error, fix_record, header, ingest,
+    pipeline, problem_record, safe_name, status,
+};
 use http::HeaderMap;
 use serde_json::{Value as JsonValue, json};
 use topcoat::router::to_bytes;
@@ -148,6 +151,10 @@ fn error(code: i32, message: &str) -> JsonValue {
     json!({"error": {"code": code, "message": message}})
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the MCP dispatcher keeps method routing, scope checks, and responses together"
+)]
 async fn dispatch(panel: &Panel, scope: &Scope, request: &JsonValue) -> PageResult<JsonValue> {
     let params = &request["params"];
     Ok(match request["method"].as_str() {

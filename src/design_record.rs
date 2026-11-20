@@ -19,6 +19,7 @@ pub enum Kind {
 }
 
 impl Kind {
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Brief => "Brief",
@@ -38,6 +39,7 @@ pub enum Status {
 }
 
 impl Status {
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Proposed => "Proposed",
@@ -74,6 +76,9 @@ fn read<T: serde::de::DeserializeOwned>(file: &Path) -> io::Result<T> {
     serde_json::from_slice(&fs::read(file)?).map_err(io::Error::other)
 }
 
+/// # Errors
+///
+/// Returns an error if the root is not a directory or its project record cannot be read or decoded.
 pub fn project(root: &Path) -> io::Result<Project> {
     if !fs::symlink_metadata(root)?.is_dir() {
         return Err(io::Error::new(
@@ -84,6 +89,9 @@ pub fn project(root: &Path) -> io::Result<Project> {
     read(&root.join("project.json"))
 }
 
+/// # Errors
+///
+/// Returns an error if directory traversal fails, a record cannot be read or decoded, or its ID does not match the file name.
 pub fn entries(root: &Path) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     for entry in fs::read_dir(root)? {
@@ -106,6 +114,7 @@ pub fn entries(root: &Path) -> io::Result<Vec<Entry>> {
     Ok(entries)
 }
 
+#[must_use]
 pub fn superseded(entries: &[Entry]) -> std::collections::BTreeSet<&str> {
     entries
         .iter()

@@ -1,6 +1,7 @@
 //! Static, offline helpers for the Rupicola skill.
 //! No inspected project code is compiled or executed by these functions.
 pub mod capture;
+pub mod capture_manifest;
 pub mod check;
 pub mod design_record;
 pub mod discover;
@@ -55,6 +56,10 @@ pub struct Diagnostic {
 
 /// Deterministic traversal, excluding symlinks (including directory cycles).
 /// An explicitly supplied symlink root is canonicalized; nested symlinks are skipped.
+///
+/// # Errors
+///
+/// Returns an error if file metadata or directory entries cannot be read.
 pub fn files(root: &Path, include_tests: bool) -> Result<Vec<PathBuf>, String> {
     fn visit(path: &Path, tests: bool, out: &mut Vec<PathBuf>) -> Result<(), String> {
         let meta =
@@ -73,7 +78,7 @@ pub fn files(root: &Path, include_tests: bool) -> Result<Vec<PathBuf>, String> {
             .map_err(|e| format!("{}: {e}", path.display()))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
-        entries.sort_by_key(|e| e.file_name());
+        entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -100,6 +105,9 @@ pub fn files(root: &Path, include_tests: bool) -> Result<Vec<PathBuf>, String> {
     Ok(out)
 }
 
+/// # Errors
+///
+/// Returns an error if the file cannot be read as UTF-8.
 pub fn read(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
 }

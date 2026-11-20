@@ -9,6 +9,7 @@ use std::{
 
 use clap::Parser;
 use http::{StatusCode, header};
+use rupicola::capture_manifest::{Checkpoint, Manifest};
 use serde::Deserialize;
 use tokio::{net::TcpListener, sync::Mutex};
 use topcoat::router::{
@@ -71,6 +72,7 @@ macro_rules! shell {
 
 mod auth;
 mod components;
+mod design_system;
 mod ingest;
 mod mcp;
 mod media;
@@ -100,10 +102,10 @@ struct Args {
     bind: Option<Ipv4Addr>,
     #[arg(long)]
     port: Option<u16>,
-    /// Public HTTPS origin when running behind a reverse proxy (or RUPICOLA_PUBLIC_ORIGIN).
+    /// Public HTTPS origin when running behind a reverse proxy (or `RUPICOLA_PUBLIC_ORIGIN`).
     #[arg(long)]
     public_origin: Option<String>,
-    /// Managed directory for incoming captures (or RUPICOLA_UPLOADS). Required in cloud mode.
+    /// Managed directory for incoming captures (or `RUPICOLA_UPLOADS`). Required in cloud mode.
     #[arg(long)]
     uploads: Option<PathBuf>,
     /// Run a self-contained health probe against the local listener and exit.
@@ -113,7 +115,7 @@ struct Args {
 
 #[derive(clap::Subcommand)]
 enum Action {
-    /// Send a capture to the shared panel using RUPICOLA_PUBLISH_TOKEN.
+    /// Send a capture to the shared panel using `RUPICOLA_PUBLISH_TOKEN`.
     Publish {
         run: PathBuf,
         #[arg(long)]
@@ -135,70 +137,9 @@ struct Panel {
     dummy_password: String,
     password_work: Arc<tokio::sync::Semaphore>,
     upload_work: Arc<tokio::sync::Semaphore>,
+    design_validation: tokio::sync::Semaphore,
     login_attempts: Mutex<BTreeMap<String, (u32, i64)>>,
     uploads: Option<PathBuf>,
-}
-
-#[derive(Deserialize)]
-struct Project {
-    id: String,
-    label: String,
-}
-
-#[derive(Deserialize)]
-struct Manifest {
-    version: u32,
-    project: Project,
-    scenario: String,
-    revision: Option<String>,
-    created_at_ms: i64,
-    status: String,
-    blocker: Option<String>,
-    inspection: String,
-    environment: Environment,
-    checkpoints: Vec<Checkpoint>,
-    clips: Vec<Clip>,
-    #[serde(default)]
-    findings: Vec<Finding>,
-}
-
-#[derive(Deserialize)]
-struct Finding {
-    note: String,
-    evidence: Option<String>,
-}
-
-#[derive(Deserialize, PartialEq, Eq)]
-struct Environment {
-    #[serde(default)]
-    color_scheme: String,
-    #[serde(default)]
-    reduced_motion: bool,
-    width: Option<u32>,
-    height: Option<u32>,
-    renderer: String,
-}
-
-#[derive(Deserialize)]
-struct Checkpoint {
-    id: String,
-    path: String,
-}
-
-#[derive(Deserialize)]
-struct Clip {
-    id: String,
-    frames: Vec<Frame>,
-    analysis_path: Option<String>,
-    video_path: Option<String>,
-    sheet_path: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Frame {
-    path: String,
-    target_ms: f64,
-    video_ms: Option<f64>,
 }
 
 struct Run {
@@ -212,6 +153,10 @@ struct Run {
 }
 
 #[tokio::main]
+#[expect(
+    clippy::too_many_lines,
+    reason = "server startup keeps initialization, configuration, and serving in order"
+)]
 async fn main() -> Result<(), BoxError> {
     let args = Args::parse();
     let configured_port = args
@@ -264,6 +209,7 @@ async fn main() -> Result<(), BoxError> {
         .await?;
 
     auth::init(&index).await?;
+    design_system::init(&index).await?;
     if let Some(Action::Recover { username }) = args.action {
         return auth::recover(&index, &username).await;
     }
@@ -360,6 +306,7 @@ async fn main() -> Result<(), BoxError> {
         dummy_password: auth::password_hash(&auth::token())?,
         password_work: Arc::new(tokio::sync::Semaphore::new(4)),
         upload_work: Arc::new(tokio::sync::Semaphore::new(2)),
+        design_validation: tokio::sync::Semaphore::new(1),
         login_attempts: Mutex::new(BTreeMap::new()),
         uploads,
     });
@@ -477,6 +424,10 @@ struct Comparison {
     before: Option<String>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the capture detail view keeps its markup and presentation branches together"
+)]
 async fn detail(
     comparison: Comparison,
     account: Account,

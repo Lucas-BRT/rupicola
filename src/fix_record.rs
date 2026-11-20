@@ -24,6 +24,7 @@ impl FixStatus {
         Self::Superseded,
     ];
 
+    #[must_use]
     pub fn slug(self) -> &'static str {
         match self {
             Self::PendingReview => "pending-review",
@@ -33,6 +34,7 @@ impl FixStatus {
         }
     }
 
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::PendingReview => "Pending review",
@@ -42,6 +44,7 @@ impl FixStatus {
         }
     }
 
+    #[must_use]
     pub fn from_slug(s: &str) -> Option<Self> {
         match s {
             "pending-review" => Some(Self::PendingReview),
@@ -110,6 +113,7 @@ pub struct FixRecord {
     pub updated_at_ms: u64,
 }
 
+#[must_use]
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 80
@@ -118,6 +122,7 @@ pub fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
 
+#[must_use]
 pub fn root(data_dir: &Path, project: &str) -> PathBuf {
     data_dir.join(DIRECTORY).join(project)
 }
@@ -128,11 +133,14 @@ pub fn next_id() -> (String, u64) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let ms = now.as_millis() as u64;
+    let ms = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed) % 1000;
     (format!("{}-{}{:03}", ms, std::process::id(), seq), ms)
 }
 
+/// # Errors
+///
+/// Returns an error if the project ID is invalid or the existing record directory cannot be opened or inspected.
 pub fn entries(data_dir: &Path, project: &str) -> io::Result<Vec<FixRecord>> {
     if !valid_id(project) {
         return Err(io::Error::new(
@@ -172,6 +180,9 @@ pub fn entries(data_dir: &Path, project: &str) -> io::Result<Vec<FixRecord>> {
     Ok(out)
 }
 
+/// # Errors
+///
+/// Returns an error if an ID is invalid, the file cannot be read, the file is a symlink, the JSON is invalid, or the record IDs do not match.
 pub fn load(data_dir: &Path, project: &str, id: &str) -> io::Result<FixRecord> {
     if !valid_id(project) || !valid_id(id) {
         return Err(io::Error::new(
@@ -195,6 +206,9 @@ pub fn load(data_dir: &Path, project: &str, id: &str) -> io::Result<FixRecord> {
     Ok(item)
 }
 
+/// # Errors
+///
+/// Returns an error if an ID is invalid, serialization fails, or the record cannot be written.
 pub fn save(data_dir: &Path, fix: &FixRecord) -> io::Result<()> {
     if !valid_id(&fix.project_id) || !valid_id(&fix.id) {
         return Err(io::Error::new(

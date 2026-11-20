@@ -57,6 +57,10 @@ struct Triggers {
 }
 
 /// Loads `evals/triggers.toml`: prompts whose only measured outcome is skill invocation.
+///
+/// # Errors
+///
+/// Returns an error if the trigger file cannot be read or decoded as TOML.
 pub fn load_triggers(root: &Path) -> Result<Vec<Trigger>, String> {
     let file = root.join("evals/triggers.toml");
     let text = read(&file)?;
@@ -74,7 +78,7 @@ fn validate_triggers(root: &Path, out: &mut Vec<Diagnostic>) {
         out.push(Diagnostic {
             path: file.clone(),
             message,
-        })
+        });
     };
     let triggers = match load_triggers(root) {
         Ok(t) => t,
@@ -107,6 +111,10 @@ fn validate_triggers(root: &Path, out: &mut Vec<Diagnostic>) {
 }
 
 /// Loads all task definitions in deterministic order; any malformed task is an error.
+///
+/// # Errors
+///
+/// Returns an error if the task directory cannot be opened or a task file cannot be read or decoded.
 pub fn load(root: &Path) -> Result<Vec<Task>, String> {
     let dir = root.join("evals/tasks");
     let mut paths: Vec<_> = std::fs::read_dir(&dir)
@@ -144,7 +152,7 @@ pub fn validate(root: &Path, out: &mut Vec<Diagnostic>) -> usize {
             out.push(Diagnostic {
                 path: file.clone(),
                 message,
-            })
+            });
         };
         let task =
             match read(&file).and_then(|s| toml::from_str::<Task>(&s).map_err(|e| e.to_string())) {

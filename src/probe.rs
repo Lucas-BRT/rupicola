@@ -217,6 +217,10 @@ fn find_node() -> &'static str {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the probe workflow keeps command setup, execution, and artifact processing in order"
+)]
 pub fn run(cfg: Config) -> Result<ProbeSummary, String> {
     if !cfg.url.starts_with("http://") && !cfg.url.starts_with("https://") {
         return Err("probe URL must start with http:// or https://".into());
@@ -438,8 +442,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary, String> {
         service::detect_project().unwrap_or_else(|_| ("rupicola".into(), "rupicola".into()));
     let created_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
     let first_vp = viewports.first().cloned().unwrap_or(Viewport {
         width: 1440,
         height: 900,
@@ -475,7 +478,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary, String> {
             "height": first_vp.height,
             "scale": 1.0,
             "locale": "en-US",
-            "color_scheme": themes.first().map(String::as_str).unwrap_or("dark"),
+            "color_scheme": themes.first().map_or("dark", String::as_str),
             "reduced_motion": false
         },
         "status": status,

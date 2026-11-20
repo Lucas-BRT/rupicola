@@ -12,3 +12,6 @@ http = "=1.5.0"
 pulldown-cmark = "=0.13.6"
 tokio = { version = "=1.54.1", features = ["macros", "net", "rt-multi-thread"] }
 topcoat = { version = "=0.11.0", default-features = false, features = ["serve"] }
+
+[lints]
+workspace = true

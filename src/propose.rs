@@ -93,10 +93,10 @@ pub enum Action {
 }
 
 fn now_ms() -> Result<u64, String> {
-    Ok(SystemTime::now()
+    let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_millis() as u64)
+        .map_err(|e| e.to_string())?;
+    u64::try_from(elapsed.as_millis()).map_err(|e| e.to_string())
 }
 
 fn resolve_project(explicit: Option<String>) -> Result<(String, PathBuf), String> {
@@ -128,6 +128,10 @@ fn copy_asset(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the CLI dispatcher keeps proposal subcommands and their output together"
+)]
 pub fn run(action: Action) -> Result<(), String> {
     match action {
         Action::List { project, json } => {

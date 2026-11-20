@@ -54,8 +54,9 @@ fn import_bundle(source: &std::path::Path) -> Result<Value, String> {
     };
     let bytes = read(&resolve("manifest.json")?, 1024 * 1024)?;
     let value: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    let _: scenario::BrowserResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    if value["version"] != 1 || value["project"]["id"] != service::detect_project()?.0 {
+    let manifest: rupicola::capture_manifest::Manifest =
+        serde_json::from_slice(&bytes).map_err(|e| format!("Invalid capture manifest: {e}"))?;
+    if manifest.version != 1 || manifest.project.id != service::detect_project()?.0 {
         return Err("Expected a v1 capture belonging to this project".into());
     }
     let mut paths = std::collections::BTreeSet::new();
@@ -339,6 +340,10 @@ fn manifest(run: &str) -> Result<(PathBuf, Value), String> {
     Ok((path, value))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the MCP dispatcher keeps tool names, argument decoding, and response shaping together"
+)]
 fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value, String> {
     let arg = |key: &str| {
         args[key]
@@ -567,7 +572,7 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value, String
                 return Err("Artifact outside run or larger than 8 MiB".into());
             }
             let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
-            if artifact.ends_with(".png") {
+            if matches!(artifact.rsplit_once('.'), Some((_, "png"))) {
                 return Ok(
                     json!({"content":[{"type":"image","mimeType":"image/png","data":base64(&bytes)}]}),
                 );
@@ -965,8 +970,7 @@ impl SessionGuard {
         let path = data.join(proposal_record::MCP_SESSION_FILE);
         let started_at_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
         let session = proposal_record::McpSession {
             pid: std::process::id(),
             project_id: service::project().ok().flatten().map(|p| p.0),
@@ -998,17 +1002,16 @@ pub fn serve() -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     for line in io::stdin().lock().lines() {
         let line = line?;
-        let request: Value = match serde_json::from_str(&line) {
-            Ok(value) => value,
-            Err(_) => {
-                writeln!(
-                    stdout,
-                    "{}",
-                    json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}})
-                )?;
-                stdout.flush()?;
-                continue;
-            }
+        let request: Value = if let Ok(value) = serde_json::from_str(&line) {
+            value
+        } else {
+            writeln!(
+                stdout,
+                "{}",
+                json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}})
+            )?;
+            stdout.flush()?;
+            continue;
         };
         let Some(id) = request.get("id") else {
             continue;
@@ -1061,4 +1064,37 @@ pub fn serve() -> io::Result<()> {
         stdout.flush()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_import_rejects_missing_panel_metadata() {
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("manifest.json");
+        let valid = json!({
+            "version": 1,
+            "project": {"id": "example", "label": "Example"},
+            "scenario": "Settings review",
+            "created_at_ms": 1_795_182_148_405_i64,
+            "environment": {"renderer": "gpui"},
+            "status": "complete",
+            "inspection": "pending",
+            "checkpoints": [],
+            "clips": []
+        });
+        assert!(
+            serde_json::from_value::<rupicola::capture_manifest::Manifest>(valid.clone()).is_ok()
+        );
+        for field in ["created_at_ms", "environment"] {
+            let mut missing = valid.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            std::fs::write(&path, serde_json::to_vec(&missing).unwrap()).unwrap();
+            let error = import_bundle(source.path()).unwrap_err();
+            assert!(error.starts_with("Invalid capture manifest:"), "{error}");
+            assert!(error.contains(field), "{error}");
+        }
+    }
 }

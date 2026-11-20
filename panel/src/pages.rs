@@ -1,4 +1,10 @@
-use super::*;
+use super::{
+    Account, Arc, BTreeMap, Checkpoint, Connection, Cx, Deserialize, Html, IntoResponse, Manifest,
+    PageResult, Panel, PathBuf, Response, Run, StatusCode, TransactionBehavior, Value, auth,
+    db_error, design_record, design_system, fix_record, fs, media, pipeline, problem_record,
+    proposal_record, proposes, read_index, read_manifest, redirect, run_dir, safe_name, storage,
+    view,
+};
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
 use std::io::Write;
@@ -93,6 +99,7 @@ pub struct Filter {
     pub kind: Option<String>,
     pub status: Option<String>,
     pub view: Option<String>,
+    pub version: Option<String>,
     pub health: Option<String>,
     pub asset: Option<String>,
     pub name: Option<String>,
@@ -141,6 +148,10 @@ fn project_design(panel: &Panel, id: &str) -> Vec<design_record::Entry> {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the dashboard view keeps its markup with the data it displays"
+)]
 pub async fn dashboard(
     panel: Arc<Panel>,
     account: Account,
@@ -350,7 +361,14 @@ pub async fn create_project(
 }
 
 pub async fn project(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Html<String>> {
-    project_view(panel, account, id, "overview".into(), Filter::default()).await
+    Box::pin(project_view(
+        panel,
+        account,
+        id,
+        "overview".into(),
+        Filter::default(),
+    ))
+    .await
 }
 
 pub async fn project_section(
@@ -359,7 +377,7 @@ pub async fn project_section(
     (id, section): (String, String),
     filter: Filter,
 ) -> PageResult<Html<String>> {
-    project_view(panel, account, id, section, filter).await
+    Box::pin(project_view(panel, account, id, section, filter)).await
 }
 
 pub fn read_run(panel: &Panel, key: &str) -> Option<Manifest> {
@@ -367,6 +385,10 @@ pub fn read_run(panel: &Panel, key: &str) -> Option<Manifest> {
     read_manifest(&run_dir(panel, root.parse().ok()?, name)?)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the project view keeps section routing and the shared project layout together"
+)]
 async fn project_view(
     panel: Arc<Panel>,
     account: Account,
@@ -554,7 +576,18 @@ async fn project_view(
     } else {
         None
     };
-    let propose_state = if section == "proposes" {
+    let design_tab = match filter.view.as_deref() {
+        Some("system") => "system",
+        Some("screens") => "screens",
+        Some("proposals") => "proposals",
+        _ => "records",
+    };
+    let studio = if section == "design" {
+        Some(design_system::load(&panel, &id, filter.version.as_deref()).await?)
+    } else {
+        None
+    };
+    let propose_state = if section == "design" && design_tab == "proposals" {
         Some(proposes::load(
             &panel,
             &id,
@@ -584,7 +617,6 @@ async fn project_view(
                 ("captures", "Captures"),
                 ("problems", "Problems"),
                 ("fixes", "Fixes"),
-                ("proposes", "Proposes"),
                 ("design", "Design"),
                 ("storage", "Storage"),
                 ("settings", "Settings"),
@@ -700,10 +732,13 @@ async fn project_view(
                 report,
             ))
         }
+        if let Some(studio) = &studio {
+            (design_system::render(cx, &account, role, &base, design_tab, studio))
+        }
         if let Some(state) = &propose_state {
             (proposes::render_section(cx, &account, role, &id, &base, state))
         }
-        if section == "design" {
+        if section == "design" && design_tab == "records" {
             if role == Role::Owner {
                 <details class="surface panel-padding design-editor">
                     <summary>"Add or revise a design record"</summary>
@@ -723,7 +758,7 @@ async fn project_view(
                         <label for="design-evidence">"Capture evidence (optional)"</label>
                         <select id="design-evidence" name="evidence"><option value="">"None"</option>
                             for (name, _) in &captures {
-                                <option value=(*name)>(related.iter().find(|run| run.key.ends_with(&format!("/{name}"))).map(|run| run.scenario.as_str()).unwrap_or(name))</option>
+                                <option value=(*name)>(related.iter().find(|run| run.key.ends_with(&format!("/{name}"))).map_or(*name, |run| run.scenario.as_str()))</option>
                             }
                         </select>
                         if !records.is_empty() {
@@ -850,7 +885,7 @@ async fn project_view(
             }
         }
     });
-    auth::page(cx, content).await
+    Box::pin(auth::page(cx, content)).await
 }
 
 struct AccessItem {
@@ -999,6 +1034,10 @@ pub async fn project_action(
         .map_err(db_error)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the settings view keeps its form markup together"
+)]
 pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<String>> {
     let (session_count, tokens) = {
         let db = panel.index.lock().await;
@@ -1226,8 +1265,9 @@ pub async fn change_password(
     let current = form.current_password;
     let new_pw = form.new_password;
     let new_hash = tokio::task::spawn_blocking(move || -> PageResult<String> {
-        let _permit = permit;
         use argon2::{Argon2, PasswordHash, PasswordVerifier};
+
+        let _permit = permit;
         let verified = PasswordHash::new(&stored).is_ok_and(|hash| {
             Argon2::default()
                 .verify_password(current.as_bytes(), &hash)
@@ -1381,6 +1421,10 @@ pub struct DesignForm {
     return_to: Option<String>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the handler keeps authorization, input validation, and record persistence in order"
+)]
 pub async fn record_design(
     panel: Arc<Panel>,
     account: Account,
@@ -1471,7 +1515,7 @@ pub async fn record_design(
         .map_err(db_error)?;
     let entry = design_record::Entry {
         id: format!("{}-{}", now.as_nanos(), std::process::id()),
-        timestamp_ms: now.as_millis() as u64,
+        timestamp_ms: u64::try_from(now.as_millis()).unwrap_or(u64::MAX),
         kind: form.kind,
         status: form.status,
         title: title.into(),
@@ -1487,7 +1531,7 @@ pub async fn record_design(
         serde_json::to_value(entry).map_err(db_error)?,
     )?;
     let target = if form.return_to.as_deref() == Some("proposes") {
-        format!("/projects/{id}/proposes")
+        format!("/projects/{id}/design?view=proposals")
     } else {
         format!("/projects/{id}/design")
     };
@@ -1505,17 +1549,17 @@ pub struct ProbeForm {
     pipeline: Option<String>,
 }
 
-pub async fn trigger_probe(
-    panel: Arc<Panel>,
-    account: Account,
-    id: String,
+pub fn trigger_probe(
+    panel: &Panel,
+    account: &Account,
+    id: &str,
     form: ProbeForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    if !safe_name(&id) {
+    if !safe_name(id) {
         return Err(StatusCode::NOT_FOUND);
     }
     let url = form.url.trim().to_owned();
@@ -1543,7 +1587,7 @@ pub async fn trigger_probe(
     let viewports = form.viewports.trim().to_owned();
     let themes = form.themes.trim().to_owned();
     let auto_analyze = form.pipeline.as_deref() != Some("capture-only");
-    let project_id = id.clone();
+    let project_id = id.to_owned();
 
     std::thread::spawn(move || {
         let candidates = [

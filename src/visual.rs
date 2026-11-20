@@ -14,10 +14,9 @@ pub struct Image {
     pub rgba: Vec<u8>,
 }
 
-fn err<T: ToString>(x: T) -> String {
-    x.to_string()
-}
-
+/// # Errors
+///
+/// Returns an error if the PNG cannot be read or decoded in a supported format.
 pub fn load(path: &Path) -> Result<Image, String> {
     let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut decoder = png::Decoder::new(BufReader::new(file));
@@ -59,13 +58,18 @@ pub fn load(path: &Path) -> Result<Image, String> {
     })
 }
 
+/// # Errors
+///
+/// Returns an error if the output cannot be created or encoded as PNG.
 pub fn save(path: &Path, image: &Image) -> Result<(), String> {
     let file = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut encoder = png::Encoder::new(BufWriter::new(file), image.width, image.height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().map_err(err)?;
-    writer.write_image_data(&image.rgba).map_err(err)
+    let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
+    writer
+        .write_image_data(&image.rgba)
+        .map_err(|error| error.to_string())
 }
 
 // ---------- contrast ----------
@@ -77,14 +81,17 @@ fn lin(c: u8) -> f64 {
         ((c + 0.055) / 1.055).powf(2.4)
     }
 }
+#[must_use]
 pub fn luminance(rgb: [u8; 3]) -> f64 {
     0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
 }
+#[must_use]
 pub fn contrast(a: [u8; 3], b: [u8; 3]) -> f64 {
     let (la, lb) = (luminance(a), luminance(b));
     let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
     (hi + 0.05) / (lo + 0.05)
 }
+#[must_use]
 pub fn parse_hex(text: &str) -> Option<[u8; 3]> {
     let t = text.trim().trim_start_matches('#');
     let v = |s: &str| u8::from_str_radix(s, 16).ok();
@@ -113,12 +120,17 @@ pub struct Diff {
 }
 
 /// Pixels whose largest channel difference exceeds `threshold` count as changed.
-pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>) {
-    if a.width != b.width || a.height != b.height {
+#[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the ratios and channel averages are reported as floating-point metrics"
+)]
+pub fn diff_images(before: &Image, after: &Image, threshold: u8) -> (Diff, Option<Image>) {
+    if before.width != after.width || before.height != after.height {
         return (
             Diff {
-                width: b.width,
-                height: b.height,
+                width: after.width,
+                height: after.height,
                 dimension_mismatch: true,
                 changed_pixels: 0,
                 changed_ratio: 1.0,
@@ -129,38 +141,37 @@ pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>)
             None,
         );
     }
-    let (w, h) = (a.width as usize, a.height as usize);
-    let mut out = Vec::with_capacity(w * h * 4);
+    let (width, height) = (before.width as usize, before.height as usize);
+    let mut out = Vec::with_capacity(width * height * 4);
     let (mut changed, mut sum, mut max) = (0u64, 0u64, 0u8);
     let mut bbox: Option<[u32; 4]> = None;
-    for y in 0..h {
-        for x in 0..w {
-            let i = (y * w + x) * 4;
-            let d = (0..4)
-                .map(|c| a.rgba[i + c].abs_diff(b.rgba[i + c]))
+    for y in 0..before.height {
+        for x in 0..before.width {
+            let offset = (y as usize * width + x as usize) * 4;
+            let delta = (0..4)
+                .map(|channel| before.rgba[offset + channel].abs_diff(after.rgba[offset + channel]))
                 .max()
                 .unwrap_or(0);
-            sum += u64::from(d);
-            max = max.max(d);
-            if d > threshold {
+            sum += u64::from(delta);
+            max = max.max(delta);
+            if delta > threshold {
                 changed += 1;
-                let (xu, yu) = (x as u32, y as u32);
                 bbox = Some(match bbox {
-                    None => [xu, yu, xu, yu],
-                    Some([x0, y0, x1, y1]) => [x0.min(xu), y0.min(yu), x1.max(xu), y1.max(yu)],
+                    None => [x, y, x, y],
+                    Some([x0, y0, x1, y1]) => [x0.min(x), y0.min(y), x1.max(x), y1.max(y)],
                 });
                 out.extend_from_slice(&[255, 0, 0, 255]);
             } else {
-                let g = (u16::from(b.rgba[i]) / 4 + 160) as u8;
-                out.extend_from_slice(&[g, g, g, 255]);
+                let gray = after.rgba[offset] / 4 + 160;
+                out.extend_from_slice(&[gray, gray, gray, 255]);
             }
         }
     }
-    let total = (w * h).max(1) as f64;
+    let total = (width * height).max(1) as f64;
     (
         Diff {
-            width: a.width,
-            height: a.height,
+            width: before.width,
+            height: before.height,
             dimension_mismatch: false,
             changed_pixels: changed,
             changed_ratio: changed as f64 / total,
@@ -169,8 +180,8 @@ pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>)
             max_delta: max,
         },
         Some(Image {
-            width: a.width,
-            height: a.height,
+            width: before.width,
+            height: before.height,
             rgba: out,
         }),
     )
@@ -210,6 +221,9 @@ fn natural_key(p: &Path) -> (String, u64) {
     (prefix, digits.parse().unwrap_or(0))
 }
 
+/// # Errors
+///
+/// Returns an error if the directory cannot be opened.
 pub fn list_pngs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
@@ -221,6 +235,9 @@ pub fn list_pngs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(files)
 }
 
+/// # Errors
+///
+/// Returns an error if fewer than three PNGs are found, a PNG cannot be read, or frame dimensions differ.
 pub fn analyze_frames(dir: &Path, threshold: u8) -> Result<Frames, String> {
     let files = list_pngs(dir)?;
     if files.len() < 3 {
@@ -233,10 +250,13 @@ pub fn analyze_frames(dir: &Path, threshold: u8) -> Result<Frames, String> {
     analyze_images(&images, threshold)
 }
 
+/// # Errors
+///
+/// Returns an error if there are fewer than three frames or their dimensions differ.
 pub fn analyze_images(images: &[Image], threshold: u8) -> Result<Frames, String> {
-    if images.len() < 3 {
+    let [first, _, .., last] = images else {
         return Err("need at least 3 frames".into());
-    }
+    };
     let mut ratios = Vec::new();
     for pair in images.windows(2) {
         let (d, _) = diff_images(&pair[0], &pair[1], threshold);
@@ -248,9 +268,7 @@ pub fn analyze_images(images: &[Image], threshold: u8) -> Result<Frames, String>
     let eps = 0.0005;
     let first_change = ratios.iter().position(|&r| r > eps).map(|i| i + 1);
     let settled_at = ratios.iter().rposition(|&r| r > eps).map(|i| i + 1);
-    let total = diff_images(&images[0], images.last().unwrap(), threshold)
-        .0
-        .changed_ratio;
+    let total = diff_images(first, last, threshold).0.changed_ratio;
     let mut stalls = Vec::new();
     let mut jumps = Vec::new();
     let mut notes = Vec::new();
@@ -329,6 +347,10 @@ fn saturation(c: [u8; 3]) -> f64 {
     }
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "color clustering and population shares are approximate floating-point calculations"
+)]
 pub fn palette(image: &Image, k: usize) -> Palette {
     // Histogram over 4 bits per channel, then greedy merge of nearby buckets.
     let mut buckets: std::collections::HashMap<u16, (u64, [u64; 3])> =
@@ -382,10 +404,13 @@ pub fn palette(image: &Image, k: usize) -> Palette {
     let colors: Vec<([u8; 3], f64)> = clusters
         .iter()
         .map(|(n, c)| {
-            (
-                [c[0].round() as u8, c[1].round() as u8, c[2].round() as u8],
-                *n as f64 / total.max(1) as f64,
-            )
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "RGB centroids are weighted averages of byte values and rounded to bytes"
+            )]
+            let rgb = c.map(|channel| channel.round() as u8);
+            (rgb, *n as f64 / total.max(1) as f64)
         })
         .collect();
     let background = colors.first().map(|c| c.0);
@@ -430,6 +455,9 @@ pub fn palette(image: &Image, k: usize) -> Palette {
 }
 
 // ---------- contact sheet ----------
+/// # Errors
+///
+/// Returns an error if the input count is outside 1–64, an image cannot be read, or the output dimensions or buffer exceed supported limits.
 pub fn sheet(files: &[PathBuf], cols: usize, thumb_w: u32) -> Result<Image, String> {
     if files.is_empty() {
         return Err("no images".into());
@@ -443,13 +471,17 @@ pub fn sheet(files: &[PathBuf], cols: usize, thumb_w: u32) -> Result<Image, Stri
         .map(|p| {
             let im = load(p)?;
             let tw = thumb_w.min(im.width).max(1);
-            let th =
-                ((u64::from(im.height) * u64::from(tw)) / u64::from(im.width.max(1))).max(1) as u32;
-            let mut px = Vec::with_capacity((tw * th * 4) as usize);
+            let th = u32::try_from(
+                (u64::from(im.height) * u64::from(tw) / u64::from(im.width.max(1))).max(1),
+            )
+            .map_err(|_| "thumbnail height exceeds u32")?;
+            let mut px = Vec::new();
             for y in 0..th {
+                let sy = usize::try_from(u64::from(y) * u64::from(im.height) / u64::from(th))
+                    .map_err(|_| "thumbnail row is out of range")?;
                 for x in 0..tw {
-                    let sx = (u64::from(x) * u64::from(im.width) / u64::from(tw)) as usize;
-                    let sy = (u64::from(y) * u64::from(im.height) / u64::from(th)) as usize;
+                    let sx = usize::try_from(u64::from(x) * u64::from(im.width) / u64::from(tw))
+                        .map_err(|_| "thumbnail column is out of range")?;
                     let i = (sy * im.width as usize + sx) * 4;
                     px.extend_from_slice(&im.rgba[i..i + 4]);
                 }
@@ -465,24 +497,30 @@ pub fn sheet(files: &[PathBuf], cols: usize, thumb_w: u32) -> Result<Image, Stri
     let rows = thumbs.len().div_ceil(cols);
     let cell_w = thumbs.iter().map(|t| t.width).max().unwrap_or(1);
     let cell_h = thumbs.iter().map(|t| t.height).max().unwrap_or(1);
-    let (w, h) = (
-        cols as u32 * (cell_w + pad) + pad,
-        rows as u32 * (cell_h + pad) + pad,
-    );
-    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let dimension = |count, cell: u32| {
+        let count = u32::try_from(count).ok()?;
+        cell.checked_add(pad)?.checked_mul(count)?.checked_add(pad)
+    };
+    let w = dimension(cols, cell_w).ok_or("sheet width exceeds u32")?;
+    let h = dimension(rows, cell_h).ok_or("sheet height exceeds u32")?;
+    let len = (w as usize)
+        .checked_mul(h as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or("sheet buffer is too large")?;
+    let mut rgba = Vec::new();
+    rgba.try_reserve_exact(len).map_err(|e| e.to_string())?;
+    rgba.resize(len, 0);
     for px in rgba.as_chunks_mut::<4>().0 {
         px.copy_from_slice(&[90, 90, 90, 255]);
     }
+    let pad = pad as usize;
     for (n, t) in thumbs.iter().enumerate() {
-        let (ox, oy) = (
-            pad + (n % cols) as u32 * (cell_w + pad),
-            pad + (n / cols) as u32 * (cell_h + pad),
-        );
-        for y in 0..t.height {
-            let dst = (((oy + y) * w + ox) * 4) as usize;
-            let src = (y * t.width * 4) as usize;
-            rgba[dst..dst + (t.width * 4) as usize]
-                .copy_from_slice(&t.rgba[src..src + (t.width * 4) as usize]);
+        let ox = pad + (n % cols) * (cell_w as usize + pad);
+        let oy = pad + (n / cols) * (cell_h as usize + pad);
+        let stride = t.width as usize * 4;
+        for (y, src) in t.rgba.chunks_exact(stride).enumerate() {
+            let dst = ((oy + y) * w as usize + ox) * 4;
+            rgba[dst..dst + stride].copy_from_slice(src);
         }
     }
     Ok(Image {
@@ -511,6 +549,7 @@ pub struct MatrixSpec {
     pub locales: Vec<String>,
 }
 
+#[must_use]
 pub fn matrix_plan(spec: &MatrixSpec, out: &Path) -> Vec<MatrixEntry> {
     let mut entries = Vec::new();
     for state in &spec.states {
@@ -665,7 +704,7 @@ pub fn audit(tree: &Tree) -> Vec<AuditFinding> {
             rule,
             node: node.to_owned(),
             message,
-        })
+        });
     };
     for n in &tree.nodes {
         if n.interactive && (n.w < 24.0 || n.h < 24.0) {

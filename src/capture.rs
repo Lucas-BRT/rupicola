@@ -27,6 +27,9 @@ pub enum PixelFormat {
 }
 
 impl PixelFormat {
+    /// # Errors
+    ///
+    /// Returns an error if the pixel format name is unsupported.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
             "rgba" | "rgba8" => Ok(Self::Rgba8),
@@ -44,6 +47,10 @@ impl PixelFormat {
     }
 
     /// Convert a raw pixel buffer in this format to straight 8-bit RGBA.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer length is not a multiple of four.
     pub fn to_rgba8(self, src: &[u8]) -> Result<Vec<u8>, String> {
         if !src.len().is_multiple_of(4) {
             return Err(format!(
@@ -94,7 +101,7 @@ fn unpremultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 }
 
 /// Configuration for a deterministic offscreen RAM capture sequence.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CaptureConfig {
     pub width: u32,
     pub height: u32,
@@ -104,6 +111,9 @@ pub struct CaptureConfig {
 }
 
 impl CaptureConfig {
+    /// # Errors
+    ///
+    /// Returns an error for zero dimensions or frames, a nonpositive or nonfinite frame rate, or dimensions that overflow the frame buffer size.
     pub fn validate(&self) -> Result<(), String> {
         if self.width == 0 || self.height == 0 {
             return Err("capture width and height must be greater than 0".into());
@@ -122,11 +132,20 @@ impl CaptureConfig {
     }
 
     /// Deterministic timestamp in milliseconds for `frame` (0.0, 16.67, 33.33, ... at 60 fps).
+    #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "timestamps are approximate milliseconds at a floating-point frame rate"
+    )]
     pub fn timestamp_ms(&self, frame: usize) -> f64 {
         frame as f64 * (1000.0 / self.fps)
     }
 
     /// Expected byte length of one raw frame buffer (`width * height * 4`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the frame buffer size overflows `usize`.
     pub fn buffer_len(&self) -> Result<usize, String> {
         (self.width as usize)
             .checked_mul(self.height as usize)
@@ -172,6 +191,10 @@ impl RamCapture {
     ///
     /// `render_frame(frame_index, timestamp_ms, pixel_buffer)` writes one frame
     /// in `config.pixel_format` into the pre-allocated, zeroed `pixel_buffer`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the capture configuration is invalid or the frame renderer fails.
     pub fn record<F>(config: CaptureConfig, mut render_frame: F) -> Result<Self, String>
     where
         F: FnMut(usize, f64, &mut [u8]) -> Result<(), String>,
@@ -210,6 +233,10 @@ impl RamCapture {
     }
 
     /// Write lossless PNG frames (`frame_0000.png`, ...) and `timing.json` to `dir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory, frame PNGs, or timing report cannot be created, or if serialization fails.
     pub fn save_pngs(&self, dir: &Path) -> Result<Vec<PathBuf>, String> {
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let mut paths = Vec::with_capacity(self.frames.len());
@@ -226,16 +253,28 @@ impl RamCapture {
     }
 
     /// Encode the RAM-buffered frames directly to a CFR MP4 via `ffmpeg`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the video options or frames are invalid or `ffmpeg` fails.
     pub fn encode_mp4(&self, out: &Path, options: &VideoOptions) -> Result<VideoReport, String> {
         encode_rgba_images(&self.frames, out, options)
     }
 
     /// Run `rupicola frames` motion analysis directly on the in-RAM frames.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there are fewer than three frames or their dimensions differ.
     pub fn analyze(&self, threshold: u8) -> Result<Frames, String> {
         visual::analyze_images(&self.frames, threshold)
     }
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the mean is a floating-point timing metric"
+)]
 fn summarize_timings(config: &CaptureConfig, frames: Vec<FrameTiming>) -> CaptureReport {
     let budget_ms = 1000.0 / config.fps;
     let total_render_ms: f64 = frames.iter().map(|t| t.render_ms).sum();
@@ -243,9 +282,8 @@ fn summarize_timings(config: &CaptureConfig, frames: Vec<FrameTiming>) -> Captur
     let max_render_ms = frames.iter().map(|t| t.render_ms).fold(0.0f64, f64::max);
     let mut sorted: Vec<f64> = frames.iter().map(|t| t.render_ms).collect();
     sorted.sort_by(f64::total_cmp);
-    let p95_idx = ((sorted.len() as f64 * 0.95).ceil() as usize)
-        .saturating_sub(1)
-        .min(sorted.len() - 1);
+    // ceil(0.95 * n) is n - floor(n / 20).
+    let p95_idx = (sorted.len() - sorted.len() / 20).saturating_sub(1);
     let p95_render_ms = sorted[p95_idx];
     let over_budget_frames = frames
         .iter()
@@ -289,6 +327,9 @@ impl Default for VideoOptions {
 }
 
 impl VideoOptions {
+    /// # Errors
+    ///
+    /// Returns an error if the frame rate is nonpositive or nonfinite, the CRF is out of range, or the preset is empty.
     pub fn validate(&self) -> Result<(), String> {
         if !self.fps.is_finite() || self.fps <= 0.0 {
             return Err(format!(
@@ -322,6 +363,10 @@ pub struct VideoReport {
 }
 
 /// Assemble a directory of PNG frames (in natural numeric order) into a CFR MP4.
+///
+/// # Errors
+///
+/// Returns an error if the directory has no PNGs, a frame cannot be read or has mismatched dimensions, or video encoding fails.
 pub fn encode_png_dir(
     dir: &Path,
     out: &Path,
@@ -339,7 +384,7 @@ pub fn encode_png_dir(
     for path in &files[1..] {
         let image = visual::load(path)?;
         if image.width != width || image.height != height {
-            let _ = encoder.abort();
+            encoder.abort();
             return Err(format!(
                 "{}: frame dimensions {}x{} do not match first frame {}x{}",
                 path.display(),
@@ -355,6 +400,10 @@ pub fn encode_png_dir(
 }
 
 /// Assemble in-RAM RGBA `Image` frames into a CFR MP4 via `ffmpeg`.
+///
+/// # Errors
+///
+/// Returns an error if the options are invalid, there are no frames, frame dimensions differ, or video encoding fails.
 pub fn encode_rgba_images(
     images: &[Image],
     out: &Path,
@@ -368,7 +417,7 @@ pub fn encode_rgba_images(
     let mut encoder = FfmpegPipe::spawn(width, height, out, options)?;
     for (idx, image) in images.iter().enumerate() {
         if image.width != width || image.height != height {
-            let _ = encoder.abort();
+            encoder.abort();
             return Err(format!(
                 "frame {idx} dimensions {}x{} do not match first frame {}x{}",
                 image.width, image.height, width, height
@@ -381,6 +430,10 @@ pub fn encode_rgba_images(
 
 /// Stream raw RGBA/BGRA frames (e.g., from RAM via stdin) into a CFR MP4 via `ffmpeg`,
 /// optionally also writing lossless PNGs to `save_frames`.
+///
+/// # Errors
+///
+/// Returns an error if the options or frame dimensions are invalid, the stream cannot be read or has no complete frames, or video encoding fails.
 pub fn encode_raw_stream<R: Read>(
     mut reader: R,
     width: u32,
@@ -411,7 +464,7 @@ pub fn encode_raw_stream<R: Read>(
         match read_exact_or_eof(&mut reader, &mut buf)? {
             ReadFrame::Eof => break,
             ReadFrame::Partial(n) => {
-                let _ = encoder.abort();
+                encoder.abort();
                 return Err(format!(
                     "truncated raw frame {frame_count}: read {n} of {frame_bytes} bytes"
                 ));
@@ -433,7 +486,7 @@ pub fn encode_raw_stream<R: Read>(
     }
 
     if frame_count == 0 {
-        let _ = encoder.abort();
+        encoder.abort();
         return Err("no raw frames received on input stream".into());
     }
 
@@ -458,7 +511,7 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buf: &mut [u8]) -> Result<ReadFram
                 });
             }
             Ok(n) => filled += n,
-            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
             Err(e) => return Err(format!("failed reading raw frame stream: {e}")),
         }
     }
@@ -568,13 +621,16 @@ impl FfmpegPipe {
         Ok(())
     }
 
-    fn abort(mut self) -> Result<(), String> {
+    fn abort(mut self) {
         self.stdin.take();
         let _ = self.child.kill();
         let _ = self.child.wait();
-        Ok(())
     }
 
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "video duration is estimated from frame count and frame rate"
+    )]
     fn finish(
         mut self,
         frame_count: usize,
@@ -614,7 +670,7 @@ impl FfmpegPipe {
 
 fn format_fps(fps: f64) -> String {
     if (fps.fract()).abs() < 1e-9 {
-        format!("{}", fps as u64)
+        format!("{:.0}", fps.trunc())
     } else {
         format!("{fps:.6}")
     }

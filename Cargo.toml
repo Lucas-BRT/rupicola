@@ -4,6 +4,18 @@ default-members = [".", "xtask"]
 exclude = ["evals", "examples"]
 resolver = "2"
 
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+doc_broken_link = "deny"
+ignore_without_reason = "deny"
+invalid_upcast_comparisons = "deny"
+maybe_infinite_iter = "deny"
+should_panic_without_expect = "deny"
+unsafe_derive_deserialize = "deny"
+
+[lints]
+workspace = true
+
 [profile.dev]
 debug = 0
 

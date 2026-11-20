@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    Arc, Body, Cx, Deserialize, FilePath, PageResult, Panel, PathBuf, Response, Run, StatusCode,
+    auth, db_error, design_record, fix_record, header, pages, problem_record, proposal_record,
+    redirect, storage, view,
+};
 use crate::components::badge::{BadgeVariant, badge};
 use auth::{Account, Role};
 use fix_record::{ComparisonPair, FixRecord, FixReview, FixStatus, FixStep};
@@ -19,8 +23,7 @@ pub fn data_root(panel: &Panel) -> PathBuf {
     panel
         .design
         .parent()
-        .map(FilePath::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(".rupicola"))
+        .map_or_else(|| PathBuf::from(".rupicola"), FilePath::to_path_buf)
 }
 
 pub fn sync_legacy_findings(panel: &Panel, project_id: &str, runs: &[&Run]) -> Vec<Problem> {
@@ -82,7 +85,7 @@ fn fix_status_badge(st: FixStatus) -> BadgeVariant {
 
 fn is_video_url(url: &str) -> bool {
     let path = url.split('?').next().unwrap_or(url);
-    path.ends_with(".mp4") || path.ends_with(".webm")
+    matches!(path.rsplit_once('.'), Some((_, "mp4" | "webm")))
 }
 
 fn extract_media_url_from_text(text: &str) -> Option<String> {
@@ -92,7 +95,7 @@ fn extract_media_url_from_text(text: &str) -> Option<String> {
         .take_while(|ch| !ch.is_whitespace())
         .collect();
     let clean = token.trim_end_matches(['.', ',', ';', ')']);
-    if clean.ends_with(".mp4") || clean.ends_with(".webm") || clean.ends_with(".png") {
+    if matches!(clean.rsplit_once('.'), Some((_, "mp4" | "webm" | "png"))) {
         Some(clean.to_string())
     } else {
         None
@@ -121,6 +124,10 @@ fn effective_after_url(fix: &FixRecord, pair: &ComparisonPair) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the captures view keeps its markup and presentation branches together"
+)]
 pub fn render_captures<'a>(
     cx: &'a Cx,
     panel: &'a Panel,
@@ -401,6 +408,10 @@ pub fn render_captures<'a>(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the problems view keeps its markup and presentation branches together"
+)]
 pub fn render_problems<'a>(
     cx: &'a Cx,
     account: &'a Account,
@@ -482,7 +493,7 @@ pub fn render_problems<'a>(
                     <input type="hidden" name="csrf" value=(&account.csrf)>
                     <label for="prob-title">"Problem title"</label>
                     <input id="prob-title" name="title" required="" maxlength="200"
-                        value=(if !prefill_name.is_empty() { format!("Visual issue on {prefill_name}") } else { String::new() })
+                        value=(if prefill_name.is_empty() { String::new() } else { format!("Visual issue on {prefill_name}") })
                         placeholder="e.g. Disconnected 14px gap between Settings cards">
                     <div class="form-row-3">
                         <div>
@@ -679,10 +690,10 @@ pub fn render_problems<'a>(
                         }
 
                         <div class="problem-rules">
-                            for rule in &item.violated_rules {
-                                <span class=(if rule.scope == "project" { "rule-chip project-rule" } else { "rule-chip global-rule" })>
-                                    <strong>(if rule.scope == "project" { "Project Norm" } else { "Global Norm" })</strong>
-                                    " · " (&rule.code) " — " (&rule.title)
+                            for violation in &item.violated_rules {
+                                <span class=(if violation.scope == "project" { "rule-chip project-rule" } else { "rule-chip global-rule" })>
+                                    <strong>(if violation.scope == "project" { "Project Norm" } else { "Global Norm" })</strong>
+                                    " · " (&violation.code) " — " (&violation.title)
                                 </span>
                             }
                         </div>
@@ -803,6 +814,10 @@ pub fn render_problems<'a>(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixes view keeps its markup and presentation branches together"
+)]
 pub fn render_fixes<'a>(
     cx: &'a Cx,
     account: &'a Account,
@@ -1180,8 +1195,7 @@ pub async fn analyze_run_action(
                 let rule_code = candidate
                     .violated_rules
                     .first()
-                    .map(|r| r.code.as_str())
-                    .unwrap_or("");
+                    .map_or("", |r| r.code.as_str());
                 if problem_record::is_suppressed(
                     &existing,
                     &candidate.route,
@@ -1371,10 +1385,10 @@ pub async fn triage_problem_action(
         if agent_id.is_some() {
             exec.agent_id = agent_id;
         }
-        exec.stage = stage.clone();
+        exec.stage.clone_from(&stage);
         exec.progress_pct = pct;
         exec.step_current = step_cur;
-        exec.current_activity = msg.clone();
+        exec.current_activity.clone_from(&msg);
         exec.updated_at_ms = now;
         exec.logs.push(TaskStepLog {
             stage,
@@ -1441,10 +1455,10 @@ pub async fn progress_problem_action(
     if !agent.is_empty() {
         exec.agent_id = Some(agent.clone());
     }
-    exec.stage = stage.clone();
+    exec.stage.clone_from(&stage);
     exec.progress_pct = pct;
     exec.step_current = form.step.clamp(1, exec.step_total.max(1));
-    exec.current_activity = activity.clone();
+    exec.current_activity.clone_from(&activity);
     exec.updated_at_ms = now;
     exec.logs.push(TaskStepLog {
         stage,
@@ -1663,6 +1677,10 @@ pub async fn review_fix_action(
     )))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the storage view keeps its markup and presentation branches together"
+)]
 pub fn render_storage<'a>(
     cx: &'a Cx,
     account: &'a Account,
@@ -2007,13 +2025,13 @@ pub struct StorageConfigForm {
     pub delete_local: String,
 }
 
-pub async fn save_storage_config_action(
-    panel: Arc<Panel>,
-    account: Account,
-    project_id: String,
-    form: StorageConfigForm,
+pub fn save_storage_config_action(
+    panel: &Panel,
+    account: &Account,
+    project_id: &str,
+    form: &StorageConfigForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -2028,7 +2046,7 @@ pub async fn save_storage_config_action(
         delete_local_after_offload: form.delete_local.trim() != "false",
         keep_latest_runs: form.keep_latest_runs.min(100),
     };
-    storage::save_config(&data_root(&panel), &cfg).map_err(db_error)?;
+    storage::save_config(&data_root(panel), &cfg).map_err(db_error)?;
     Ok(redirect(&format!(
         "/projects/{project_id}/storage?q=Saved+external+bucket+configuration"
     )))
@@ -2043,22 +2061,22 @@ pub struct StorageCleanForm {
     pub run_name: Option<String>,
 }
 
-pub async fn clean_storage_action(
-    panel: Arc<Panel>,
-    account: Account,
-    project_id: String,
-    form: StorageCleanForm,
+pub fn clean_storage_action(
+    panel: &Panel,
+    account: &Account,
+    project_id: &str,
+    form: &StorageCleanForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    let data = data_root(&panel);
+    let data = data_root(panel);
     let summary = match form.mode.as_str() {
-        "strip-frames" => storage::strip_raw_frames(&data, Some(&project_id)).map_err(db_error)?,
+        "strip-frames" => storage::strip_raw_frames(&data, Some(project_id)).map_err(db_error)?,
         "prune-unpinned" => storage::prune_unpinned(
             &data,
-            Some(&project_id),
+            Some(project_id),
             form.keep_latest.unwrap_or(2),
             form.date.as_deref(),
         )
@@ -2086,24 +2104,24 @@ pub struct StorageOffloadForm {
     pub target: Option<String>,
 }
 
-pub async fn offload_storage_action(
-    panel: Arc<Panel>,
-    account: Account,
-    project_id: String,
+pub fn offload_storage_action(
+    panel: &Panel,
+    account: &Account,
+    project_id: &str,
     form: StorageOffloadForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    let data = data_root(&panel);
+    let data = data_root(panel);
     let note = if let Some(rname) = form.run_name.filter(|s| !s.trim().is_empty()) {
         match storage::offload_run(&data, rname.trim()) {
             Ok(s) => s.note,
             Err(e) => e,
         }
     } else if let Some(fid) = form.fix_id.filter(|s| !s.trim().is_empty()) {
-        let report = storage::analyze(&data, Some(&project_id));
+        let report = storage::analyze(&data, Some(project_id));
         if let Some(f) = report.by_fix.iter().find(|x| x.fix_id == fid) {
             let mut freed = 0u64;
             let mut count = 0usize;
@@ -2129,7 +2147,7 @@ pub async fn offload_storage_action(
             "Fix not found".to_string()
         }
     } else if form.target.as_deref() == Some("all-unpinned") {
-        let report = storage::analyze(&data, Some(&project_id));
+        let report = storage::analyze(&data, Some(project_id));
         let mut freed = 0u64;
         let mut count = 0usize;
         let mut last_err = None;

@@ -84,14 +84,11 @@ fn ram_capture_records_deterministic_timestamps_timings_pngs_and_analysis() {
     };
 
     // Validation errors
-    let bad = CaptureConfig {
-        width: 0,
-        ..config.clone()
-    };
+    let bad = CaptureConfig { width: 0, ..config };
     assert!(bad.validate().is_err());
     let bad_fps = CaptureConfig {
         fps: f64::NAN,
-        ..config.clone()
+        ..config
     };
     assert!(bad_fps.validate().is_err());
 

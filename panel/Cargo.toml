@@ -25,3 +25,6 @@ tempfile = "=3.27.0"
 
 [build-dependencies]
 topcoat = { version = "=0.11.0", default-features = false, features = ["tailwind"] }
+
+[lints]
+workspace = true

@@ -4,7 +4,7 @@ use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
 };
-use toml::Value;
+use toml::{Table, Value};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Dependency {
@@ -31,6 +31,7 @@ pub struct Inventory {
     pub configuration: &'static str,
 }
 
+#[must_use]
 pub fn framework(package: &str) -> Option<&'static str> {
     match package {
         "cosmic" | "libcosmic" => Some("libcosmic"),
@@ -59,7 +60,7 @@ fn workspace_dependencies(path: &Path, doc: &Value) -> Result<Value, String> {
         return Ok(ws
             .get("dependencies")
             .cloned()
-            .unwrap_or(Value::Table(Default::default())));
+            .unwrap_or(Value::Table(Table::default())));
     }
     // An explicit workspace path wins over ancestor discovery.
     if let Some(relative) = doc
@@ -72,7 +73,7 @@ fn workspace_dependencies(path: &Path, doc: &Value) -> Result<Value, String> {
             .get("workspace")
             .and_then(|w| w.get("dependencies"))
             .cloned()
-            .unwrap_or(Value::Table(Default::default())));
+            .unwrap_or(Value::Table(Table::default())));
     }
     for dir in path.parent().unwrap().ancestors().skip(1) {
         let manifest = dir.join("Cargo.toml");
@@ -82,13 +83,16 @@ fn workspace_dependencies(path: &Path, doc: &Value) -> Result<Value, String> {
                 return Ok(ws
                     .get("dependencies")
                     .cloned()
-                    .unwrap_or(Value::Table(Default::default())));
+                    .unwrap_or(Value::Table(Table::default())));
             }
         }
     }
-    Ok(Value::Table(Default::default()))
+    Ok(Value::Table(Table::default()))
 }
 
+/// # Errors
+///
+/// Returns an error if the Cargo manifest cannot be read or its TOML or dependency declarations are invalid.
 pub fn package(path: &Path) -> Result<Option<Package>, String> {
     let doc = parse(path)?;
     let Some(name) = doc
@@ -169,6 +173,9 @@ pub fn package(path: &Path) -> Result<Option<Package>, String> {
     }))
 }
 
+/// # Errors
+///
+/// Returns an error if the search root cannot be resolved or traversed.
 pub fn discover(root: &Path) -> Result<Inventory, String> {
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     let mut manifests: BTreeSet<PathBuf> = files(&root, false)?
@@ -177,7 +184,7 @@ pub fn discover(root: &Path) -> Result<Inventory, String> {
         .collect();
     // A source-file/subdirectory request also identifies its enclosing package.
     let start = if root.is_file() {
-        root.parent().unwrap()
+        root.parent().unwrap_or(&root)
     } else {
         &root
     };

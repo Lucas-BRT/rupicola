@@ -1,0 +1,2 @@
+[alias]
+pedantic = "clippy --locked --workspace --all-targets -- -W clippy::pedantic"
