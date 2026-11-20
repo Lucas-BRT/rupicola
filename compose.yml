@@ -51,7 +51,7 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "4732"
-      RUPICOLA_PANEL_URL: "${RUPICOLA_PUBLIC_ORIGIN:-https://panel.rupicola.lucasbrt.dev}"
+      RUPICOLA_PANEL_URL: "${RUPICOLA_PUBLIC_ORIGIN:-https://rupicola-panel.lucasbrt.dev}"
     read_only: true
     cap_drop:
       - ALL
