@@ -585,6 +585,12 @@ async fn offload_storage(
 async fn remote_mcp(cx: &Cx, body: Body) -> Result<Response> {
     respond(
         cx,
-        mcp::handle(panel(cx), path_param::<Project>(cx).into(), request::headers(cx), body).await,
+        mcp::handle(
+            panel(cx),
+            path_param::<Project>(cx).into(),
+            request::headers(cx),
+            body,
+        )
+        .await,
     )
 }
