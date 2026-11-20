@@ -63,7 +63,7 @@ fn config(root: &Path) -> Result<(Config, PathBuf), String> {
         root
     };
     for dir in start.ancestors() {
-        let path = dir.join(".ferris-atelier/config.toml");
+        let path = dir.join(".rupicola/config.toml");
         if path.is_file() {
             let config: Config =
                 toml::from_str(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -111,7 +111,7 @@ impl Inspector<'_> {
             .and_then(|i| self.source.lines().nth(i))
             .unwrap_or("")
             .trim();
-        if let Some(value) = previous.strip_prefix("// ferris-ignore") {
+        if let Some(value) = previous.strip_prefix("// rupicola-ignore") {
             let value = value.trim();
             if value.is_empty() || value.split(',').any(|s| s.trim() == id) {
                 return;

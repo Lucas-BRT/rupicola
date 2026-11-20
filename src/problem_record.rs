@@ -353,7 +353,7 @@ pub fn infer_from_finding(
         (
             Severity::Major,
             "common.md#target-size-24px",
-            "WCAG 2.5.8 / Ferris Minimum Target Size (24×24px)",
+            "WCAG 2.5.8 / Rupicola Minimum Target Size (24×24px)",
             "Apply `min-block-size: 24px; min-inline-size: 24px; display: inline-flex; align-items: center;` on interactive controls and links.",
         )
     } else if lower.contains("horizontal overflow") || lower.contains("overflow") {

@@ -1447,9 +1447,9 @@ pub async fn trigger_probe(
         let candidates = [
             std::env::current_exe()
                 .ok()
-                .map(|p| p.with_file_name("ferris-atelier")),
-            Some(PathBuf::from("./target/debug/ferris-atelier")),
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo/bin/ferris-atelier")),
+                .map(|p| p.with_file_name("rupicola")),
+            Some(PathBuf::from("./target/debug/rupicola")),
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo/bin/rupicola")),
         ];
         let Some(bin) = candidates.into_iter().flatten().find(|p| p.is_file()) else {
             return;

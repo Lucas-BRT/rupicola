@@ -1,4 +1,4 @@
-use ferris_atelier::{check, discover, scan};
+use rupicola::{check, discover, scan};
 use std::{collections::BTreeSet, fs, path::Path, process::Command};
 use tempfile::TempDir;
 
@@ -147,7 +147,7 @@ fn direct_blocking_calls_are_candidates_only_in_ui_functions() {
 }
 #[test]
 fn standalone_ignore_comments_work_but_string_directives_do_not() {
-    let text = "fn main(){\n// ferris-ignore transition-all\nlet _ = view!{ <div class=\"transition-all bg-clip-text\"/> };\nlet _ = \"// ferris-ignore transition-all\";\nlet _ = view!{ <div class=\"transition-all\"/> };\n}";
+    let text = "fn main(){\n// rupicola-ignore transition-all\nlet _ = view!{ <div class=\"transition-all bg-clip-text\"/> };\nlet _ = \"// rupicola-ignore transition-all\";\nlet _ = view!{ <div class=\"transition-all\"/> };\n}";
     let result = scan::source(text, Path::new("page.rs"), &frameworks(&["leptos"]), &[]).unwrap();
     assert_eq!(
         result.iter().filter(|f| f.rule == "transition-all").count(),
@@ -193,7 +193,7 @@ fn ignore_paths_are_component_aware_and_config_errors_fail() {
     put(root.path(), "src/skip-other/page.rs", text);
     put(
         root.path(),
-        ".ferris-atelier/config.toml",
+        ".rupicola/config.toml",
         "ignore_paths=['src/skip']",
     );
     assert_eq!(
@@ -202,17 +202,17 @@ fn ignore_paths_are_component_aware_and_config_errors_fail() {
     );
     put(
         root.path(),
-        ".ferris-atelier/config.toml",
+        ".rupicola/config.toml",
         "ignore_rules=['typo']",
     );
     assert!(scan::scan(root.path(), None, false).is_err());
     put(
         root.path(),
-        ".ferris-atelier/config.toml",
+        ".rupicola/config.toml",
         "ignore_paths=['../escape']",
     );
     assert!(scan::scan(root.path(), None, false).is_err());
-    put(root.path(), ".ferris-atelier/config.toml", "typo=true");
+    put(root.path(), ".rupicola/config.toml", "typo=true");
     assert!(scan::scan(root.path(), None, false).is_err());
 }
 #[test]
@@ -225,7 +225,7 @@ fn catalog_frontmatter_accepts_windows_line_endings() {
     let root = TempDir::new().unwrap();
     let checkout = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let checkout = Path::new(&checkout);
-    for source in ferris_atelier::files(checkout, true).unwrap() {
+    for source in rupicola::files(checkout, true).unwrap() {
         let relative = source
             .strip_prefix(checkout.canonicalize().unwrap())
             .unwrap();
@@ -250,7 +250,7 @@ fn catalog_frontmatter_accepts_windows_line_endings() {
 #[test]
 fn binary_json_and_exit_codes_are_stable() {
     let root = TempDir::new().unwrap();
-    let compiled_binary = Path::new(env!("CARGO_BIN_EXE_ferris-atelier"));
+    let compiled_binary = Path::new(env!("CARGO_BIN_EXE_rupicola"));
     let binary = compiled_binary
         .strip_prefix(env!("CARGO_MANIFEST_DIR"))
         .map(|relative| Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join(relative))
@@ -313,7 +313,7 @@ fn task(root: &Path, id: &str, body: &str) {
 const BUILD: &str = "id = \"t\"\nframework = \"iced\"\nkind = \"build\"\nsplit = \"dev\"\nshould_trigger = true\nprompt = \"p\"\n[[verifier]]\nname = \"c\"\ncommand = \"cargo check\"\n";
 fn eval_messages(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    ferris_atelier::evals::validate(root, &mut out);
+    rupicola::evals::validate(root, &mut out);
     out.into_iter().map(|d| d.message).collect()
 }
 #[test]
@@ -380,7 +380,7 @@ fn eval_id_must_match_directory_and_absent_dir_is_fine() {
 #[test]
 fn hardcoded_color_is_a_candidate_only_for_literal_colors_in_ui_functions() {
     let text = "fn ui(){ let a = Color32::from_rgb(10, 20, 30); let b = Color::from_rgb8(1,2,3); let c = Color32::from_rgb(r, 20, 30); let d = Other::from_rgb(1,2,3); }\nfn helper(){ let e = Color32::from_rgb(1,2,3); }\nconst X: u8 = 1;";
-    let findings = ferris_atelier::scan::source(
+    let findings = rupicola::scan::source(
         text,
         std::path::Path::new("a.rs"),
         &frameworks(&["egui"]),

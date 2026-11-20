@@ -31,4 +31,4 @@ Measured numbers settle contrast, target size, names, clipping and overlap. A re
 
 ## Before and after
 
-For an improvement, show the before and after of the same state and size with `ferris-atelier diff`. Explain every changed region outside the edit as intended or as a regression.
+For an improvement, show the before and after of the same state and size with `rupicola diff`. Explain every changed region outside the edit as intended or as a regression.

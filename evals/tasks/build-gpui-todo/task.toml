@@ -10,4 +10,4 @@ name = "compiles"
 command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; cargo check --manifest-path "$m"'
 [[verifier]]
 name = "no-unwrap-in-render"
-command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; ferris-atelier scan "$(dirname "$m")" --json'
+command = 'm=$(find . -name Cargo.toml -not -path "./.claude/*" -not -path "*/target/*" -not -path "*/vendor/*" | head -1); test -n "$m" || { echo no Cargo.toml; exit 1; }; rupicola scan "$(dirname "$m")" --json'

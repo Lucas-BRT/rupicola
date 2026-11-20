@@ -520,15 +520,15 @@ pub fn matrix_plan(spec: &MatrixSpec, out: &Path) -> Vec<MatrixEntry> {
                             let (w, h) = size.split_once('x').unwrap_or((size.as_str(), "0"));
                             let png = out.join(format!("{name}.png"));
                             let env = vec![
-                                ("FERRIS_OUT".to_owned(), png.display().to_string()),
-                                ("FERRIS_STATE".to_owned(), state.clone()),
-                                ("FERRIS_THEME".to_owned(), theme.clone()),
-                                ("FERRIS_SCALE".to_owned(), scale.clone()),
-                                ("FERRIS_TEXT_SCALE".to_owned(), text.clone()),
-                                ("FERRIS_SIZE".to_owned(), size.clone()),
-                                ("FERRIS_WIDTH".to_owned(), w.to_owned()),
-                                ("FERRIS_HEIGHT".to_owned(), h.to_owned()),
-                                ("FERRIS_LOCALE".to_owned(), locale.clone()),
+                                ("RUPICOLA_OUT".to_owned(), png.display().to_string()),
+                                ("RUPICOLA_STATE".to_owned(), state.clone()),
+                                ("RUPICOLA_THEME".to_owned(), theme.clone()),
+                                ("RUPICOLA_SCALE".to_owned(), scale.clone()),
+                                ("RUPICOLA_TEXT_SCALE".to_owned(), text.clone()),
+                                ("RUPICOLA_SIZE".to_owned(), size.clone()),
+                                ("RUPICOLA_WIDTH".to_owned(), w.to_owned()),
+                                ("RUPICOLA_HEIGHT".to_owned(), h.to_owned()),
+                                ("RUPICOLA_LOCALE".to_owned(), locale.clone()),
                             ];
                             entries.push(MatrixEntry {
                                 name,

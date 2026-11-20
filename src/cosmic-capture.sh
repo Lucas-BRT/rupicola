@@ -7,7 +7,7 @@ fixtures=$5
 click_x=$6
 click_y=$7
 symbolic_icon=$8
-base=$(mktemp -d "${TMPDIR:-/tmp}/ferris-cosmic.XXXXXX")
+base=$(mktemp -d "${TMPDIR:-/tmp}/rupicola-cosmic.XXXXXX")
 xvfb=
 cleanup() {
     if test -n "$xvfb"; then
@@ -56,7 +56,7 @@ env -i PATH="$base/bin:$fixtures:/usr/bin:/bin" HOME="$base/home" \
     XDG_CONFIG_HOME="$base/config" XDG_CACHE_HOME="$base/cache" \
     XDG_DATA_HOME="$base/data" XDG_RUNTIME_DIR="$base/runtime" \
     DISPLAY=":$(cat "$base/display")" COSMIC_BACKEND=winit LIBGL_ALWAYS_SOFTWARE=1 \
-    FERRIS_APPLET_BINARY="$applet" FERRIS_NATIVE_TMP="$base" \
+    RUPICOLA_APPLET_BINARY="$applet" RUPICOLA_NATIVE_TMP="$base" \
     /usr/bin/dbus-run-session -- /usr/bin/timeout 20s /bin/bash -s -- \
     "$output" "$desktop_entry" "$app_id" "$click_x" "$click_y" <<'NESTED'
 set -eu
@@ -73,14 +73,14 @@ printf '["Panel"]' > "$panel_config/v1/entries"
 cp /usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/* "$cfg/"
 printf 'Some(["%s"])' "$app_id" > "$cfg/plugins_center"
 printf 'None' > "$cfg/plugins_wings"
-sed '0,/^Exec=/{s/^Exec=.*/Exec=ferris-applet-target/;}' "$desktop_entry" \
+sed '0,/^Exec=/{s/^Exec=.*/Exec=rupicola-applet-target/;}' "$desktop_entry" \
     > "$XDG_DATA_HOME/applications/$app_id.desktop"
-cat > "$FERRIS_NATIVE_TMP/bin/ferris-applet-target" <<'APPLET'
+cat > "$RUPICOLA_NATIVE_TMP/bin/rupicola-applet-target" <<'APPLET'
 #!/bin/sh
-echo "$$" > "$FERRIS_NATIVE_TMP/applet.pid"
-exec "$FERRIS_APPLET_BINARY"
+echo "$$" > "$RUPICOLA_NATIVE_TMP/applet.pid"
+exec "$RUPICOLA_APPLET_BINARY"
 APPLET
-chmod +x "$FERRIS_NATIVE_TMP/bin/ferris-applet-target"
+chmod +x "$RUPICOLA_NATIVE_TMP/bin/rupicola-applet-target"
 
 cosmic-comp >"$output/compositor.log" 2>&1 &
 comp=$!
@@ -89,8 +89,8 @@ cleanup() {
     if test -n "$panel"; then
         kill "$panel" 2>/dev/null || true
     fi
-    if test -s "$FERRIS_NATIVE_TMP/applet.pid"; then
-        kill "$(cat "$FERRIS_NATIVE_TMP/applet.pid")" 2>/dev/null || true
+    if test -s "$RUPICOLA_NATIVE_TMP/applet.pid"; then
+        kill "$(cat "$RUPICOLA_NATIVE_TMP/applet.pid")" 2>/dev/null || true
     fi
     kill "$comp" 2>/dev/null || true
     wait "$comp" 2>/dev/null || true
@@ -111,17 +111,17 @@ fi
 WAYLAND_DISPLAY="${sockets[0]##*/}" cosmic-panel >"$output/panel.log" 2>&1 &
 panel=$!
 for _ in {1..50}; do
-    if test -s "$FERRIS_NATIVE_TMP/applet.pid" || ! kill -0 "$panel" 2>/dev/null; then
+    if test -s "$RUPICOLA_NATIVE_TMP/applet.pid" || ! kill -0 "$panel" 2>/dev/null; then
         break
     fi
     sleep .1
 done
-if ! test -s "$FERRIS_NATIVE_TMP/applet.pid"; then
+if ! test -s "$RUPICOLA_NATIVE_TMP/applet.pid"; then
     echo "The nested panel did not launch the applet."
     exit 1
 fi
 sleep 1
-if ! kill -0 "$(cat "$FERRIS_NATIVE_TMP/applet.pid")" 2>/dev/null; then
+if ! kill -0 "$(cat "$RUPICOLA_NATIVE_TMP/applet.pid")" 2>/dev/null; then
     echo "The applet exited before the first checkpoint."
     exit 1
 fi
@@ -154,7 +154,7 @@ sleep .25
 screenshot closed
 pointer click
 sleep 1
-if ! kill -0 "$(cat "$FERRIS_NATIVE_TMP/applet.pid")" 2>/dev/null; then
+if ! kill -0 "$(cat "$RUPICOLA_NATIVE_TMP/applet.pid")" 2>/dev/null; then
     echo "The applet exited after the panel click."
     exit 1
 fi

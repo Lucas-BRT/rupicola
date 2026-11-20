@@ -1,4 +1,4 @@
-//! Static, offline helpers for the Ferris Atelier skill.
+//! Static, offline helpers for the Rupicola skill.
 //! No inspected project code is compiled or executed by these functions.
 pub mod capture;
 pub mod check;

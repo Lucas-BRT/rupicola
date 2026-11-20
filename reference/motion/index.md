@@ -9,7 +9,7 @@ The user does not need to know these tactics exist. While planning, building, im
 1. Scan the work for the situations below.
 2. Pick at most three tactics per screen, ordered by value: orientation and continuity first, feedback second, polish last.
 3. Act by workflow. Build: implement the tactics the feature's own states require (enter and exit of the new surface, loading, press feedback), minimal. Improve: propose a ranked list with where and why, and apply it when the request is about polish or the user agrees. Review: report missing motion as a defect only when a state change goes unnoticed or disorienting; otherwise as an opportunity. Plan: include a short motion plan.
-4. Respect the project: reuse its motion tokens and existing durations, match its personality, and read `motion = off | subtle | expressive` from `.ferris-atelier/context.md` (default `subtle`). Do not expand scope silently; name what was added in plain words ("added a container transform from card to detail").
+4. Respect the project: reuse its motion tokens and existing durations, match its personality, and read `motion = off | subtle | expressive` from `.rupicola/context.md` (default `subtle`). Do not expand scope silently; name what was added in plain words ("added a container transform from card to detail").
 5. Every tactic ships with its reduced-motion fallback and a way to verify it.
 
 ## Situation to tactics

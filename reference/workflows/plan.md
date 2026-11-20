@@ -16,4 +16,4 @@ When the user states a broad goal, new interface, or open-ended redesign rather 
    - **State & persistence:** URL query-param state vs server DB vs local storage; optimistic vs confirmed mutations; duplicate-submit guards.
    - **Data extremes & recovery:** behavior at `0`, `1`, and `100+` items, long strings, and network/validation failures.
    - **Verification target:** headless Chromium, offscreen RAM (`RamCapture`), or compositor capture.
-3. **Persist decisions:** record the user's answers as `adopted` entries via `ferris-atelier design add` so subsequent build/review loops honor them without re-asking.
+3. **Persist decisions:** record the user's answers as `adopted` entries via `rupicola design add` so subsequent build/review loops honor them without re-asking.

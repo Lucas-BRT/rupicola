@@ -143,7 +143,7 @@ const TOOLS: &[(&str, &str, &[&str], &[&str])] = &[
     ),
     (
         "skill_check",
-        "Validate the Ferris skill catalog",
+        "Validate the Rupicola skill catalog",
         &[],
         &["path"],
     ),
@@ -191,7 +191,7 @@ const TOOLS: &[(&str, &str, &[&str], &[&str])] = &[
     ),
     (
         "preview_start",
-        "Start this MCP session's isolated Ferris panel on loopback with optional demo project",
+        "Start this MCP session's isolated Rupicola panel on loopback with optional demo project",
         &[],
         &["demo"],
     ),
@@ -404,13 +404,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value, String
             }
             let binary = std::env::current_exe()
                 .map_err(|e| e.to_string())?
-                .with_file_name("ferris-atelier-panel");
+                .with_file_name("rupicola-panel");
             let mut child = Command::new(binary)
                 .args(["--port", "0", "--db"])
                 .arg(root.join("panel.db"))
                 .arg("--captures")
                 .arg(root.join("captures"))
-                .env_remove("FERRIS_SETUP_CODE")
+                .env_remove("RUPICOLA_SETUP_CODE")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::piped())
                 .spawn()
@@ -489,7 +489,7 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value, String
             let (id, label) = service::detect_project()?;
             input.set_project(id, label);
             let out = service::output()?;
-            let module = std::env::var_os("FERRIS_PLAYWRIGHT_MODULE").map(PathBuf::from);
+            let module = std::env::var_os("RUPICOLA_PLAYWRIGHT_MODULE").map(PathBuf::from);
             let capture = scenario::web(
                 input,
                 &out,
@@ -1021,7 +1021,7 @@ pub fn serve() -> io::Result<()> {
                     "2024-11-05" | "2025-03-26" | "2025-06-18" | "2025-11-25" => version,
                     _ => "2025-11-25",
                 };
-                json!({"result":{"protocolVersion":version,"capabilities":{"tools":{}},"serverInfo":{"name":"ferris-atelier","version":env!("CARGO_PKG_VERSION")}}})
+                json!({"result":{"protocolVersion":version,"capabilities":{"tools":{}},"serverInfo":{"name":"rupicola","version":env!("CARGO_PKG_VERSION")}}})
             }
             Some("ping") => json!({"result":{}}),
             Some("tools/list") => {

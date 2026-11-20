@@ -197,7 +197,7 @@ pub enum StorageAction {
         endpoint_url: String,
         #[arg(long, default_value = "auto")]
         region: String,
-        #[arg(long, default_value = "ferris-atelier")]
+        #[arg(long, default_value = "rupicola")]
         prefix: String,
         #[arg(long, default_value = "")]
         public_base_url: String,
@@ -718,7 +718,7 @@ pub fn run_fix(action: FixAction) -> Result<u8, String> {
                     p.updated_at_ms = now;
                     let total = record.steps.len().max(1);
                     let mut exec = p.execution.take().unwrap_or(TaskExecution {
-                        agent_id: Some("ferris-atelier-agent".into()),
+                        agent_id: Some("rupicola-agent".into()),
                         stage: "completed".into(),
                         progress_pct: 100,
                         step_current: total,
@@ -729,7 +729,7 @@ pub fn run_fix(action: FixAction) -> Result<u8, String> {
                         updated_at_ms: now,
                     });
                     if exec.agent_id.is_none() {
-                        exec.agent_id = Some("ferris-atelier-agent".into());
+                        exec.agent_id = Some("rupicola-agent".into());
                     }
                     exec.stage = "completed".into();
                     exec.progress_pct = 100;

@@ -230,7 +230,7 @@ impl RamCapture {
         encode_rgba_images(&self.frames, out, options)
     }
 
-    /// Run `ferris-atelier frames` motion analysis directly on the in-RAM frames.
+    /// Run `rupicola frames` motion analysis directly on the in-RAM frames.
     pub fn analyze(&self, threshold: u8) -> Result<Frames, String> {
         visual::analyze_images(&self.frames, threshold)
     }

@@ -1,4 +1,4 @@
-# Ferris Atelier panel
+# Rupicola panel
 
 Review screenshots, recordings and analysis by project. Topcoat serves the
 routes and renders the pages. Tailwind compiles the panel stylesheet at build
@@ -11,13 +11,13 @@ Install with Rust 1.99 or newer:
 
 ```sh
 cargo install --path panel --locked
-ferris-atelier serve --captures /path/to/project/.ferris-atelier/captures
+rupicola serve --captures /path/to/project/.rupicola/captures
 ```
 
 Go to http://127.0.0.1:4731 and create the owner account on first access.
 Repeat `--captures` to use several directories. Each directory contains runs
 with version 1 manifests and their relative artifacts. Projects appear as the
-panel indexes their manifests. Running `ferris-atelier design open` in a checkout registers it before its first capture. The project’s **Design** page shows the brief, art direction, tactics and decisions recorded by the CLI. Use **Projects → Create a project** to prepare a
+panel indexes their manifests. Running `rupicola design open` in a checkout registers it before its first capture. The project’s **Design** page shows the brief, art direction, tactics and decisions recorded by the CLI. Use **Projects → Create a project** to prepare a
 project before its first upload. Keep the order of capture roots stable to
 preserve links to runs.
 
@@ -34,15 +34,15 @@ access to only the capture roots it needs. Configure the proxy to preserve the
 public Host header, allow requests up to 64 MiB and rate-limit sign-in and
 registration.
 
-Before first startup, provision `FERRIS_SETUP_CODE` as a high-entropy secret
+Before first startup, provision `RUPICOLA_SETUP_CODE` as a high-entropy secret
 of at least 32 characters. Enter it in the setup form. After the owner account
 exists, remove the environment secret from the service configuration.
 
 ```sh
-ferris-atelier serve \
+rupicola serve \
   --public-origin https://atelier.example.org \
-  --db /srv/ferris/panel.db \
-  --uploads /srv/ferris/captures \
+  --db /srv/rupicola/panel.db \
+  --uploads /srv/rupicola/captures \
   --port 4731
 ```
 
@@ -59,7 +59,7 @@ notes. The owner manages projects, access and machine credentials. A member with
 For password recovery, stop the panel service and reset the account from the host:
 
 ```sh
-ferris-atelier-panel --db /srv/ferris/panel.db recover USERNAME
+rupicola-panel --db /srv/rupicola/panel.db recover USERNAME
 ```
 
 Pass the replacement password on standard input without shell echo. This
@@ -71,23 +71,23 @@ From the workspace root:
 
 ```sh
 # Production behind Dokploy's Traefik (uses expose: 4731 on dokploy-network)
-FERRIS_PUBLIC_ORIGIN=https://atelier.example.org \
-FERRIS_SETUP_CODE="$(openssl rand -hex 32)" \
+RUPICOLA_PUBLIC_ORIGIN=https://atelier.example.org \
+RUPICOLA_SETUP_CODE="$(openssl rand -hex 32)" \
 docker compose up -d --build
 
 # Local testing on http://127.0.0.1:4731
 docker compose -f compose.local.yml up -d --build
 ```
 
-The container runs as non-root `10001:10001` with a read-only root filesystem, `cap_drop: [ALL]`, `no-new-privileges:true`, and a built-in `./ferris-atelier-panel --healthcheck` probe against `/healthz`.
+The container runs as non-root `10001:10001` with a read-only root filesystem, `cap_drop: [ALL]`, `no-new-privileges:true`, and a built-in `./rupicola-panel --healthcheck` probe against `/healthz`.
 
 ## Publish from another machine
 
 Create a publishing credential in **Project settings → Machines**. Store it
-securely as `FERRIS_PUBLISH_TOKEN` on the capture machine and run:
+securely as `RUPICOLA_PUBLISH_TOKEN` on the capture machine and run:
 
 ```sh
-ferris-atelier-panel publish path/to/capture --server https://atelier.example.org
+rupicola-panel publish path/to/capture --server https://atelier.example.org
 ```
 
 The publisher requires curl. It sends the manifest and only its declared

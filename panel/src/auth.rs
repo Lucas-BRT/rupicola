@@ -103,7 +103,7 @@ pub async fn authenticate(
     if path.starts_with("/api/publish/") {
         return Ok(None);
     }
-    let Some(id) = cookie(headers, "fa_session") else {
+    let Some(id) = cookie(headers, "rp_session") else {
         return Err(StatusCode::UNAUTHORIZED);
     };
     let id = digest(&id);
@@ -244,7 +244,7 @@ pub struct Credentials {
 
 fn check_form(panel: &Panel, headers: &HeaderMap, form: &Credentials) -> PageResult<()> {
     if !same_origin(panel, headers)
-        || cookie(headers, "fa_form").is_none_or(|token| !equal(&token, &form.csrf))
+        || cookie(headers, "rp_form").is_none_or(|token| !equal(&token, &form.csrf))
     {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -488,11 +488,11 @@ async fn create_session(panel: &Panel, handle: &str) -> PageResult<Response> {
     let mut response = redirect("/");
     response.headers_mut().append(
         header::SET_COOKIE,
-        cookie_header(panel, "fa_session", &session, SESSION_AGE),
+        cookie_header(panel, "rp_session", &session, SESSION_AGE),
     );
     response
         .headers_mut()
-        .append(header::SET_COOKIE, cookie_header(panel, "fa_form", "", 0));
+        .append(header::SET_COOKIE, cookie_header(panel, "rp_form", "", 0));
     Ok(response)
 }
 
@@ -513,7 +513,7 @@ pub async fn logout(panel: Arc<Panel>, account: Account, form: Csrf) -> PageResu
     let mut response = redirect("/login");
     response.headers_mut().insert(
         header::SET_COOKIE,
-        cookie_header(&panel, "fa_session", "", 0),
+        cookie_header(&panel, "rp_session", "", 0),
     );
     Ok(response)
 }
@@ -527,9 +527,9 @@ async fn render(
     status: StatusCode,
 ) -> PageResult<Response> {
     let nonce = token();
-    let form_cookie = cookie_header(panel, "fa_form", &nonce, 1800);
+    let form_cookie = cookie_header(panel, "rp_form", &nonce, 1800);
     let title = match (registering, initial) {
-        (true, true) => "Set up Ferris Atelier",
+        (true, true) => "Set up Rupicola",
         (true, false) => "Accept an invitation",
         _ => "Sign in",
     };
@@ -541,14 +541,14 @@ async fn render(
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>(title) " · Ferris Atelier"</title>
+                <title>(title) " · Rupicola"</title>
                 <link rel="stylesheet" href="/panel.css">
                 <script src="/panel.js" defer=""></script>
             </head>
             <body class="auth-page">
                 <div class="auth-brand">
-                    <span class="mark" aria-hidden="true">"F"</span>
-                    <strong>"Ferris Atelier"</strong>
+                    <span class="mark" aria-hidden="true">"R"</span>
+                    <strong>"Rupicola"</strong>
                 </div>
                 <main class="auth-layout">
                     <div class="auth-visual" aria-hidden="true">

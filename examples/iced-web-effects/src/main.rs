@@ -253,7 +253,7 @@ fn main() -> iced::Result {
 }
 
 /// Headless captures with iced_test. State is set directly, because tasks (widget measurement)
-/// and subscriptions do not run here. Set FERRIS_SHOTS to a directory to write PNGs.
+/// and subscriptions do not run here. Set RUPICOLA_SHOTS to a directory to write PNGs.
 #[cfg(test)]
 mod capture {
     use super::*;
@@ -264,7 +264,7 @@ mod capture {
     const SIZE: Size = Size::new(560.0, 640.0);
 
     fn shots() -> Option<PathBuf> {
-        let dir = PathBuf::from(std::env::var_os("FERRIS_SHOTS")?);
+        let dir = PathBuf::from(std::env::var_os("RUPICOLA_SHOTS")?);
         std::fs::create_dir_all(&dir).ok()?;
         Some(dir)
     }

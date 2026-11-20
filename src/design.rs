@@ -98,7 +98,7 @@ fn evidence(path: &Path, root: &Path, project: &str) -> Result<String, String> {
 
 pub fn run(action: Action) -> Result<(), String> {
     let (id, label) = service::detect_project()?;
-    if !ferris_atelier::scenario::identifier(&id) {
+    if !rupicola::scenario::identifier(&id) {
         return Err("Invalid project ID".into());
     }
     let data = service::data()?;

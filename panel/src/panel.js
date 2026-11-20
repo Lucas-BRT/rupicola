@@ -18,7 +18,7 @@ for (const marker of document.querySelectorAll("[data-seek]")) {
 const preferences = ["dark", "light", "system"];
 const themeChoice = document.querySelector("[data-theme-choice]");
 try {
-  const saved = localStorage.getItem("ferris-theme");
+  const saved = localStorage.getItem("rupicola-theme");
   if (preferences.includes(saved)) {
     document.documentElement.dataset.theme = saved;
     if (themeChoice) themeChoice.value = saved;
@@ -26,7 +26,7 @@ try {
   themeChoice?.addEventListener("change", () => {
     if (!preferences.includes(themeChoice.value)) return;
     document.documentElement.dataset.theme = themeChoice.value;
-    localStorage.setItem("ferris-theme", themeChoice.value);
+    localStorage.setItem("rupicola-theme", themeChoice.value);
   });
 } catch {
   if (themeChoice) themeChoice.disabled = true;

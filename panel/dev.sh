@@ -2,18 +2,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ferris-atelier"
-CAPTURES="${FERRIS_DEV_CAPTURES:-$DATA_DIR/captures}"
-DB="${FERRIS_DEV_DB:-$DATA_DIR/panel.db}"
-PORT="${FERRIS_DEV_PORT:-4731}"
-STATE_DIR="$ROOT/.ferris-atelier"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/rupicola"
+CAPTURES="${RUPICOLA_DEV_CAPTURES:-$DATA_DIR/captures}"
+DB="${RUPICOLA_DEV_DB:-$DATA_DIR/panel.db}"
+PORT="${RUPICOLA_DEV_PORT:-4731}"
+STATE_DIR="$ROOT/.rupicola"
 PID_FILE="$STATE_DIR/panel-dev.pid"
 LOG_FILE="$STATE_DIR/panel-dev.log"
-BIN="$ROOT/target/debug/ferris-atelier-panel"
-if [[ ! -x "$BIN" ]] && [[ -x "$ROOT/panel/target/debug/ferris-atelier-panel" ]]; then
-  BIN="$ROOT/panel/target/debug/ferris-atelier-panel"
+BIN="$ROOT/target/debug/rupicola-panel"
+if [[ ! -x "$BIN" ]] && [[ -x "$ROOT/panel/target/debug/rupicola-panel" ]]; then
+  BIN="$ROOT/panel/target/debug/rupicola-panel"
 fi
-DEV_UNIT="ferris-atelier-dev.service"
+DEV_UNIT="rupicola-dev.service"
 
 stop_dev() {
   if command -v systemctl >/dev/null 2>&1; then
@@ -37,8 +37,8 @@ stop_dev() {
 
 stop_systemd() {
   if command -v systemctl >/dev/null 2>&1; then
-    if systemctl --user is-active --quiet ferris-atelier.service 2>/dev/null; then
-      systemctl --user stop ferris-atelier.service
+    if systemctl --user is-active --quiet rupicola.service 2>/dev/null; then
+      systemctl --user stop rupicola.service
     fi
   fi
 }
@@ -59,13 +59,13 @@ cmd="${1:-reload}"
 case "$cmd" in
   reload)
     mkdir -p "$STATE_DIR"
-    cargo build -p ferris-atelier-panel --quiet
-    BIN="$ROOT/target/debug/ferris-atelier-panel"
+    cargo build -p rupicola-panel --quiet
+    BIN="$ROOT/target/debug/rupicola-panel"
     stop_dev
     stop_systemd
     if command -v systemd-run >/dev/null 2>&1; then
       systemd-run --user --unit="$DEV_UNIT" \
-        --description="Ferris Atelier panel (dev)" \
+        --description="Rupicola panel (dev)" \
         "$BIN" --captures "$CAPTURES" --db "$DB" --port "$PORT" >/dev/null
     else
       nohup "$BIN" --captures "$CAPTURES" --db "$DB" --port "$PORT" >"$LOG_FILE" 2>&1 < /dev/null &
@@ -81,8 +81,8 @@ case "$cmd" in
   restore)
     stop_dev
     cargo install --path "$ROOT/panel" --locked --quiet
-    systemctl --user restart ferris-atelier.service
-    echo "ferris-atelier.service restored at http://127.0.0.1:4731"
+    systemctl --user restart rupicola.service
+    echo "rupicola.service restored at http://127.0.0.1:4731"
     ;;
   status)
     if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet "$DEV_UNIT" 2>/dev/null; then
@@ -92,7 +92,7 @@ case "$cmd" in
     else
       echo "panel-dev: stopped"
     fi
-    systemctl --user is-active ferris-atelier.service 2>/dev/null || true
+    systemctl --user is-active rupicola.service 2>/dev/null || true
     ;;
   *)
     echo "usage: $0 {reload|stop|restore|status}" >&2

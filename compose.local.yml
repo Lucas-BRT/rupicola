@@ -6,17 +6,17 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "${FERRIS_BIND_IP:-127.0.0.1}:${FERRIS_PORT:-4731}:4731"
+      - "${RUPICOLA_BIND_IP:-127.0.0.1}:${RUPICOLA_PORT:-4731}:4731"
     environment:
       HOST: "0.0.0.0"
       PORT: "4731"
       XDG_DATA_HOME: "/data"
-      FERRIS_DB: "/data/panel.db"
-      FERRIS_CAPTURES: "/data/captures"
-      FERRIS_UPLOADS: "/data/uploads"
-      FERRIS_SETUP_CODE: "${FERRIS_SETUP_CODE:-}"
+      RUPICOLA_DB: "/data/panel.db"
+      RUPICOLA_CAPTURES: "/data/captures"
+      RUPICOLA_UPLOADS: "/data/uploads"
+      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
     volumes:
-      - ferris-local-data:/data
+      - rupicola-local-data:/data
     tmpfs:
       - /tmp:size=64m,mode=1777
     read_only: true
@@ -25,11 +25,11 @@ services:
     security_opt:
       - "no-new-privileges:true"
     healthcheck:
-      test: ["CMD", "./ferris-atelier-panel", "--healthcheck"]
+      test: ["CMD", "./rupicola-panel", "--healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
 
 volumes:
-  ferris-local-data:
+  rupicola-local-data:

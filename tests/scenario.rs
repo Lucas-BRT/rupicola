@@ -29,7 +29,7 @@ fn capture_rejects_bad_scenarios_before_creating_output_and_records_runtime_bloc
     let scenario = tmp.path().join("scenario.toml");
     let output = tmp.path().join("run");
     let capture = || {
-        Command::new(env!("CARGO_BIN_EXE_ferris-atelier"))
+        Command::new(env!("CARGO_BIN_EXE_rupicola"))
             .arg("capture")
             .arg(&scenario)
             .arg("--out")
@@ -81,7 +81,7 @@ fn review_attaches_known_artifacts_and_preserves_run_metadata() {
     fs::write(tmp.path().join("before.png"), b"fixture").unwrap();
 
     let review = |note, evidence| {
-        Command::new(env!("CARGO_BIN_EXE_ferris-atelier"))
+        Command::new(env!("CARGO_BIN_EXE_rupicola"))
             .arg("capture-review")
             .arg(&path)
             .args(["--note", note, "--evidence", evidence])

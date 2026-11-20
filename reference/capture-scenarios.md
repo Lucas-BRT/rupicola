@@ -8,7 +8,7 @@ Install Node.js and Playwright with its Chromium browser. From the project direc
 
 ```sh
 npx playwright install chromium
-ferris-atelier capture settings.toml --out .ferris-atelier/captures/settings-before --video
+rupicola capture settings.toml --out .rupicola/captures/settings-before --video
 ```
 
 Supply `--playwright-module /path/to/node_modules/playwright` when Playwright is installed elsewhere. Without `--video`, the run needs only Node.js and Playwright. MP4 previews additionally require an `ffmpeg` build with `libx264`. The output directory must be new. Exit code `0` means capture and requested artifact generation completed. A blocked run exits `1` and includes its blocker and any usable artifacts in the manifest. A scenario rejected before capture exits `1` with a validation message.
@@ -61,7 +61,7 @@ id = "opened"
 Actions use Playwright locator selectors and support `click`, `hover`, `fill` (with `value`), `press` (with `key`), and `ready` (wait for a visible element). Checkpoints and clips need distinct IDs with ASCII letters, digits, hyphens or underscores. A clip captures a baseline, performs its trigger, then samples the viewport. Keep each clip at 2–60 post-trigger samples spanning at most 10 seconds. Use another profile for dark theme, a different viewport or reduced motion.
 
 In a Git checkout, omit `--out` to write directly to the local panel directory.
-Ferris detects the project from Git or uses an explicit `ferris-atelier link`.
+Rupicola detects the project from Git or uses an explicit `rupicola link`.
 The `[project]` section is optional in this mode. With `--out`, supply that
 section to choose the project recorded in the manifest.
 
@@ -71,10 +71,10 @@ Open the checkpoints and clip contact sheets. The clip's `analysis.json` records
 
 The run retains the baseline, midpoint and last PNG, plus frames near changes or flagged steps where available. The manifest points to those frames and the analysis, contact sheet and optional MP4. The run removes the other PNG samples after processing.
 
-Compare the same checkpoint across runs with `ferris-atelier diff` or use the optional local panel. Record a concrete observation after inspecting the evidence:
+Compare the same checkpoint across runs with `rupicola diff` or use the optional local panel. Record a concrete observation after inspecting the evidence:
 
 ```sh
-ferris-atelier capture-review .ferris-atelier/captures/settings-before/manifest.json \
+rupicola capture-review .rupicola/captures/settings-before/manifest.json \
   --note 'Popup becomes visible but keyboard focus stays on the toolbar button.' \
   --evidence checkpoints/opened.png
 ```

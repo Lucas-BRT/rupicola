@@ -34,7 +34,7 @@ impl Default for BucketConfig {
             bucket: String::new(),
             endpoint_url: "https://s3.amazonaws.com".into(),
             region: "auto".into(),
-            prefix: "ferris-atelier".into(),
+            prefix: "rupicola".into(),
             public_base_url: String::new(),
             auto_policy: "manual".into(),
             delete_local_after_offload: true,

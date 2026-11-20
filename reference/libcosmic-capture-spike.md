@@ -22,14 +22,14 @@ esac
 EOF_FIXTURE
 chmod +x "$fixtures/tailscale"
 
-ferris-atelier capture-cosmic \
+rupicola capture-cosmic \
   --applet "$APPLET/target/release/tailscale-cosmic-applet" \
   --desktop-entry "$APPLET/resources/app.desktop" \
   --app-id io.github.lucasbrt.TailscaleCosmicApplet \
   --fixtures "$fixtures" \
   --symbolic-icon "$APPLET/resources/icon-symbolic.svg" \
   --project-id tailscale-applet --project-label 'Tailscale applet' \
-  --click 640 18 --out .ferris-atelier/captures/cosmic-fixture
+  --click 640 18 --out .rupicola/captures/cosmic-fixture
 ```
 
 Open `checkpoints/closed.png` and `checkpoints/open.png` and record your observation with `capture-review`. The manifest describes the isolated renderer and any blocker. Logs stay in the run directory. A complete capture establishes that both frames were saved. Inspect the images to confirm the click opened the popup.

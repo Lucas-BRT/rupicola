@@ -2,7 +2,7 @@
 /panel/target
 /dist
 /.git
-/.ferris-atelier
+/.rupicola
 /evals/results
 /examples
 *.swp

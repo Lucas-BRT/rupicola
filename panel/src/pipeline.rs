@@ -20,7 +20,7 @@ pub fn data_root(panel: &Panel) -> PathBuf {
         .design
         .parent()
         .map(FilePath::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(".ferris-atelier"))
+        .unwrap_or_else(|| PathBuf::from(".rupicola"))
 }
 
 pub fn sync_legacy_findings(panel: &Panel, project_id: &str, runs: &[&Run]) -> Vec<Problem> {
@@ -618,7 +618,7 @@ pub fn render_problems<'a>(
                                     if exec.agent_id.is_none() && item.status == ProblemStatus::InProgress {
                                         <p class="muted tracker-hint">
                                             "Claim via CLI: "
-                                            <code>(format!("ferris-atelier problem claim {} --agent <agent-name>", item.id))</code>
+                                            <code>(format!("rupicola problem claim {} --agent <agent-name>", item.id))</code>
                                             " or MCP tool "
                                             <code>"problem_progress"</code>
                                         </p>
@@ -645,7 +645,7 @@ pub fn render_problems<'a>(
                                         <div class="propose-badges">
                                             <span class="studio-kind">"AGENT:"</span>
                                             <strong class="tracker-agent" data-tracker-agent="">
-                                                (if item.status == ProblemStatus::Resolved { "ferris-atelier-agent" } else { "Unassigned · Waiting for agent to claim" })
+                                                (if item.status == ProblemStatus::Resolved { "rupicola-agent" } else { "Unassigned · Waiting for agent to claim" })
                                             </strong>
                                             <span class="tactic-chip" data-tracker-stage="">
                                                 (if item.status == ProblemStatus::Resolved { "STAGE: COMPLETED" } else { "STAGE: QUEUED" })
@@ -660,7 +660,7 @@ pub fn render_problems<'a>(
                                         (if item.status == ProblemStatus::Resolved {
                                             "Fix verified and linked in Fixes."
                                         } else {
-                                            "Queued for fix — waiting for an agent to claim task via MCP (problem_progress) or CLI (ferris-atelier problem claim)."
+                                            "Queued for fix — waiting for an agent to claim task via MCP (problem_progress) or CLI (rupicola problem claim)."
                                         })
                                     </p>
                                 }
@@ -740,7 +740,7 @@ pub fn render_problems<'a>(
                                             <input type="hidden" name="csrf" value=(&account.csrf)>
                                             <label for=(format!("ag-{}", item.id))>"Agent identifier"</label>
                                             <input id=(format!("ag-{}", item.id)) name="agent" maxlength="120"
-                                                value=(item.execution.as_ref().and_then(|e| e.agent_id.as_deref()).unwrap_or(if mcp_online { "ferris-mcp-agent" } else { "codex-agent" }))>
+                                                value=(item.execution.as_ref().and_then(|e| e.agent_id.as_deref()).unwrap_or(if mcp_online { "rupicola-mcp-agent" } else { "codex-agent" }))>
                                             <div class="form-row-3">
                                                 <div>
                                                     <label for=(format!("stg-{}", item.id))>"Stage"</label>
@@ -1334,7 +1334,7 @@ pub async fn triage_problem_action(
     if status == ProblemStatus::InProgress {
         let mcp_session = proposal_record::mcp_session_active(&data);
         let (agent_id, stage, pct, step_cur, msg) = if let Some(sess) = mcp_session {
-            let client = sess.client.unwrap_or_else(|| "ferris-mcp-agent".into());
+            let client = sess.client.unwrap_or_else(|| "rupicola-mcp-agent".into());
             let label = format!("{client} (PID {})", sess.pid);
             (
                 Some(label.clone()),
@@ -1352,7 +1352,7 @@ pub async fn triage_problem_action(
                 5,
                 0,
                 format!(
-                    "Queued by {} — waiting for an agent to claim (MCP problem_progress or CLI: ferris-atelier problem claim {} --agent <name>)",
+                    "Queued by {} — waiting for an agent to claim (MCP problem_progress or CLI: rupicola problem claim {} --agent <name>)",
                     account.handle, problem.id
                 ),
             )
@@ -1725,7 +1725,7 @@ pub fn render_storage<'a>(
                         <div>
                             <label for="st-bucket">"Bucket name or volume path"</label>
                             <input id="st-bucket" name="bucket" required="" maxlength="240"
-                                value=(&report.config.bucket) placeholder="e.g. ferris-evidence-prod or /mnt/archive-bucket">
+                                value=(&report.config.bucket) placeholder="e.g. rupicola-evidence-prod or /mnt/archive-bucket">
                         </div>
                         <div>
                             <label for="st-prefix">"Key prefix"</label>
@@ -1745,7 +1745,7 @@ pub fn render_storage<'a>(
                         <div>
                             <label for="st-public">"Public / CDN Base URL (for Before/After links)"</label>
                             <input id="st-public" name="public_base_url" maxlength="240"
-                                value=(&report.config.public_base_url) placeholder="https://cdn.example.com/ferris-atelier">
+                                value=(&report.config.public_base_url) placeholder="https://cdn.example.com/rupicola">
                         </div>
                     </div>
                     <div class="form-row-3">

@@ -7,7 +7,7 @@ Status below is a snapshot from 2026-11-18 compiled from MDN, web.dev, Chrome fo
 ## Adoption rules
 
 1. Baseline status decides the default. Widely available: use freely. Newly available: use with a feature check or a graceful fallback. Limited availability or experimental: use only as a progressive enhancement, never for essential function.
-2. Read the project's support policy first (`browser_support: baseline-widely | baseline-newly | latest` in `.ferris-atelier/context.md`, or a policy in AGENTS.md or CLAUDE.md). With no policy, assume `baseline-widely` plus enhancements behind `@supports`.
+2. Read the project's support policy first (`browser_support: baseline-widely | baseline-newly | latest` in `.rupicola/context.md`, or a policy in AGENTS.md or CLAUDE.md). With no policy, assume `baseline-widely` plus enhancements behind `@supports`.
 3. Progressive enhancement means the experience is complete without the feature. A browser that ignores it must still do the task.
 4. A new feature has to beat the plain alternative for this task. Do not use a feature because it is new, interesting or impressive; use it because it removes JavaScript, fixes a real problem or improves a measurable quality. Prefer one or two such features per page, not a showcase.
 5. Webviews are pinned by the OS, not the user: Tauri and Dioxus desktop use WebKitGTK on Linux, WebView2 on Windows and WKWebView on macOS, and these lag or differ from desktop browsers. Check the minimum engine of each target before using a newly available feature.

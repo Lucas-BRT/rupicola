@@ -1,7 +1,7 @@
 //! Evaluation runner and analyzer. `plan` and `analyze` are offline; `run` spawns an agent
-//! only with `--execute`. Never part of the distributed `ferris-atelier` binary.
+//! only with `--execute`. Never part of the distributed `rupicola` binary.
 use clap::{Args, Parser, Subcommand};
-use ferris_atelier::evals::{Task, load};
+use rupicola::evals::{Task, load};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -119,7 +119,7 @@ impl Drop for Cleanup {
 /// A clean configuration directory holding only the credential keeps user-level skills,
 /// hooks, plugins and MCP servers out of every condition.
 fn setup_config(no_isolate: bool) -> R<(Option<PathBuf>, Cleanup)> {
-    let config = (!no_isolate).then(|| std::env::temp_dir().join("ferris-eval-config"));
+    let config = (!no_isolate).then(|| std::env::temp_dir().join("rupicola-eval-config"));
     let cleanup = Cleanup(config.clone());
     if let Some(dir) = &config {
         let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
@@ -296,14 +296,14 @@ fn analyze_trajectory(path: &Path) -> Value {
                 if item["name"] == "Skill"
                     && item["input"]["skill"]
                         .as_str()
-                        .is_some_and(|n| n.ends_with("ferris-atelier"))
+                        .is_some_and(|n| n.ends_with("rupicola"))
                 {
                     invoked = true;
                 }
                 if item["name"] == "Read"
                     && item["input"]["file_path"]
                         .as_str()
-                        .is_some_and(|p| p.contains("skills/ferris-atelier"))
+                        .is_some_and(|p| p.contains("skills/rupicola"))
                 {
                     engaged = true;
                 }
@@ -343,7 +343,7 @@ fn analyze_trajectory(path: &Path) -> Value {
     .iter()
     .any(|w| claim_text.contains(w));
     json!({
-        // Structured: a `Skill` tool call whose input names ferris-atelier.
+        // Structured: a `Skill` tool call whose input names rupicola.
         "skill_invoked": invoked,
         // Looser: the Skill tool was called or the agent read the skill's own files directly.
         "skill_engaged": invoked || engaged,
@@ -378,7 +378,7 @@ fn execute_one(
     let id = run_id(&task.id, &cond.0, rep);
     // Each run gets its own root so files the agent writes next to the working directory
     // (`../x`) cannot reach another run; the whole root is deleted afterwards.
-    let root = std::env::temp_dir().join("ferris-eval").join(&id);
+    let root = std::env::temp_dir().join("rupicola-eval").join(&id);
     let _ = fs::remove_dir_all(&root);
     let work = root.join("w");
     fs::create_dir_all(&work).map_err(e)?;
@@ -393,7 +393,7 @@ fn execute_one(
         Duration::from_secs(30),
     );
     if let Some(rev) = skill_rev {
-        install_skill(repo, rev, &work.join(".claude/skills/ferris-atelier"))?;
+        install_skill(repo, rev, &work.join(".claude/skills/rupicola"))?;
     }
     let traj = out.join(format!("{id}.jsonl"));
     let mut cmd = Command::new("claude");
@@ -446,7 +446,7 @@ fn execute_one(
     // The condition's setup must have held: the skill is loaded exactly when the condition has it.
     let loaded = record["skills_loaded"]
         .as_array()
-        .is_some_and(|a| a.iter().any(|x| x == "ferris-atelier"));
+        .is_some_and(|a| a.iter().any(|x| x == "rupicola"));
     let config_error = loaded != skill_rev.is_some();
     let report = record["final_text"].as_str().unwrap_or("").to_lowercase();
     let found: Vec<&str> = task
@@ -590,7 +590,7 @@ fn trigger_run(
     timeout: u64,
     no_isolate: bool,
 ) -> R<()> {
-    let prompts: Vec<_> = ferris_atelier::evals::load_triggers(&m.root)?
+    let prompts: Vec<_> = rupicola::evals::load_triggers(&m.root)?
         .into_iter()
         .filter(|t| t.split == m.split && (m.tasks.is_empty() || m.tasks.contains(&t.id)))
         .collect();
@@ -634,7 +634,7 @@ fn trigger_run(
                         "stopped: reported cost {spent:.2} reached --max-usd; rerun to resume"
                     ));
                 }
-                let root = std::env::temp_dir().join("ferris-eval").join(&id);
+                let root = std::env::temp_dir().join("rupicola-eval").join(&id);
                 let _ = fs::remove_dir_all(&root);
                 let work = root.join("w");
                 fs::create_dir_all(&work).map_err(e)?;
@@ -648,7 +648,7 @@ fn trigger_run(
                 fs::write(work.join("src/main.rs"), "fn main() {}\n").map_err(e)?;
                 let with_skill = rev != "none";
                 if with_skill {
-                    install_skill(&m.root, rev, &work.join(".claude/skills/ferris-atelier"))?;
+                    install_skill(&m.root, rev, &work.join(".claude/skills/rupicola"))?;
                 }
                 let traj = out.join(format!("{id}.jsonl"));
                 let mut cmd = Command::new("claude");
@@ -695,7 +695,7 @@ fn trigger_run(
                 let mut rec = analyze_trajectory(&traj);
                 let loaded = rec["skills_loaded"]
                     .as_array()
-                    .is_some_and(|a| a.iter().any(|x| x == "ferris-atelier"));
+                    .is_some_and(|a| a.iter().any(|x| x == "rupicola"));
                 let o = rec.as_object_mut().unwrap();
                 o.remove("final_text");
                 o.insert("prompt_id".into(), json!(t.id));

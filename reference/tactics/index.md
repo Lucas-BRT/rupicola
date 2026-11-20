@@ -9,7 +9,7 @@ The user does not need to know these tactics exist. While planning, building, im
 1. Scan the screen or task for the situations below, and for states the request did not mention (empty, loading, error, offline, disabled, long text, large data, narrow window, right-to-left, keyboard only).
 2. Pick the few tactics with the highest user value; do not apply a tactic because it exists.
 3. Act by workflow. Build: implement what the feature's own states and inputs require (labels, validation, empty, loading and error states, keyboard path). Improve: propose a ranked list with where and why, and apply it when polish or usability is the request or the user agrees. Review: report a missing tactic as a defect only when it causes a task failure, a false state or an accessibility barrier; otherwise as an opportunity. Plan: include the chosen tactics in the plan.
-4. Read `proactivity: off | propose | apply` from `.ferris-atelier/context.md` when it exists and obey it. Respect the project: reuse its components, tokens, tone and platform conventions; preserve brand decisions; do not expand scope silently. Say in plain words what was added and why.
+4. Read `proactivity: off | propose | apply` from `.rupicola/context.md` when it exists and obey it. Respect the project: reuse its components, tokens, tone and platform conventions; preserve brand decisions; do not expand scope silently. Say in plain words what was added and why.
 5. Each tactic ships with how to verify it. Unavailable checks stay unverified.
 
 ## Situation to tactics

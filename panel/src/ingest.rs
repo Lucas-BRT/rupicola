@@ -210,9 +210,9 @@ pub fn send(run: &FilePath, server: &str) -> Result<(), BoxError> {
     {
         return Err("provide a plain HTTPS origin (HTTP is allowed for loopback)".into());
     }
-    let token = std::env::var("FERRIS_PUBLISH_TOKEN")?;
+    let token = std::env::var("RUPICOLA_PUBLISH_TOKEN")?;
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("FERRIS_PUBLISH_TOKEN must contain a valid publishing credential".into());
+        return Err("RUPICOLA_PUBLISH_TOKEN must contain a valid publishing credential".into());
     }
     let manifest = read_manifest(run).ok_or("invalid capture manifest")?;
     if !safe_name(&manifest.project.id) {
@@ -269,7 +269,7 @@ pub fn send(run: &FilePath, server: &str) -> Result<(), BoxError> {
         .arg(format!("@{}", body.path().display()))
         .arg(url)
         .stdin(Stdio::piped())
-        .env_remove("FERRIS_PUBLISH_TOKEN")
+        .env_remove("RUPICOLA_PUBLISH_TOKEN")
         .spawn()?;
     let write = writeln!(
         child.stdin.take().ok_or("curl input unavailable")?,

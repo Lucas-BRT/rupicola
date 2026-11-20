@@ -761,43 +761,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ferris-atelier"
-version = "0.1.0"
-dependencies = [
- "clap",
- "png",
- "proc-macro2",
- "pulldown-cmark",
- "serde",
- "serde_json",
- "syn 2.0.119",
- "tempfile",
- "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
-name = "ferris-atelier-panel"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "base64 0.22.1",
- "clap",
- "ferris-atelier",
- "http",
- "rand 0.8.6",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "subtle",
- "tempfile",
- "tokio",
- "topcoat",
- "tower-http",
- "turso",
- "url",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2165,6 +2128,43 @@ checksum = "18bd8a37d17a58532776dcdf6041ce64929adca78e8489d5cacbafe99229d3e1"
 dependencies = [
  "bytemuck",
  "byteorder",
+]
+
+[[package]]
+name = "rupicola"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "png",
+ "proc-macro2",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "rupicola-panel"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "base64 0.22.1",
+ "clap",
+ "http",
+ "rand 0.8.6",
+ "rupicola",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "topcoat",
+ "tower-http",
+ "turso",
+ "url",
 ]
 
 [[package]]
@@ -3929,7 +3929,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "clap",
- "ferris-atelier",
+ "rupicola",
  "serde_json",
 ]
 

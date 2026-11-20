@@ -1,8 +1,8 @@
-use ferris_atelier::capture::{
+use rupicola::capture::{
     CaptureConfig, CaptureReport, PixelFormat, RamCapture, VideoOptions, VideoReport,
     encode_png_dir, encode_raw_stream,
 };
-use ferris_atelier::visual::{self, Image};
+use rupicola::visual::{self, Image};
 use std::io::Write;
 use std::process::{Command, Stdio};
 use tempfile::TempDir;
@@ -144,7 +144,7 @@ fn missing_ffmpeg_returns_actionable_error() {
     visual::save(&dir.path().join("f0.png"), &solid(8, 8, [10, 20, 30])).unwrap();
 
     let opts = VideoOptions {
-        ffmpeg_bin: "ferris-atelier-nonexistent-ffmpeg-bin".into(),
+        ffmpeg_bin: "rupicola-nonexistent-ffmpeg-bin".into(),
         ..VideoOptions::default()
     };
     let err = encode_png_dir(dir.path(), &out, &opts).unwrap_err();
@@ -231,7 +231,7 @@ fn encode_png_dir_and_raw_stream_handle_odd_dimensions_and_errors() {
 
 #[test]
 fn cli_video_subcommand_supports_png_dir_and_raw_stdin() {
-    let bin = env!("CARGO_BIN_EXE_ferris-atelier");
+    let bin = env!("CARGO_BIN_EXE_rupicola");
     let dir = TempDir::new().unwrap();
 
     // Validation works even without ffmpeg.

@@ -33,7 +33,7 @@ macro_rules! shell {
                 <head>
                     <meta charset="utf-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1">
-                    <title>($page) " · Ferris Atelier"</title>
+                    <title>($page) " · Rupicola"</title>
                     <link rel="stylesheet" href="/panel.css">
                     <script src="/panel.js" defer=""></script>
                 </head>
@@ -43,8 +43,8 @@ macro_rules! shell {
                         <header class="topbar">
                             <div class="topbar-inner">
                                 <a class="brand" href="/">
-                                    <span class="mark" aria-hidden="true">"F"</span>
-                                    <strong>"Ferris Atelier"</strong>
+                                    <span class="mark" aria-hidden="true">"R"</span>
+                                    <strong>"Rupicola"</strong>
                                     <span class="workspace-tag">(if $panel.secure { "CLOUD" } else { "LOCAL" })</span>
                                 </a>
                                 <nav aria-label="Workspace">
@@ -78,31 +78,31 @@ mod pipeline;
 mod proposes;
 mod routes;
 use auth::Account;
-use ferris_atelier::{design_record, fix_record, problem_record, proposal_record, storage};
+use rupicola::{design_record, fix_record, problem_record, proposal_record, storage};
 
 type BoxError = Box<dyn Error + Send + Sync>;
 type PageResult<T> = Result<T, StatusCode>;
 
 #[derive(Parser)]
-#[command(about = "Browse local Ferris Atelier visual evidence")]
+#[command(about = "Browse local Rupicola visual evidence")]
 struct Args {
     #[command(subcommand)]
     action: Option<Action>,
     /// Capture directories to index. May be repeated.
-    #[arg(long, default_value = ".ferris-atelier/captures")]
+    #[arg(long, default_value = ".rupicola/captures")]
     captures: Vec<PathBuf>,
     /// Local, rebuildable index file.
-    #[arg(long, default_value = ".ferris-atelier/panel.db")]
+    #[arg(long, default_value = ".rupicola/panel.db")]
     db: PathBuf,
     /// Bind IPv4 address (defaults to HOST env var or 127.0.0.1).
     #[arg(long)]
     bind: Option<Ipv4Addr>,
     #[arg(long)]
     port: Option<u16>,
-    /// Public HTTPS origin when running behind a reverse proxy (or FERRIS_PUBLIC_ORIGIN).
+    /// Public HTTPS origin when running behind a reverse proxy (or RUPICOLA_PUBLIC_ORIGIN).
     #[arg(long)]
     public_origin: Option<String>,
-    /// Managed directory for incoming captures (or FERRIS_UPLOADS). Required in cloud mode.
+    /// Managed directory for incoming captures (or RUPICOLA_UPLOADS). Required in cloud mode.
     #[arg(long)]
     uploads: Option<PathBuf>,
     /// Run a self-contained health probe against the local listener and exit.
@@ -112,7 +112,7 @@ struct Args {
 
 #[derive(clap::Subcommand)]
 enum Action {
-    /// Send a capture to the shared panel using FERRIS_PUBLISH_TOKEN.
+    /// Send a capture to the shared panel using RUPICOLA_PUBLISH_TOKEN.
     Publish {
         run: PathBuf,
         #[arg(long)]
@@ -241,7 +241,7 @@ async fn main() -> Result<(), BoxError> {
     if let Some(Action::Publish { run, server }) = args.action.as_ref() {
         return ingest::send(run, server);
     }
-    let db_path = std::env::var_os("FERRIS_DB")
+    let db_path = std::env::var_os("RUPICOLA_DB")
         .map(PathBuf::from)
         .unwrap_or(args.db);
     if let Some(parent) = db_path.parent().filter(|path| !path.as_os_str().is_empty()) {
@@ -273,7 +273,7 @@ async fn main() -> Result<(), BoxError> {
     let listener = TcpListener::bind((bind_ip, configured_port)).await?;
     let port = listener.local_addr()?.port();
     let public_origin = args.public_origin.or_else(|| {
-        std::env::var("FERRIS_PUBLIC_ORIGIN")
+        std::env::var("RUPICOLA_PUBLIC_ORIGIN")
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -301,22 +301,22 @@ async fn main() -> Result<(), BoxError> {
         .ok_or("invalid origin")?
         .1
         .to_owned();
-    let bootstrap = std::env::var("FERRIS_SETUP_CODE")
+    let bootstrap = std::env::var("RUPICOLA_SETUP_CODE")
         .ok()
         .filter(|s| !s.is_empty());
     if bootstrap.as_ref().is_some_and(|secret| secret.len() < 32) {
-        return Err("FERRIS_SETUP_CODE must contain at least 32 characters".into());
+        return Err("RUPICOLA_SETUP_CODE must contain at least 32 characters".into());
     }
     let owner_exists = auth::owner_exists(&index).await?;
     let raw_uploads = args.uploads.or_else(|| {
-        std::env::var("FERRIS_UPLOADS")
+        std::env::var("RUPICOLA_UPLOADS")
             .ok()
             .filter(|s| !s.trim().is_empty())
             .map(PathBuf::from)
     });
     if secure && (raw_uploads.is_none() || (!owner_exists && bootstrap.is_none())) {
         return Err(
-            "cloud mode needs --uploads (or FERRIS_UPLOADS) and FERRIS_SETUP_CODE for initial registration".into(),
+            "cloud mode needs --uploads (or RUPICOLA_UPLOADS) and RUPICOLA_SETUP_CODE for initial registration".into(),
         );
     }
     let uploads = raw_uploads
@@ -325,7 +325,7 @@ async fn main() -> Result<(), BoxError> {
             fs::canonicalize(path)
         })
         .transpose()?;
-    let mut roots = if let Some(env_cap) = std::env::var("FERRIS_CAPTURES")
+    let mut roots = if let Some(env_cap) = std::env::var("RUPICOLA_CAPTURES")
         .ok()
         .filter(|s| !s.trim().is_empty())
     {

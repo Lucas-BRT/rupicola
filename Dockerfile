@@ -23,10 +23,10 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM tool-chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    cargo chef cook --profile website --locked -p ferris-atelier -p ferris-atelier-panel --recipe-path recipe.json
+    cargo chef cook --profile website --locked -p rupicola -p rupicola-panel --recipe-path recipe.json
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    cargo build --profile website --locked -p ferris-atelier -p ferris-atelier-panel
+    cargo build --profile website --locked -p rupicola -p rupicola-panel
 
 # ---- runtime -----------------------------------------------------------------------------------------------
 FROM debian:bookworm-20261104-slim AS runtime
@@ -34,24 +34,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --no-create-home --uid 10001 ferris \
+    && useradd --system --no-create-home --uid 10001 rupicola \
     && mkdir -p /data/captures /data/uploads /data/design /data/proposals /data/problems /data/fixes \
     && chown -R 10001:10001 /data \
     && chmod 0700 /data
 
 WORKDIR /app
-COPY --from=builder /app/target/website/ferris-atelier-panel ./ferris-atelier-panel
-COPY --from=builder /app/target/website/ferris-atelier ./ferris-atelier
+COPY --from=builder /app/target/website/rupicola-panel ./rupicola-panel
+COPY --from=builder /app/target/website/rupicola ./rupicola
 
 USER 10001:10001
 ENV HOST=0.0.0.0 \
     PORT=4731 \
     XDG_DATA_HOME=/data \
-    FERRIS_DB=/data/panel.db \
-    FERRIS_CAPTURES=/data/captures \
-    FERRIS_UPLOADS=/data/uploads
+    RUPICOLA_DB=/data/panel.db \
+    RUPICOLA_CAPTURES=/data/captures \
+    RUPICOLA_UPLOADS=/data/uploads
 
 EXPOSE 4731
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["./ferris-atelier-panel", "--healthcheck"]
-CMD ["./ferris-atelier-panel"]
+  CMD ["./rupicola-panel", "--healthcheck"]
+CMD ["./rupicola-panel"]

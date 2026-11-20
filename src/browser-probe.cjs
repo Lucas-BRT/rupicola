@@ -68,16 +68,16 @@ async function run() {
           () => !!document.querySelector("#handle") && !!document.querySelector("#password") && !document.querySelector("#code")
         );
         if (canSetup) {
-          await bootPage.fill("#handle", process.env.FERRIS_PROBE_USER || "probe-owner");
-          await bootPage.fill("#password", process.env.FERRIS_PROBE_PASS || "ProbeMatrix-2026!");
+          await bootPage.fill("#handle", process.env.RUPICOLA_PROBE_USER || "probe-owner");
+          await bootPage.fill("#password", process.env.RUPICOLA_PROBE_PASS || "ProbeMatrix-2026!");
           await bootPage.locator('button[type="submit"]').click();
           await bootPage.waitForURL((u) => !u.pathname.startsWith("/register"), { timeout: timeoutMs });
           authState = await bootCtx.storageState();
         } else {
           await bootPage.goto(origin + "/login", { waitUntil: "domcontentloaded", timeout: timeoutMs });
           if (await bootPage.evaluate(() => !!document.querySelector("#handle") && !!document.querySelector("#password"))) {
-            await bootPage.fill("#handle", process.env.FERRIS_PROBE_USER || "probe-owner");
-            await bootPage.fill("#password", process.env.FERRIS_PROBE_PASS || "ProbeMatrix-2026!");
+            await bootPage.fill("#handle", process.env.RUPICOLA_PROBE_USER || "probe-owner");
+            await bootPage.fill("#password", process.env.RUPICOLA_PROBE_PASS || "ProbeMatrix-2026!");
             await bootPage.locator('button[type="submit"]').click();
             await bootPage.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: timeoutMs });
             authState = await bootCtx.storageState();
@@ -148,7 +148,7 @@ async function run() {
         });
         await ctx.addInitScript((t) => {
           try {
-            localStorage.setItem("ferris-theme", t);
+            localStorage.setItem("rupicola-theme", t);
             document.documentElement.dataset.theme = t;
           } catch {}
         }, theme);

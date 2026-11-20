@@ -29,11 +29,8 @@ pub fn check(root: &Path) -> Result<Check, String> {
         .strip_prefix("---\n")
         .and_then(|s| s.split_once("\n---"));
     if let Some((metadata, _)) = frontmatter {
-        if !metadata.lines().any(|s| s.trim() == "name: ferris-atelier") {
-            error(
-                skill_path.clone(),
-                "skill name must be ferris-atelier".into(),
-            );
+        if !metadata.lines().any(|s| s.trim() == "name: rupicola") {
+            error(skill_path.clone(), "skill name must be rupicola".into());
         }
         if !metadata
             .lines()

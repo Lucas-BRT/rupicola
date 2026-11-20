@@ -287,7 +287,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary, String> {
     }
 
     fs::create_dir_all(&output).map_err(|e| format!("{}: {e}", output.display()))?;
-    let script = output.join(".ferris-browser-probe.cjs");
+    let script = output.join(".rupicola-browser-probe.cjs");
     fs::write(&script, include_str!("browser-probe.cjs"))
         .map_err(|e| format!("{}: {e}", script.display()))?;
 
@@ -437,8 +437,8 @@ pub fn run(cfg: Config) -> Result<ProbeSummary, String> {
         }
     }
 
-    let (project_id, project_label) = service::detect_project()
-        .unwrap_or_else(|_| ("ferris-atelier".into(), "ferris-atelier".into()));
+    let (project_id, project_label) =
+        service::detect_project().unwrap_or_else(|_| ("rupicola".into(), "rupicola".into()));
     let created_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)

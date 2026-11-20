@@ -24,13 +24,13 @@ codegen-units = 1
 strip = true
 
 [package]
-name = "ferris-atelier"
+name = "rupicola"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-default-run = "ferris-atelier"
+default-run = "rupicola"
 description = "Rust-native tools for AI-assisted web and desktop interface development"
-repository = "https://github.com/Lucas-BRT/ferris-atelier"
+repository = "https://github.com/Lucas-BRT/rupicola"
 readme = "README.md"
 keywords = ["rust", "ui", "agent-skills", "desktop", "ai"]
 publish = false

@@ -7,8 +7,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const UNIT: &str = "ferris-atelier.service";
-const LINK: &str = ".ferris-atelier/project.toml";
+const UNIT: &str = "rupicola.service";
+const LINK: &str = ".rupicola/project.toml";
 
 fn directory(variable: &str, fallback: &str) -> Result<PathBuf, String> {
     if let Some(path) = env::var_os(variable)
@@ -23,7 +23,7 @@ fn directory(variable: &str, fallback: &str) -> Result<PathBuf, String> {
 }
 
 pub fn data() -> Result<PathBuf, String> {
-    Ok(directory("XDG_DATA_HOME", ".local/share")?.join("ferris-atelier"))
+    Ok(directory("XDG_DATA_HOME", ".local/share")?.join("rupicola"))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -129,7 +129,7 @@ pub fn project() -> Result<Option<(String, String)>, String> {
 
 pub fn detect_project() -> Result<(String, String), String> {
     project()?.ok_or_else(|| {
-        "Run inside a Git checkout, set a project with ferris-atelier link, or provide --out".into()
+        "Run inside a Git checkout, set a project with rupicola link, or provide --out".into()
     })
 }
 
@@ -190,13 +190,13 @@ pub fn setup(print_unit: bool) -> Result<(), String> {
     let panel = env::var_os("PATH")
         .into_iter()
         .flat_map(|path| env::split_paths(&path).collect::<Vec<_>>())
-        .map(|path| path.join("ferris-atelier-panel"))
+        .map(|path| path.join("rupicola-panel"))
         .find(|path| path.is_file())
-        .ok_or("Install ferris-atelier-panel and add it to PATH")?;
+        .ok_or("Install rupicola-panel and add it to PATH")?;
     let executable = fs::canonicalize(panel).map_err(|e| e.to_string())?;
     let data = data()?;
     let service = format!(
-        "[Unit]\nDescription=Ferris Atelier evidence panel\n\n[Service]\nExecStart=:{} --captures {} --db {}\nRestart=on-failure\nUMask=0077\n\n[Install]\nWantedBy=default.target\n",
+        "[Unit]\nDescription=Rupicola evidence panel\n\n[Service]\nExecStart=:{} --captures {} --db {}\nRestart=on-failure\nUMask=0077\n\n[Install]\nWantedBy=default.target\n",
         unit_arg(&executable)?,
         unit_arg(&data.join("captures"))?,
         unit_arg(&data.join("panel.db"))?

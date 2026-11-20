@@ -1,6 +1,6 @@
 target
 /dist/
-/.ferris-atelier/
+/.rupicola/
 *.swp
 .DS_Store
 evals/results/

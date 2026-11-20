@@ -1,12 +1,12 @@
 [package]
-name = "ferris-atelier-panel"
+name = "rupicola-panel"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 publish = false
 
 [dependencies]
-ferris-atelier = { path = ".." }
+rupicola = { path = ".." }
 http = "=1.5.0"
 clap = { version = "=4.6.7", features = ["derive"] }
 serde = { version = "=1.0.229", features = ["derive"] }

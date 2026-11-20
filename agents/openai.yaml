@@ -1,4 +1,4 @@
 interface:
-  display_name: "Ferris Atelier"
+  display_name: "Rupicola"
   short_description: "Build and verify web, desktop, and webview interfaces"
-  default_prompt: "Use $ferris-atelier to develop and verify this interface."
+  default_prompt: "Use $rupicola to develop and verify this interface."

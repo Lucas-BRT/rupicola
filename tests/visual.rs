@@ -1,4 +1,4 @@
-use ferris_atelier::visual::{self, Image};
+use rupicola::visual::{self, Image};
 use std::path::Path;
 use tempfile::TempDir;
 
@@ -173,11 +173,11 @@ fn matrix_plans_runs_and_records_failures() {
         plan[0]
             .env
             .iter()
-            .any(|(k, v)| k == "FERRIS_WIDTH" && v == "400")
+            .any(|(k, v)| k == "RUPICOLA_WIDTH" && v == "400")
     );
     // Fails for the dark theme only.
     let cmd = format!(
-        "[ \"$FERRIS_THEME\" = dark ] && exit 3; cp '{}' \"$FERRIS_OUT\"",
+        "[ \"$RUPICOLA_THEME\" = dark ] && exit 3; cp '{}' \"$RUPICOLA_OUT\"",
         src.display()
     );
     visual::matrix_run(&mut plan, &cmd, std::time::Duration::from_secs(10));

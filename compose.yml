@@ -1,8 +1,8 @@
 # Dokploy (Compose type) — open-internet hardened deployment behind Traefik.
 # Dokploy's Traefik reaches the container through `dokploy-network`, so no host port is published here:
 # in the application's "Domains" tab choose service `web`, container port 4731, and enable HTTPS.
-# Before initial startup, set FERRIS_PUBLIC_ORIGIN (e.g. https://atelier.yourdomain.com) and
-# FERRIS_SETUP_CODE (at least 32 characters of high-entropy secret) in the Dokploy environment.
+# Before initial startup, set RUPICOLA_PUBLIC_ORIGIN (e.g. https://atelier.yourdomain.com) and
+# RUPICOLA_SETUP_CODE (at least 32 characters of high-entropy secret) in the Dokploy environment.
 # For local testing with a published port, use: `docker compose -f compose.local.yml up --build`.
 services:
   web:
@@ -15,13 +15,13 @@ services:
       HOST: "0.0.0.0"
       PORT: "4731"
       XDG_DATA_HOME: "/data"
-      FERRIS_DB: "/data/panel.db"
-      FERRIS_CAPTURES: "/data/captures"
-      FERRIS_UPLOADS: "/data/uploads"
-      FERRIS_PUBLIC_ORIGIN: "${FERRIS_PUBLIC_ORIGIN}"
-      FERRIS_SETUP_CODE: "${FERRIS_SETUP_CODE:-}"
+      RUPICOLA_DB: "/data/panel.db"
+      RUPICOLA_CAPTURES: "/data/captures"
+      RUPICOLA_UPLOADS: "/data/uploads"
+      RUPICOLA_PUBLIC_ORIGIN: "${RUPICOLA_PUBLIC_ORIGIN}"
+      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
     volumes:
-      - ferris-data:/data
+      - rupicola-data:/data
     tmpfs:
       - /tmp:size=64m,mode=1777
     read_only: true
@@ -32,7 +32,7 @@ services:
     mem_limit: 512m
     pids_limit: 128
     healthcheck:
-      test: ["CMD", "./ferris-atelier-panel", "--healthcheck"]
+      test: ["CMD", "./rupicola-panel", "--healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -41,7 +41,7 @@ services:
       - dokploy-network
 
 volumes:
-  ferris-data:
+  rupicola-data:
 
 networks:
   dokploy-network:

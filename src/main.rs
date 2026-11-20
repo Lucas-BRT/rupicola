@@ -5,7 +5,7 @@ mod probe;
 mod propose;
 mod service;
 use clap::{Parser, Subcommand};
-use ferris_atelier::{
+use rupicola::{
     FRAMEWORKS, TOPICS, capture, check, design_record, discover, fix_record, problem_record,
     proposal_record, scan, scenario, storage, visual,
 };
@@ -22,7 +22,7 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
-    /// Serve Ferris Atelier tools over MCP stdio.
+    /// Serve Rupicola tools over MCP stdio.
     Mcp,
     /// Identify declared UI framework dependencies without building or fetching.
     Discover {
@@ -74,7 +74,7 @@ enum Command {
     Capture {
         /// Versioned TOML scenario.
         scenario: PathBuf,
-        /// New project run directory, typically .ferris-atelier/captures/<run>.
+        /// New project run directory, typically .rupicola/captures/<run>.
         #[arg(long)]
         out: Option<PathBuf>,
         /// Path to the installed Playwright Node.js module.
@@ -192,9 +192,9 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Serve project evidence using the optional ferris-atelier-panel executable.
+    /// Serve project evidence using the optional rupicola-panel executable.
     Serve {
-        /// Options forwarded to ferris-atelier-panel, including --captures, --db and --port.
+        /// Options forwarded to rupicola-panel, including --captures, --db and --port.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         options: Vec<OsString>,
     },
@@ -252,8 +252,8 @@ enum Command {
     },
     /// Run a capture command once per state, theme, scale, size and locale combination.
     Matrix {
-        /// Shell command; it receives FERRIS_OUT (PNG path), FERRIS_STATE, FERRIS_THEME, FERRIS_SCALE,
-        /// FERRIS_TEXT_SCALE, FERRIS_SIZE, FERRIS_WIDTH, FERRIS_HEIGHT and FERRIS_LOCALE.
+        /// Shell command; it receives RUPICOLA_OUT (PNG path), RUPICOLA_STATE, RUPICOLA_THEME, RUPICOLA_SCALE,
+        /// RUPICOLA_TEXT_SCALE, RUPICOLA_SIZE, RUPICOLA_WIDTH, RUPICOLA_HEIGHT and RUPICOLA_LOCALE.
         #[arg(long)]
         cmd: String,
         #[arg(long)]
@@ -479,14 +479,14 @@ fn run(cli: Cli) -> Result<u8, String> {
             Ok(0)
         }
         Command::Serve { options } => {
-            let status = std::process::Command::new("ferris-atelier-panel")
+            let status = std::process::Command::new("rupicola-panel")
                 .args(options)
                 .status()
                 .map_err(|error| {
                     if error.kind() == std::io::ErrorKind::NotFound {
                         "install the optional panel with cargo install --path panel --locked and add it to PATH".into()
                     } else {
-                        format!("start ferris-atelier-panel: {error}")
+                        format!("start rupicola-panel: {error}")
                     }
                 })?;
             Ok(status

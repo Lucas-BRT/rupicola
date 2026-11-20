@@ -210,7 +210,7 @@ fn main() -> eframe::Result {
     )
 }
 
-/// Headless captures with egui_kittest (software Vulkan is enough). Set FERRIS_SHOTS to a
+/// Headless captures with egui_kittest (software Vulkan is enough). Set RUPICOLA_SHOTS to a
 /// directory to write PNGs and a UI tree; without it the test only checks the flow.
 #[cfg(test)]
 mod capture {
@@ -220,7 +220,7 @@ mod capture {
     use std::path::PathBuf;
 
     fn shots() -> Option<PathBuf> {
-        let dir = PathBuf::from(std::env::var_os("FERRIS_SHOTS")?);
+        let dir = PathBuf::from(std::env::var_os("RUPICOLA_SHOTS")?);
         std::fs::create_dir_all(&dir).ok()?;
         Some(dir)
     }
@@ -246,7 +246,7 @@ mod capture {
         h.step();
     }
 
-    /// Writes the accessibility tree in the JSON shape `ferris-atelier audit` reads.
+    /// Writes the accessibility tree in the JSON shape `rupicola audit` reads.
     fn dump_tree(h: &Harness<'_, App>, size: Vec2, name: &str) {
         let Some(dir) = shots() else { return };
         let mut nodes = Vec::new();

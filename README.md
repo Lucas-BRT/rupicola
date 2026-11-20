@@ -1,6 +1,6 @@
-# Ferris Atelier
+# Rupicola
 
-[![CI](https://github.com/Lucas-BRT/ferris-atelier/actions/workflows/ci.yml/badge.svg)](https://github.com/Lucas-BRT/ferris-atelier/actions/workflows/ci.yml)
+[![CI](https://github.com/Lucas-BRT/rupicola/actions/workflows/ci.yml/badge.svg)](https://github.com/Lucas-BRT/rupicola/actions/workflows/ci.yml)
 
 A modular AI skill and Rust-native CLI for designing, building and reviewing graphical interfaces across web, native desktop and webviews. Load only the framework, UX and platform guidance relevant to the task.
 
@@ -11,25 +11,25 @@ The skill covers libcosmic, GPUI, Iced, Topcoat, Leptos, Yew, Tauri, Dioxus, egu
 Requirements: Git, a stable Rust toolchain with Cargo, and repository access. The minimum supported Rust version is 1.85.0. Cargo downloads the locked dependencies on the first build. Rust can be installed through [rustup](https://rustup.rs/).
 
 ```console
-git clone https://github.com/Lucas-BRT/ferris-atelier.git
-cd ferris-atelier
+git clone https://github.com/Lucas-BRT/rupicola.git
+cd rupicola
 cargo install --path . --locked
-ferris-atelier --version
+rupicola --version
 ```
 
-Ensure Cargo's binary directory is on `PATH`: normally `~/.cargo/bin` on Linux/macOS or `%USERPROFILE%\.cargo\bin` on Windows. If Git credentials are not configured for this private repository, authenticate with GitHub CLI and use `gh repo clone Lucas-BRT/ferris-atelier` instead.
+Ensure Cargo's binary directory is on `PATH`: normally `~/.cargo/bin` on Linux/macOS or `%USERPROFILE%\.cargo\bin` on Windows. If Git credentials are not configured for this private repository, authenticate with GitHub CLI and use `gh repo clone Lucas-BRT/rupicola` instead.
 
 Install just the CLI directly from Git when Git authentication is configured:
 
 ```console
-cargo install --git https://github.com/Lucas-BRT/ferris-atelier.git --locked
+cargo install --git https://github.com/Lucas-BRT/rupicola.git --locked
 ```
 
 The installed CLI needs neither Cargo nor a model API key. Core analysis commands run without Node.js. Headless web capture uses Node.js and Playwright. The local review panel is an optional executable. Inspected applications still require their own toolchains for compilation and runtime checks.
 
-To enable Ferris Atelier in a project, add an opt-in instruction to its `AGENTS.md`:
+To enable Rupicola in a project, add an opt-in instruction to its `AGENTS.md`:
 
-> Use Ferris Atelier for visual or interaction changes. Capture and inspect the affected UI states, recapture after authorized fixes, and report any blocked checks. API-only work is outside this workflow.
+> Use Rupicola for visual or interaction changes. Capture and inspect the affected UI states, recapture after authorized fixes, and report any blocked checks. API-only work is outside this workflow.
 
 ## Install a release binary
 
@@ -38,67 +38,67 @@ Version tags trigger builds for Linux x86_64, Windows x86_64 and macOS Apple Sil
 On Linux/macOS, choose the archive matching your machine and an actual published tag:
 
 ```console
-gh release download <tag> --repo Lucas-BRT/ferris-atelier --pattern 'ferris-atelier-<tag>-<target>.tar.gz'
-tar -xzf ferris-atelier-<tag>-<target>.tar.gz
-./ferris-atelier/ferris-atelier --version
+gh release download <tag> --repo Lucas-BRT/rupicola --pattern 'rupicola-<tag>-<target>.tar.gz'
+tar -xzf rupicola-<tag>-<target>.tar.gz
+./rupicola/rupicola --version
 ```
 
 Replace `<target>` with `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin` or `x86_64-apple-darwin`. These are placeholders, not literal commands. Keep the extracted directory to use its skill resources, and add it to `PATH` or copy the executable to a directory already on `PATH`.
 
-On Windows, download the `x86_64-pc-windows-msvc` archive from [Releases](https://github.com/Lucas-BRT/ferris-atelier/releases), extract it with `tar -xzf <archive>` or an archive manager, then run `ferris-atelier.exe`. Add its directory to your user `PATH` for subsequent shells.
+On Windows, download the `x86_64-pc-windows-msvc` archive from [Releases](https://github.com/Lucas-BRT/rupicola/releases), extract it with `tar -xzf <archive>` or an archive manager, then run `rupicola.exe`. Add its directory to your user `PATH` for subsequent shells.
 
 Each release includes `SHA256SUMS`; compare the downloaded archive's SHA-256 with its listed value. Linux binaries use glibc, Windows binaries use MSVC, and these initial packages are not signed or notarized.
 
 ## Install the AI skill
 
-The CLI and the skill are separate: installing a binary does not register the skill. Keep a source checkout or extracted release directory and install its resources under the exact name `ferris-atelier`.
+The CLI and the skill are separate: installing a binary does not register the skill. Keep a source checkout or extracted release directory and install its resources under the exact name `rupicola`.
 
 Linux/macOS, from the directory containing `SKILL.md`:
 
 ```sh
 mkdir -p ~/.agents/skills ~/.claude/skills
-ln -s "$PWD" ~/.agents/skills/ferris-atelier
-ln -s "$PWD" ~/.claude/skills/ferris-atelier
+ln -s "$PWD" ~/.agents/skills/rupicola
+ln -s "$PWD" ~/.claude/skills/rupicola
 ```
 
 Windows PowerShell, from that same directory:
 
 ```powershell
 New-Item -ItemType Directory -Force "$HOME\.agents\skills", "$HOME\.claude\skills" | Out-Null
-New-Item -ItemType Junction -Path "$HOME\.agents\skills\ferris-atelier" -Target (Get-Location).Path
-New-Item -ItemType Junction -Path "$HOME\.claude\skills\ferris-atelier" -Target (Get-Location).Path
+New-Item -ItemType Junction -Path "$HOME\.agents\skills\rupicola" -Target (Get-Location).Path
+New-Item -ItemType Junction -Path "$HOME\.claude\skills\rupicola" -Target (Get-Location).Path
 ```
 
 If a destination already exists, inspect it and update that installation deliberately. The commands do not overwrite existing installations.
 
-Invoke `$ferris-atelier` in Codex or `/ferris-atelier` in Claude Code. [SKILL.md](SKILL.md) contains the reading conditions and direct module links. Keep the CLI on the agent's `PATH` for automated helpers; the guidance remains readable without it.
+Invoke `$rupicola` in Codex or `/rupicola` in Claude Code. [SKILL.md](SKILL.md) contains the reading conditions and direct module links. Keep the CLI on the agent's `PATH` for automated helpers; the guidance remains readable without it.
 
 ## CLI commands
 
 ```console
-ferris-atelier discover /path/to/project --json
-ferris-atelier scan /path/to/project --json
-ferris-atelier scan page.rs --framework leptos --json
-ferris-atelier check /path/to/ferris-atelier --json
-ferris-atelier probe --url http://127.0.0.1:3000 --mode exhaustive --pages all --viewports 320x844,768x1024,1440x900 --themes dark,light --json
-ferris-atelier problem list --project my-app --json
-ferris-atelier problem claim <problem-id> --agent codex-ui --activity "Inspecting evidence and violated norms"
-ferris-atelier problem progress <problem-id> --agent codex-ui --stage verifying --step 3 --total-steps 4 --pct 80 --activity "Running Playwright matrix verification"
-ferris-atelier fix record --project my-app --problem <problem-id> --title "Fix hairline seams" --summary "Unified 1px grid seams" --before-url /media/0/before/shot.png --after-url /media/0/after/shot.png
-ferris-atelier propose list --project my-app --json
-ferris-atelier storage status --project my-app
-ferris-atelier storage clean --mode strip-frames --project my-app
-ferris-atelier storage offload --fix <fix-id> --project my-app
-ferris-atelier diff before.png after.png --out diff.png
-ferris-atelier frames frames-dir
-ferris-atelier video frames-dir --out anim.mp4 --fps 60
-ferris-atelier video --raw --width 560 --height 780 --fps 60 --pixel-format premultiplied-rgba --save-frames frames-dir --out anim.mp4
-ferris-atelier palette reference.png
-ferris-atelier sheet shots --out sheet.png
-ferris-atelier matrix --cmd '<capture command>' --out shots --states default,empty --themes light,dark --dry-run
-ferris-atelier audit tree.json --json
-ferris-atelier rules --json
-ferris-atelier modules --json
+rupicola discover /path/to/project --json
+rupicola scan /path/to/project --json
+rupicola scan page.rs --framework leptos --json
+rupicola check /path/to/rupicola --json
+rupicola probe --url http://127.0.0.1:3000 --mode exhaustive --pages all --viewports 320x844,768x1024,1440x900 --themes dark,light --json
+rupicola problem list --project my-app --json
+rupicola problem claim <problem-id> --agent codex-ui --activity "Inspecting evidence and violated norms"
+rupicola problem progress <problem-id> --agent codex-ui --stage verifying --step 3 --total-steps 4 --pct 80 --activity "Running Playwright matrix verification"
+rupicola fix record --project my-app --problem <problem-id> --title "Fix hairline seams" --summary "Unified 1px grid seams" --before-url /media/0/before/shot.png --after-url /media/0/after/shot.png
+rupicola propose list --project my-app --json
+rupicola storage status --project my-app
+rupicola storage clean --mode strip-frames --project my-app
+rupicola storage offload --fix <fix-id> --project my-app
+rupicola diff before.png after.png --out diff.png
+rupicola frames frames-dir
+rupicola video frames-dir --out anim.mp4 --fps 60
+rupicola video --raw --width 560 --height 780 --fps 60 --pixel-format premultiplied-rgba --save-frames frames-dir --out anim.mp4
+rupicola palette reference.png
+rupicola sheet shots --out sheet.png
+rupicola matrix --cmd '<capture command>' --out shots --states default,empty --themes light,dark --dry-run
+rupicola audit tree.json --json
+rupicola rules --json
+rupicola modules --json
 ```
 
 `discover` reads Cargo TOML, including aliases, workspace inheritance and target tables. It reports declared normal dependencies, not active features or resolved versions. Dev/build dependencies do not classify the application. It does not invoke Cargo, fetch dependencies, compile or execute project code.
@@ -112,28 +112,28 @@ ferris-atelier modules --json
 | `2` | Candidates requiring contextual review |
 | `3` | No supported analysis, or unsupported files without candidates |
 
-`diff`, `frames` and `audit` exit `0` when clean and `2` when they find differences or problems; `matrix` exits `1` when a capture failed; `video` exits `0` on a valid MP4 and `1` on input or `ffmpeg` errors (including missing `ffmpeg`). Use `video` and `ferris_atelier::capture::RamCapture` whenever you need to audit UI animations or transitions in the background without Xvfb or touching the user's live desktop: render offscreen frames into RAM at deterministic timestamps (e.g., `iced_tiny_skia` -> `tiny_skia::Pixmap`), measure per-frame CPU raster time, inspect lossless PNGs with `frames`/`sheet`/`diff`, and assemble a CFR MP4 (`libx264`, `yuv420p`, even-dimension padding) with `video` for smooth motion review. Use a real compositor capture (PipeWire `ScreenCast` v5 `persist_mode = 2` + `restore_token`) only when compositor-level behavior (`xdg_popup`, `autosize`, real 60 Hz `wl_callback`) must be verified. These helpers never launch an application themselves (`matrix` runs only the command you give it), and measure, not certify. See [visual verification](reference/visual-verification.md). Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
+`diff`, `frames` and `audit` exit `0` when clean and `2` when they find differences or problems; `matrix` exits `1` when a capture failed; `video` exits `0` on a valid MP4 and `1` on input or `ffmpeg` errors (including missing `ffmpeg`). Use `video` and `rupicola::capture::RamCapture` whenever you need to audit UI animations or transitions in the background without Xvfb or touching the user's live desktop: render offscreen frames into RAM at deterministic timestamps (e.g., `iced_tiny_skia` -> `tiny_skia::Pixmap`), measure per-frame CPU raster time, inspect lossless PNGs with `frames`/`sheet`/`diff`, and assemble a CFR MP4 (`libx264`, `yuv420p`, even-dimension padding) with `video` for smooth motion review. Use a real compositor capture (PipeWire `ScreenCast` v5 `persist_mode = 2` + `restore_token`) only when compositor-level behavior (`xdg_popup`, `autosize`, real 60 Hz `wl_callback`) must be verified. These helpers never launch an application themselves (`matrix` runs only the command you give it), and measure, not certify. See [visual verification](reference/visual-verification.md). Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
 
 Traversal skips hidden directories, nested symlinks, generated output, `target/` and dependency folders. Tests/examples/fixtures/benches are excluded unless `--include-tests` is supplied. An explicit symlink root is resolved before traversal.
 
-Configure `.ferris-atelier/config.toml`:
+Configure `.rupicola/config.toml`:
 
 ```toml
 ignore_rules = ["gradient-text"]
 ignore_paths = ["src/generated"]
 ```
 
-Paths are relative to the directory containing `.ferris-atelier`. A standalone `// ferris-ignore transition-all` immediately before the affected line suppresses that rule. Unknown config keys/rules and escaping ignore paths are errors.
+Paths are relative to the directory containing `.rupicola`. A standalone `// rupicola-ignore transition-all` immediately before the affected line suppresses that rule. Unknown config keys/rules and escaping ignore paths are errors.
 
-Project decisions live in `.ferris-atelier/context.md` when explicitly requested. Visit recording is opt-in. See [project context](reference/project-context.md), [reports](reference/reports.md) and [verification](reference/verification.md).
+Project decisions live in `.rupicola/context.md` when explicitly requested. Visit recording is opt-in. See [project context](reference/project-context.md), [reports](reference/reports.md) and [verification](reference/verification.md).
 
 ## Capture and review a web scenario
 
 ```sh
-ferris-atelier capture settings.toml --out .ferris-atelier/captures/before --video
-ferris-atelier capture-review .ferris-atelier/captures/before/manifest.json --note "The popup opens and its heading is visible."
+rupicola capture settings.toml --out .rupicola/captures/before --video
+rupicola capture-review .rupicola/captures/before/manifest.json --note "The popup opens and its heading is visible."
 cargo install --path panel --locked
-ferris-atelier serve --captures .ferris-atelier/captures
+rupicola serve --captures .rupicola/captures
 ```
 
 The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel indexes multiple capture roots and supports shared review behind an HTTPS reverse proxy. See [panel installation](panel/README.md), [scenario format and inspection](reference/capture-scenarios.md) and the [nested COSMIC applet spike](reference/libcosmic-capture-spike.md). `capture` handles HTTP(S) previews. On Linux, `capture-cosmic` uses an isolated panel host for two native applet checkpoints.
@@ -146,14 +146,14 @@ systemd manager:
 ```sh
 cargo install --path . --locked
 cargo install --path panel --locked
-ferris-atelier setup
+rupicola setup
 ```
 
-Run captures from a Git checkout without `--out`. Ferris detects the local Git
+Run captures from a Git checkout without `--out`. Rupicola detects the local Git
 repository, groups its worktrees under the same ID and writes evidence to the
-shared directory. Use `ferris-atelier link PROJECT_ID` to choose an explicit ID. Captures and inspection notes
+shared directory. Use `rupicola link PROJECT_ID` to choose an explicit ID. Captures and inspection notes
 remain available on disk while the service is stopped and appear when the
-service resumes. Use `ferris-atelier doctor` to check the link and service.
+service resumes. Use `rupicola doctor` to check the link and service.
 `setup --print-unit` previews the unit.
 
 Open http://127.0.0.1:4731. The background service is local. Shared HTTPS
@@ -161,14 +161,14 @@ publication still uses the [panel's explicit publish command](panel/README.md).
 
 ## Record project design context
 
-The skill calls `ferris-atelier design open` from the checkout before design work.
+The skill calls `rupicola design open` from the checkout before design work.
 The project appears in **Projects** on the local panel even with no captures.
 
 ```sh
-ferris-atelier design open
-ferris-atelier design add direction --title "Graphite and copper" \
+rupicola design open
+rupicola design add direction --title "Graphite and copper" \
   --note "Keep capture media prominent and use copper for the review action." --surface "Review"
-ferris-atelier design add tactic --status proposed --title "Aligned comparison" \
+rupicola design add tactic --status proposed --title "Aligned comparison" \
   --note "Put paired screenshots on equal tracks when the review pane has room."
 ```
 
@@ -183,7 +183,7 @@ HTTPS capture publication does not sync the design register.
 
 ## Visual QA Pipeline & Web Panel (Captures → Problems → Fixes → Storage)
 
-The Topcoat web panel (`ferris-atelier-panel`) organizes visual engineering into a structured pipeline per project:
+The Topcoat web panel (`rupicola-panel`) organizes visual engineering into a structured pipeline per project:
 
 - **`Captures` (`/projects/{id}/captures`):** Unified research hub combining matrix runs, screenshots, contact sheets, and interaction recordings with a **Screen health** filter (`All captured screens`, `Clean / verified only`, `With problems only`, `Unanalyzed`), inline `Run inspection matrix` launcher (`page-check`, `all-pages`, `responsive-matrix`, `interaction-map`, `exhaustive`), and 1-click problem extraction (`Extract problems` / `Flag problem`).
 - **`Problems` (`/projects/{id}/problems`):** Structured triage queue linking captured evidence assets, violated **Global Norms** (`SKILL.md` / `reference/`) and **Project Design Norms**, root-cause diagnosis, proposed solution, and a live **Agent & Task Execution Tracker** (`AGENT`, `STAGE`, `STEP X / Y · Z%`, `<progress>` bar, activity log, and `2.5s` live polling via `/projects/{id}/problems/status.json`). Problems marked `Intentional` or `False positive` are automatically suppressed in subsequent probes.
@@ -200,16 +200,16 @@ The repository ships a multi-stage, `cargo-chef`-cached `Dockerfile`, an open-in
 docker compose -f compose.local.yml up -d --build
 
 # Production / VPS behind Dokploy & Traefik (joins external dokploy-network via expose: 4731)
-FERRIS_PUBLIC_ORIGIN=https://atelier.example.com \
-FERRIS_SETUP_CODE="$(openssl rand -hex 32)" \
+RUPICOLA_PUBLIC_ORIGIN=https://atelier.example.com \
+RUPICOLA_SETUP_CODE="$(openssl rand -hex 32)" \
 docker compose up -d --build
 ```
 
 Security posture for open-internet multi-device deployments:
 - **Zero raw host port exposure in `compose.yml`:** traffic enters exclusively through Traefik over TLS (`dokploy-network`, container port `4731`).
-- **Bootstrap & Auth hardening:** `FERRIS_PUBLIC_ORIGIN` (`https://...`) requires `FERRIS_SETUP_CODE` (>= 32 chars, SHA-256 constant-time check) for initial owner creation. Passwords use **Argon2id** with sliding-window rate-limiting (8 failed attempts / 5 min lockout), concurrency semaphore (`429 Too Many Requests`), constant-time dummy verification against user enumeration, `HttpOnly; SameSite=Lax; Secure` session cookies, strict `Host` and `Origin` header pinning, per-session CSRF tokens, and authenticated web password rotation (`Settings → Change password`).
-- **Container hardening:** runs as non-root `uid 10001:10001` (`ferris`) with `read_only: true`, `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 128`, `mem_limit: 512m`, and a native self-contained `./ferris-atelier-panel --healthcheck` probe.
-- **Multi-device capture publishing:** generate per-machine credentials in `Project settings → Machines` and publish from any workstation or CI runner with `FERRIS_PUBLISH_TOKEN=<token> ferris-atelier-panel publish <run-dir> --server https://atelier.example.com`.
+- **Bootstrap & Auth hardening:** `RUPICOLA_PUBLIC_ORIGIN` (`https://...`) requires `RUPICOLA_SETUP_CODE` (>= 32 chars, SHA-256 constant-time check) for initial owner creation. Passwords use **Argon2id** with sliding-window rate-limiting (8 failed attempts / 5 min lockout), concurrency semaphore (`429 Too Many Requests`), constant-time dummy verification against user enumeration, `HttpOnly; SameSite=Lax; Secure` session cookies, strict `Host` and `Origin` header pinning, per-session CSRF tokens, and authenticated web password rotation (`Settings → Change password`).
+- **Container hardening:** runs as non-root `uid 10001:10001` (`rupicola`) with `read_only: true`, `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 128`, `mem_limit: 512m`, and a native self-contained `./rupicola-panel --healthcheck` probe.
+- **Multi-device capture publishing:** generate per-machine credentials in `Project settings → Machines` and publish from any workstation or CI runner with `RUPICOLA_PUBLISH_TOKEN=<token> rupicola-panel publish <run-dir> --server https://atelier.example.com`.
 
 ## Development
 
