@@ -90,6 +90,9 @@ fn workspace_dependencies(path: &Path, doc: &Value) -> Result<Value, String> {
     Ok(Value::Table(Table::default()))
 }
 
+/// # Errors
+///
+/// Returns an error if the Cargo manifest cannot be read or its TOML or dependency declarations are invalid.
 pub fn package(path: &Path) -> Result<Option<Package>, String> {
     let doc = parse(path)?;
     let Some(name) = doc
@@ -170,6 +173,9 @@ pub fn package(path: &Path) -> Result<Option<Package>, String> {
     }))
 }
 
+/// # Errors
+///
+/// Returns an error if the search root cannot be resolved or traversed.
 pub fn discover(root: &Path) -> Result<Inventory, String> {
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     let mut manifests: BTreeSet<PathBuf> = files(&root, false)?

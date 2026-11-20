@@ -187,6 +187,9 @@ impl Scenario {
         self.project = Project { id, label };
     }
 
+    /// # Errors
+    ///
+    /// Returns an error if the scenario file cannot be read or decoded, or the scenario does not pass validation.
     pub fn load(path: &Path) -> Result<Self, String> {
         let content = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let scenario: Self =
@@ -281,6 +284,9 @@ struct BrowserRequest<'a> {
     module_path: Option<&'a Path>,
 }
 
+/// # Errors
+///
+/// Returns an error if capture inputs are invalid, the browser driver fails, or capture artifacts cannot be read or written.
 pub fn web(
     scenario: Scenario,
     output: &Path,
@@ -359,6 +365,9 @@ pub struct CosmicCapture {
     pub revision: Option<String>,
 }
 
+/// # Errors
+///
+/// Returns an error if capture inputs are invalid, the host cannot run the isolated COSMIC capture, or artifacts cannot be read or written.
 pub fn cosmic(options: CosmicCapture, output: &Path) -> Result<Manifest, String> {
     if !identifier(&options.project_id) || options.project_label.trim().is_empty() {
         return Err("provide a project label and simple project ID".into());
@@ -609,6 +618,10 @@ fn analyze_clip(
 }
 
 /// Add a human or agent observation without claiming visual verification from capture alone.
+///
+/// # Errors
+///
+/// Returns an error if the note is empty, the manifest is invalid or unreadable, the evidence is outside the run or missing, or the review cannot be written.
 pub fn review(path: &Path, note: String, evidence: Option<PathBuf>) -> Result<(), String> {
     if note.trim().is_empty() {
         return Err("provide a concrete inspection note".into());

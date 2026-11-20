@@ -136,6 +136,9 @@ pub fn load_config(data_dir: &Path) -> BucketConfig {
         .unwrap_or_default()
 }
 
+/// # Errors
+///
+/// Returns an error if the configuration directory or file cannot be created, or serialization or writing fails.
 pub fn save_config(data_dir: &Path, cfg: &BucketConfig) -> io::Result<()> {
     fs::create_dir_all(data_dir)?;
     let path = data_dir.join(CONFIG_FILE);
@@ -551,6 +554,10 @@ pub fn analyze(data_dir: &Path, project_filter: Option<&str>) -> StorageReport {
 }
 
 /// Strip intermediate `samples/*/frame-*.png` files while keeping `sheet.png`, `diff.png`, `clip.mp4`, and `analysis.json`.
+///
+/// # Errors
+///
+/// No errors are currently returned. Files that cannot be removed are skipped.
 pub fn strip_raw_frames(
     data_dir: &Path,
     project_filter: Option<&str>,
@@ -610,6 +617,10 @@ pub fn strip_raw_frames(
 }
 
 /// Delete unpinned runs (respecting `keep_latest` most recent runs and optional date filter).
+///
+/// # Errors
+///
+/// No errors are currently returned. Runs that cannot be removed are skipped.
 pub fn prune_unpinned(
     data_dir: &Path,
     project_filter: Option<&str>,
@@ -657,6 +668,10 @@ pub fn prune_unpinned(
 }
 
 /// Delete a single run directory (if not pinned, or if `force` is true).
+///
+/// # Errors
+///
+/// Returns an error if the run is missing, pinned without force, or cannot be removed.
 pub fn delete_run(data_dir: &Path, run_name: &str, force: bool) -> io::Result<ActionSummary> {
     let report = analyze(data_dir, None);
     let Some(run) = report.by_run.iter().find(|r| r.run_name == run_name) else {
@@ -680,6 +695,10 @@ pub fn delete_run(data_dir: &Path, run_name: &str, force: bool) -> io::Result<Ac
 }
 
 /// Offload a capture run (or all runs referenced by a Fix) to the configured external bucket and optionally delete local media files.
+///
+/// # Errors
+///
+/// Returns an error if the bucket is unconfigured, the manifest cannot be read or written, or the transfer command fails.
 pub fn offload_run(data_dir: &Path, run_name: &str) -> Result<ActionSummary, String> {
     let cfg = load_config(data_dir);
     if cfg.bucket.trim().is_empty() {

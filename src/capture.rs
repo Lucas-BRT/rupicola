@@ -319,6 +319,9 @@ impl Default for VideoOptions {
 }
 
 impl VideoOptions {
+    /// # Errors
+    ///
+    /// Returns an error if the frame rate is nonpositive or nonfinite, the CRF is out of range, or the preset is empty.
     pub fn validate(&self) -> Result<(), String> {
         if !self.fps.is_finite() || self.fps <= 0.0 {
             return Err(format!(
@@ -352,6 +355,10 @@ pub struct VideoReport {
 }
 
 /// Assemble a directory of PNG frames (in natural numeric order) into a CFR MP4.
+///
+/// # Errors
+///
+/// Returns an error if the directory has no PNGs, a frame cannot be read or has mismatched dimensions, or video encoding fails.
 pub fn encode_png_dir(
     dir: &Path,
     out: &Path,
@@ -385,6 +392,10 @@ pub fn encode_png_dir(
 }
 
 /// Assemble in-RAM RGBA `Image` frames into a CFR MP4 via `ffmpeg`.
+///
+/// # Errors
+///
+/// Returns an error if the options are invalid, there are no frames, frame dimensions differ, or video encoding fails.
 pub fn encode_rgba_images(
     images: &[Image],
     out: &Path,
@@ -411,6 +422,10 @@ pub fn encode_rgba_images(
 
 /// Stream raw RGBA/BGRA frames (e.g., from RAM via stdin) into a CFR MP4 via `ffmpeg`,
 /// optionally also writing lossless PNGs to `save_frames`.
+///
+/// # Errors
+///
+/// Returns an error if the options or frame dimensions are invalid, the stream cannot be read or has no complete frames, or video encoding fails.
 pub fn encode_raw_stream<R: Read>(
     mut reader: R,
     width: u32,

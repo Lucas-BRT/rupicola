@@ -10,6 +10,9 @@ pub struct Check {
     pub eval_tasks: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
+/// # Errors
+///
+/// Returns an error if the skill directory cannot be resolved or traversed, or a required file cannot be read.
 pub fn check(root: &Path) -> Result<Check, String> {
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     if !root.is_dir() {
