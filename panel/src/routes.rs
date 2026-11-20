@@ -353,7 +353,7 @@ async fn review_proposal(cx: &Cx, Form(form): Form<proposes::ReviewForm>) -> Res
         path_param::<Project>(cx).into(),
         path_param::<Proposal>(cx).into(),
     );
-    let result = tokio::task::spawn_blocking(move || proposes::review(panel, account, id, form))
+    let result = tokio::task::spawn_blocking(move || proposes::review(&panel, account, id, &form))
         .await
         .unwrap_or_else(|error| Err(super::db_error(error)));
     respond(cx, result)
@@ -396,9 +396,9 @@ async fn proposal_asset(cx: &Cx) -> Result<Response> {
 async fn trigger_probe(cx: &Cx, Form(form): Form<pages::ProbeForm>) -> Result<Response> {
     let panel = panel(cx);
     let account = account(cx);
-    let id = path_param::<Project>(cx).into();
+    let id: String = path_param::<Project>(cx).into();
     let result =
-        tokio::task::spawn_blocking(move || pages::trigger_probe(panel, account, id, form))
+        tokio::task::spawn_blocking(move || pages::trigger_probe(&panel, &account, &id, form))
             .await
             .unwrap_or_else(|error| Err(super::db_error(error)));
     respond(cx, result)
@@ -539,9 +539,9 @@ async fn save_storage_config(
 ) -> Result<Response> {
     let panel = panel(cx);
     let account = account(cx);
-    let id = path_param::<Project>(cx).into();
+    let id: String = path_param::<Project>(cx).into();
     let result = tokio::task::spawn_blocking(move || {
-        pipeline::save_storage_config_action(panel, account, id, form)
+        pipeline::save_storage_config_action(&panel, &account, &id, &form)
     })
     .await
     .unwrap_or_else(|error| Err(super::db_error(error)));
@@ -552,9 +552,9 @@ async fn save_storage_config(
 async fn clean_storage(cx: &Cx, Form(form): Form<pipeline::StorageCleanForm>) -> Result<Response> {
     let panel = panel(cx);
     let account = account(cx);
-    let id = path_param::<Project>(cx).into();
+    let id: String = path_param::<Project>(cx).into();
     let result = tokio::task::spawn_blocking(move || {
-        pipeline::clean_storage_action(panel, account, id, form)
+        pipeline::clean_storage_action(&panel, &account, &id, &form)
     })
     .await
     .unwrap_or_else(|error| Err(super::db_error(error)));
@@ -568,9 +568,9 @@ async fn offload_storage(
 ) -> Result<Response> {
     let panel = panel(cx);
     let account = account(cx);
-    let id = path_param::<Project>(cx).into();
+    let id: String = path_param::<Project>(cx).into();
     let result = tokio::task::spawn_blocking(move || {
-        pipeline::offload_storage_action(panel, account, id, form)
+        pipeline::offload_storage_action(&panel, &account, &id, form)
     })
     .await
     .unwrap_or_else(|error| Err(super::db_error(error)));

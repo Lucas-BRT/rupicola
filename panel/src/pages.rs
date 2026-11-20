@@ -1519,16 +1519,16 @@ pub struct ProbeForm {
 }
 
 pub fn trigger_probe(
-    panel: Arc<Panel>,
-    account: Account,
-    id: String,
+    panel: &Panel,
+    account: &Account,
+    id: &str,
     form: ProbeForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    if !safe_name(&id) {
+    if !safe_name(id) {
         return Err(StatusCode::NOT_FOUND);
     }
     let url = form.url.trim().to_owned();
@@ -1556,7 +1556,7 @@ pub fn trigger_probe(
     let viewports = form.viewports.trim().to_owned();
     let themes = form.themes.trim().to_owned();
     let auto_analyze = form.pipeline.as_deref() != Some("capture-only");
-    let project_id = id.clone();
+    let project_id = id.to_owned();
 
     std::thread::spawn(move || {
         let candidates = [

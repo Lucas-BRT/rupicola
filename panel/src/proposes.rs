@@ -626,10 +626,10 @@ pub struct ReviewForm {
 }
 
 pub fn review(
-    panel: Arc<Panel>,
+    panel: &Panel,
     account: Account,
     (id, pid): (String, String),
-    form: ReviewForm,
+    form: &ReviewForm,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
     if !account.owner {
@@ -638,7 +638,7 @@ pub fn review(
     if !safe_name(&id) || !proposal_record::safe_id(&pid) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let root = proposals_root(&panel, &id);
+    let root = proposals_root(panel, &id);
     let path = root.join(format!("{pid}.json"));
     let mut p = proposal_record::read_proposal(&path).map_err(|_| StatusCode::NOT_FOUND)?;
     let ts = now_ms()?;
@@ -663,7 +663,7 @@ pub fn review(
         "approve" => {
             p.status = Status::Approved;
             proposal_record::write_proposal(&root, &p).map_err(db_error)?;
-            promote_to_design(&panel, &account, &id, &p)?;
+            promote_to_design(panel, &account, &id, &p)?;
         }
         "reject" => {
             p.status = Status::Rejected;
@@ -707,12 +707,12 @@ pub fn review(
                 dispatched_at_ms: None,
             };
             proposal_record::write_proposal(&root, &child).map_err(db_error)?;
-            if proposal_record::mcp_session_active(data_dir(&panel)).is_some() {
+            if proposal_record::mcp_session_active(data_dir(panel)).is_some() {
                 queue_dispatch(&root, &id, &child, Some(&p))?;
             }
         }
         "dispatch" => {
-            if proposal_record::mcp_session_active(data_dir(&panel)).is_none() {
+            if proposal_record::mcp_session_active(data_dir(panel)).is_none() {
                 return Err(StatusCode::CONFLICT);
             }
             let parent = p

@@ -2010,12 +2010,12 @@ pub struct StorageConfigForm {
 }
 
 pub fn save_storage_config_action(
-    panel: Arc<Panel>,
-    account: Account,
-    project_id: String,
-    form: StorageConfigForm,
+    panel: &Panel,
+    account: &Account,
+    project_id: &str,
+    form: &StorageConfigForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -2030,7 +2030,7 @@ pub fn save_storage_config_action(
         delete_local_after_offload: form.delete_local.trim() != "false",
         keep_latest_runs: form.keep_latest_runs.min(100),
     };
-    storage::save_config(&data_root(&panel), &cfg).map_err(db_error)?;
+    storage::save_config(&data_root(panel), &cfg).map_err(db_error)?;
     Ok(redirect(&format!(
         "/projects/{project_id}/storage?q=Saved+external+bucket+configuration"
     )))
@@ -2046,21 +2046,21 @@ pub struct StorageCleanForm {
 }
 
 pub fn clean_storage_action(
-    panel: Arc<Panel>,
-    account: Account,
-    project_id: String,
-    form: StorageCleanForm,
+    panel: &Panel,
+    account: &Account,
+    project_id: &str,
+    form: &StorageCleanForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    let data = data_root(&panel);
+    let data = data_root(panel);
     let summary = match form.mode.as_str() {
-        "strip-frames" => storage::strip_raw_frames(&data, Some(&project_id)).map_err(db_error)?,
+        "strip-frames" => storage::strip_raw_frames(&data, Some(project_id)).map_err(db_error)?,
         "prune-unpinned" => storage::prune_unpinned(
             &data,
-            Some(&project_id),
+            Some(project_id),
             form.keep_latest.unwrap_or(2),
             form.date.as_deref(),
         )
@@ -2089,23 +2089,23 @@ pub struct StorageOffloadForm {
 }
 
 pub fn offload_storage_action(
-    panel: Arc<Panel>,
-    account: Account,
-    project_id: String,
+    panel: &Panel,
+    account: &Account,
+    project_id: &str,
     form: StorageOffloadForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    let data = data_root(&panel);
+    let data = data_root(panel);
     let note = if let Some(rname) = form.run_name.filter(|s| !s.trim().is_empty()) {
         match storage::offload_run(&data, rname.trim()) {
             Ok(s) => s.note,
             Err(e) => e,
         }
     } else if let Some(fid) = form.fix_id.filter(|s| !s.trim().is_empty()) {
-        let report = storage::analyze(&data, Some(&project_id));
+        let report = storage::analyze(&data, Some(project_id));
         if let Some(f) = report.by_fix.iter().find(|x| x.fix_id == fid) {
             let mut freed = 0u64;
             let mut count = 0usize;
@@ -2131,7 +2131,7 @@ pub fn offload_storage_action(
             "Fix not found".to_string()
         }
     } else if form.target.as_deref() == Some("all-unpinned") {
-        let report = storage::analyze(&data, Some(&project_id));
+        let report = storage::analyze(&data, Some(project_id));
         let mut freed = 0u64;
         let mut count = 0usize;
         let mut last_err = None;

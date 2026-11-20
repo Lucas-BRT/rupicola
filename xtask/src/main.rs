@@ -801,11 +801,11 @@ fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> R<()
     reason = "evaluation rates and statistical estimates are computed in floating point"
 )]
 fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &str) -> R<()> {
+    type Rates = BTreeMap<String, Vec<f64>>;
+
     if resamples == 0 {
         return Err("provide at least one bootstrap resample".into());
     }
-    type Rates = BTreeMap<String, Vec<f64>>;
-
     let mut rows: Vec<Value> = Vec::new();
     for entry in fs::read_dir(out)
         .map_err(|error| error.to_string())?
@@ -910,8 +910,7 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
         v.sort_by(f64::total_cmp);
         let [low, high] = confidence_bounds(&v);
         println!(
-            "{name} ({cand}-{base}) = {point:+.3}  95% prompt-cluster bootstrap CI [{:+.3}, {:+.3}]",
-            low, high
+            "{name} ({cand}-{base}) = {point:+.3}  95% prompt-cluster bootstrap CI [{low:+.3}, {high:+.3}]"
         );
     }
     // Exact McNemar on (prompt, rep) pairs, positives and negatives separately.
