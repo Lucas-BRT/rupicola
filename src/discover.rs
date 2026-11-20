@@ -184,7 +184,7 @@ pub fn discover(root: &Path) -> Result<Inventory, String> {
         .collect();
     // A source-file/subdirectory request also identifies its enclosing package.
     let start = if root.is_file() {
-        root.parent().unwrap()
+        root.parent().unwrap_or(&root)
     } else {
         &root
     };

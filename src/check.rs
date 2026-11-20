@@ -144,7 +144,11 @@ pub fn check(root: &Path) -> Result<Check, String> {
                 if target.is_empty() {
                     continue;
                 }
-                let resolved = path.parent().unwrap().join(target);
+                let Some(parent) = path.parent() else {
+                    error(path.clone(), "document has no parent directory".into());
+                    continue;
+                };
+                let resolved = parent.join(target);
                 match resolved.canonicalize() {
                     Ok(p) if p.starts_with(&root) => {}
                     Ok(_) => error(

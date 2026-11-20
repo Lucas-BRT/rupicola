@@ -356,8 +356,8 @@ pub fn scan(root: &Path, explicit: Option<&str>, include_tests: bool) -> Result<
         let mut frameworks = BTreeSet::new();
         if let Some(id) = explicit {
             frameworks.insert(id.to_owned());
-        } else {
-            for dir in path.parent().unwrap().ancestors() {
+        } else if let Some(parent) = path.parent() {
+            for dir in parent.ancestors() {
                 let manifest = dir.join("Cargo.toml");
                 if manifest.is_file() {
                     let discovered = cache

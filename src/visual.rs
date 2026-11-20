@@ -252,9 +252,9 @@ pub fn analyze_frames(dir: &Path, threshold: u8) -> Result<Frames, String> {
 ///
 /// Returns an error if there are fewer than three frames or their dimensions differ.
 pub fn analyze_images(images: &[Image], threshold: u8) -> Result<Frames, String> {
-    if images.len() < 3 {
+    let [first, _, .., last] = images else {
         return Err("need at least 3 frames".into());
-    }
+    };
     let mut ratios = Vec::new();
     for pair in images.windows(2) {
         let (d, _) = diff_images(&pair[0], &pair[1], threshold);
@@ -266,9 +266,7 @@ pub fn analyze_images(images: &[Image], threshold: u8) -> Result<Frames, String>
     let eps = 0.0005;
     let first_change = ratios.iter().position(|&r| r > eps).map(|i| i + 1);
     let settled_at = ratios.iter().rposition(|&r| r > eps).map(|i| i + 1);
-    let total = diff_images(&images[0], images.last().unwrap(), threshold)
-        .0
-        .changed_ratio;
+    let total = diff_images(first, last, threshold).0.changed_ratio;
     let mut stalls = Vec::new();
     let mut jumps = Vec::new();
     let mut notes = Vec::new();
