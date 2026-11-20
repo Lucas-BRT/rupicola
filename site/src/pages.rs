@@ -106,8 +106,7 @@ fn code_block(label: &str, code: &str) -> String {
 }
 
 pub fn render_home(panel_url: &str) -> String {
-    let install_cmd =
-        "cargo install --git https://github.com/Lucas-BRT/ferris-atelier.git --locked";
+    let install_cmd = "curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash";
     let esc_cmd = escape_html(install_cmd);
 
     let stages = [
@@ -247,6 +246,10 @@ pub fn render_home(panel_url: &str) -> String {
 }
 
 pub fn render_install(panel_url: &str) -> String {
+    let quick_block = code_block(
+        "Quick Install (Linux / macOS)",
+        "curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash\nrupicola --version",
+    );
     let source_block = code_block(
         "Cargo (Git)",
         "cargo install --git https://github.com/Lucas-BRT/ferris-atelier.git --locked\nrupicola --version",
@@ -275,8 +278,19 @@ pub fn render_install(panel_url: &str) -> String {
     <h1>Install CLI, Releases &amp; AI Skill</h1>
     <p class="hero-lead">Minimum Rust version for the CLI is <code>1.85.0</code>. Core inspection runs offline with zero API keys; Playwright is only used for headless web probing.</p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="{RELEASES_URL}" target="_blank" rel="noopener">GitHub Releases</a>
+      <a class="btn btn-primary" href="/install.sh" download="install.sh">Download install.sh</a>
+      <a class="btn" href="{RELEASES_URL}" target="_blank" rel="noopener">GitHub Releases</a>
       <a class="btn" href="/docs/overview">Full CLI Reference</a>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="card">
+      <h2>Quick Install Script</h2>
+      <p class="muted">Downloads the matching release archive, verifies <code>SHA256SUMS</code>, links <code>rupicola</code> into <code>~/.local/bin</code>, and registers the skill when Codex/Claude directories exist (falls back to <code>cargo install</code> if no release is published yet).</p>
+      {quick_block}
     </div>
   </div>
 </section>

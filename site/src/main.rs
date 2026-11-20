@@ -26,6 +26,7 @@ mod pages;
 
 const SITE_CSS: &str = include_str!("site.css");
 const SITE_JS: &str = include_str!("site.js");
+const INSTALL_SH: &str = include_str!("install.sh");
 
 path_param!(*slug);
 
@@ -101,6 +102,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .route(docs_slug)
         .route(css)
         .route(js)
+        .route(install_script)
         .route(healthz)
         .build();
 
@@ -165,6 +167,16 @@ async fn js(_cx: &Cx) -> TopcoatResult<Response> {
         .header(header::CACHE_CONTROL, "public, max-age=3600")
         .body(Body::from(SITE_JS))
         .expect("valid js response"))
+}
+
+#[route(GET "/install.sh")]
+async fn install_script(_cx: &Cx) -> TopcoatResult<Response> {
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8")
+        .header(header::CACHE_CONTROL, "public, max-age=300")
+        .body(Body::from(INSTALL_SH))
+        .expect("valid install.sh response"))
 }
 
 #[route(GET "/healthz")]
