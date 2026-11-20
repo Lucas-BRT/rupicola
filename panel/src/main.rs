@@ -9,6 +9,7 @@ use std::{
 
 use clap::Parser;
 use http::{StatusCode, header};
+use rupicola::capture_manifest::{Checkpoint, Manifest};
 use serde::Deserialize;
 use tokio::{net::TcpListener, sync::Mutex};
 use topcoat::router::{
@@ -137,68 +138,6 @@ struct Panel {
     upload_work: Arc<tokio::sync::Semaphore>,
     login_attempts: Mutex<BTreeMap<String, (u32, i64)>>,
     uploads: Option<PathBuf>,
-}
-
-#[derive(Deserialize)]
-struct Project {
-    id: String,
-    label: String,
-}
-
-#[derive(Deserialize)]
-struct Manifest {
-    version: u32,
-    project: Project,
-    scenario: String,
-    revision: Option<String>,
-    created_at_ms: i64,
-    status: String,
-    blocker: Option<String>,
-    inspection: String,
-    environment: Environment,
-    checkpoints: Vec<Checkpoint>,
-    clips: Vec<Clip>,
-    #[serde(default)]
-    findings: Vec<Finding>,
-}
-
-#[derive(Deserialize)]
-struct Finding {
-    note: String,
-    evidence: Option<String>,
-}
-
-#[derive(Deserialize, PartialEq, Eq)]
-struct Environment {
-    #[serde(default)]
-    color_scheme: String,
-    #[serde(default)]
-    reduced_motion: bool,
-    width: Option<u32>,
-    height: Option<u32>,
-    renderer: String,
-}
-
-#[derive(Deserialize)]
-struct Checkpoint {
-    id: String,
-    path: String,
-}
-
-#[derive(Deserialize)]
-struct Clip {
-    id: String,
-    frames: Vec<Frame>,
-    analysis_path: Option<String>,
-    video_path: Option<String>,
-    sheet_path: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Frame {
-    path: String,
-    target_ms: f64,
-    video_ms: Option<f64>,
 }
 
 struct Run {

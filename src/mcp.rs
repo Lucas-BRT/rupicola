@@ -54,8 +54,9 @@ fn import_bundle(source: &std::path::Path) -> Result<Value, String> {
     };
     let bytes = read(&resolve("manifest.json")?, 1024 * 1024)?;
     let value: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    let _: scenario::BrowserResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    if value["version"] != 1 || value["project"]["id"] != service::detect_project()?.0 {
+    let manifest: rupicola::capture_manifest::Manifest =
+        serde_json::from_slice(&bytes).map_err(|e| format!("Invalid capture manifest: {e}"))?;
+    if manifest.version != 1 || manifest.project.id != service::detect_project()?.0 {
         return Err("Expected a v1 capture belonging to this project".into());
     }
     let mut paths = std::collections::BTreeSet::new();
@@ -1063,4 +1064,37 @@ pub fn serve() -> io::Result<()> {
         stdout.flush()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_import_rejects_missing_panel_metadata() {
+        let source = tempfile::tempdir().unwrap();
+        let path = source.path().join("manifest.json");
+        let valid = json!({
+            "version": 1,
+            "project": {"id": "example", "label": "Example"},
+            "scenario": "Settings review",
+            "created_at_ms": 1_795_182_148_405_i64,
+            "environment": {"renderer": "gpui"},
+            "status": "complete",
+            "inspection": "pending",
+            "checkpoints": [],
+            "clips": []
+        });
+        assert!(
+            serde_json::from_value::<rupicola::capture_manifest::Manifest>(valid.clone()).is_ok()
+        );
+        for field in ["created_at_ms", "environment"] {
+            let mut missing = valid.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            std::fs::write(&path, serde_json::to_vec(&missing).unwrap()).unwrap();
+            let error = import_bundle(source.path()).unwrap_err();
+            assert!(error.starts_with("Invalid capture manifest:"), "{error}");
+            assert!(error.contains(field), "{error}");
+        }
+    }
 }
