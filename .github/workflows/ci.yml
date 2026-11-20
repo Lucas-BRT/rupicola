@@ -15,6 +15,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+
 jobs:
   quality:
     name: Format, lint and skill validation
@@ -26,6 +31,9 @@ jobs:
           persist-credentials: false
       - name: Install Rust tooling
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: rupicola
       - run: cargo +1.99.1 fmt --check
       - run: cargo +1.99.1 clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo +1.99.1 run --locked -- check .
@@ -56,6 +64,9 @@ jobs:
           persist-credentials: false
       - name: Install Rust
         run: rustup toolchain install ${{ matrix.rust }} --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: rupicola
       - run: cargo +${{ matrix.rust }} test --locked
 
   docker:
@@ -150,6 +161,9 @@ jobs:
           persist-credentials: false
       - name: Install Rust target
         run: rustup toolchain install 1.99.1 --profile minimal --target ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: rupicola
       - run: cargo +1.99.1 build --release --locked --target ${{ matrix.target }}
       - name: Package CLI and skill
         shell: bash
