@@ -30,32 +30,26 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust tooling
-        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+        run: cargo --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rupicola
-      - run: cargo +1.99.1 fmt --check
-      - run: cargo +1.99.1 clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo +1.99.1 run --locked -- check .
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo run --locked -- check .
       - name: Verify release tag matches package version
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
-          actual="$(cargo +1.99.1 run --quiet --locked -- --version)"
+          actual="$(cargo run --quiet --locked -- --version)"
           test "$actual" = "rupicola ${GITHUB_REF_NAME#v}"
 
   tests:
-    name: Test (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    name: Test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            rust: '1.99.1'
-          - os: windows-2022
-            rust: '1.99.1'
-          - os: macos-15
-            rust: '1.99.1'
+        os: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -63,11 +57,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust
-        run: rustup toolchain install ${{ matrix.rust }} --profile minimal
+        run: cargo --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rupicola
-      - run: cargo +${{ matrix.rust }} test --locked
+      - run: cargo test --locked
 
   docker:
     name: Build and push Docker image
@@ -160,11 +154,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust target
-        run: rustup toolchain install 1.99.1 --profile minimal --target ${{ matrix.target }}
+        run: cargo --version && rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rupicola
-      - run: cargo +1.99.1 build --release --locked --target ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package CLI and skill
         shell: bash
         env:

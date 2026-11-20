@@ -2,17 +2,14 @@
 
 Operational rules for AI agents working in this repository. Never invent files, symbols, endpoints, or test results.
 
-## Toolchain & Workspace
-- Rust toolchain: pinned to **`1.99.1`** ([Cargo.toml](Cargo.toml), [.github/workflows/ci.yml](.github/workflows/ci.yml)).
-- Workspace members: `.` (`rupicola` CLI + MCP), `panel` (`rupicola-panel` web server + remote MCP), `site` (`rupicola-site`), `xtask`.
-- Never add dependencies or alter `Cargo.lock` without explicit need.
+- Add dependencies or change `Cargo.lock` only when needed.
 
 ## Git, Commits & Releases
 - Branches: create `feat/<slug>` or `fix/<slug>` from `develop` → PR to `develop` → PR to `main`.
 - `main` is protected (`enforce_admins`): never push directly to `main`.
 - Git hooks (`.githooks/`):
   - `commit-msg`: enforces Conventional Commits (`feat|fix|chore|docs|refactor|test|ci|build|perf|style|revert`).
-  - `pre-push`: runs `cargo +1.99.1 fmt --check` and workspace Clippy.
+  - `pre-push`: runs formatting and workspace Clippy checks.
 - Production deploy (`rupicola.lucasbrt.dev`) triggers **only** on `v*` tags or manual `workflow_dispatch`. Pushes/PRs to `develop` and `main` run CI checks only.
 
 ## Local Dev vs Cloud
@@ -25,10 +22,10 @@ Operational rules for AI agents working in this repository. Never invent files, 
 ## Mandatory Verification Before Reporting Done
 Run and observe passing output after your final edit:
 ```sh
-cargo +1.99.1 fmt --check
-cargo +1.99.1 clippy --locked --workspace --all-targets -- -D warnings
-cargo +1.99.1 test --locked
-cargo +1.99.1 run --locked -- check .
+cargo fmt --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked
+cargo run --locked -- check .
 ```
 Report any skipped or environment-blocked test explicitly (e.g. missing `ffmpeg` in sandbox).
 
