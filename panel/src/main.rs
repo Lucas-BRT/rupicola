@@ -100,10 +100,10 @@ struct Args {
     bind: Option<Ipv4Addr>,
     #[arg(long)]
     port: Option<u16>,
-    /// Public HTTPS origin when running behind a reverse proxy (or RUPICOLA_PUBLIC_ORIGIN).
+    /// Public HTTPS origin when running behind a reverse proxy (or `RUPICOLA_PUBLIC_ORIGIN`).
     #[arg(long)]
     public_origin: Option<String>,
-    /// Managed directory for incoming captures (or RUPICOLA_UPLOADS). Required in cloud mode.
+    /// Managed directory for incoming captures (or `RUPICOLA_UPLOADS`). Required in cloud mode.
     #[arg(long)]
     uploads: Option<PathBuf>,
     /// Run a self-contained health probe against the local listener and exit.
@@ -113,7 +113,7 @@ struct Args {
 
 #[derive(clap::Subcommand)]
 enum Action {
-    /// Send a capture to the shared panel using RUPICOLA_PUBLISH_TOKEN.
+    /// Send a capture to the shared panel using `RUPICOLA_PUBLISH_TOKEN`.
     Publish {
         run: PathBuf,
         #[arg(long)]

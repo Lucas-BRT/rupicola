@@ -39,15 +39,14 @@ pub fn resolve_token() -> Result<String, String> {
 }
 
 pub fn set_token(token: Option<String>) -> Result<(), String> {
-    let raw = match token {
-        Some(value) => value,
-        None => {
-            let mut buf = String::new();
-            io::stdin()
-                .read_to_string(&mut buf)
-                .map_err(|e| format!("Read token from stdin: {e}"))?;
-            buf
-        }
+    let raw = if let Some(value) = token {
+        value
+    } else {
+        let mut buf = String::new();
+        io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("Read token from stdin: {e}"))?;
+        buf
     };
     let token = validate_token(&raw)?;
     let path = token_path()?;

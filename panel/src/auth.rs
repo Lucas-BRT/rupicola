@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    Arc, BoxError, Connection, Cx, Deserialize, Html, IntoResponse, PageResult, Panel, Response,
+    StatusCode, TransactionBehavior, Value, ViewExt, db_error, header, redirect, safe_name, status,
+    view,
+};
 use crate::components::button::button;
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
@@ -68,10 +72,11 @@ pub fn digest(secret: &str) -> String {
 }
 
 pub fn now() -> i64 {
-    std::time::SystemTime::now()
+    let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs() as i64
+        .as_secs();
+    i64::try_from(secs).unwrap_or(i64::MAX)
 }
 
 fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {

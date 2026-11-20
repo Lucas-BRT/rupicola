@@ -440,10 +440,10 @@ pub fn run_problem(action: ProblemAction) -> Result<u8, String> {
                 if agent_name.is_some() {
                     exec.agent_id = agent_name;
                 }
-                exec.stage = stage.clone();
+                exec.stage.clone_from(&stage);
                 exec.progress_pct = pct;
                 exec.step_current = step_cur;
-                exec.current_activity = msg.clone();
+                exec.current_activity.clone_from(&msg);
                 exec.updated_at_ms = now;
                 exec.logs.push(TaskStepLog {
                     stage,
@@ -486,7 +486,7 @@ pub fn run_problem(action: ProblemAction) -> Result<u8, String> {
             exec.progress_pct = 25;
             exec.step_current = 1;
             exec.step_total = total;
-            exec.current_activity = activity.clone();
+            exec.current_activity.clone_from(&activity);
             exec.updated_at_ms = now;
             exec.logs.push(TaskStepLog {
                 stage: "claimed".into(),
@@ -535,11 +535,11 @@ pub fn run_problem(action: ProblemAction) -> Result<u8, String> {
             if let Some(a) = agent.filter(|s| !s.trim().is_empty()) {
                 exec.agent_id = Some(a);
             }
-            exec.stage = stage.clone();
+            exec.stage.clone_from(&stage);
             exec.progress_pct = clamped_pct;
             exec.step_current = step_cur;
             exec.step_total = total;
-            exec.current_activity = activity.clone();
+            exec.current_activity.clone_from(&activity);
             exec.updated_at_ms = now;
             exec.logs.push(TaskStepLog {
                 stage,
@@ -572,8 +572,7 @@ pub fn run_problem(action: ProblemAction) -> Result<u8, String> {
                 let rule_code = candidate
                     .violated_rules
                     .first()
-                    .map(|r| r.code.as_str())
-                    .unwrap_or("");
+                    .map_or("", |r| r.code.as_str());
                 if problem_record::is_suppressed(
                     &existing,
                     &candidate.route,
@@ -795,10 +794,7 @@ pub fn run_fix(action: FixAction) -> Result<u8, String> {
                         .take_while(|ch| !ch.is_whitespace())
                         .collect();
                     let clean = token.trim_end_matches(['.', ',', ';', ')']);
-                    if clean.ends_with(".mp4")
-                        || clean.ends_with(".webm")
-                        || clean.ends_with(".png")
-                    {
+                    if matches!(clean.rsplit_once('.'), Some((_, "mp4" | "webm" | "png"))) {
                         pair.after_url = clean.to_string();
                     }
                 }

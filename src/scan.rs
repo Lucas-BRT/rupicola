@@ -358,7 +358,7 @@ pub fn scan(root: &Path, explicit: Option<&str>, include_tests: bool) -> Result<
                         .entry(manifest.clone())
                         .or_insert_with(|| discover::package(&manifest));
                     match discovered {
-                        Ok(Some(p)) => frameworks = p.frameworks.clone(),
+                        Ok(Some(p)) => frameworks.clone_from(&p.frameworks),
                         Ok(None) => {}
                         Err(message) => result.diagnostics.push(Diagnostic {
                             path: manifest,

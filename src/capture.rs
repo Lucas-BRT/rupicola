@@ -122,6 +122,7 @@ impl CaptureConfig {
     }
 
     /// Deterministic timestamp in milliseconds for `frame` (0.0, 16.67, 33.33, ... at 60 fps).
+    #[must_use]
     pub fn timestamp_ms(&self, frame: usize) -> f64 {
         frame as f64 * (1000.0 / self.fps)
     }

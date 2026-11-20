@@ -4,6 +4,7 @@ use clap::{Args, Parser, Subcommand};
 use rupicola::evals::{Task, load};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -774,13 +775,14 @@ fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> R<()
 }
 
 fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &str) -> R<()> {
+    type Rates = BTreeMap<String, Vec<f64>>;
+
     let mut rows: Vec<Value> = Vec::new();
     for entry in fs::read_dir(out).map_err(e)?.flatten() {
         let p = entry.path();
-        if p.file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("trig__") && n.ends_with(".json"))
-        {
+        if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n.starts_with("trig__") && matches!(n.rsplit_once('.'), Some((_, "json")))
+        }) {
             rows.push(serde_json::from_str(&fs::read_to_string(&p).map_err(e)?).map_err(e)?);
         }
     }
@@ -790,7 +792,6 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
     }
     rows.retain(|r| r["config_error"] != true);
     // prompt -> (category, expect, per-cond invocation rate over repetitions)
-    type Rates = BTreeMap<String, Vec<f64>>;
     let mut prompts: BTreeMap<String, (String, bool, Rates)> = BTreeMap::new();
     for r in &rows {
         let entry = prompts
@@ -806,7 +807,7 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
             .2
             .entry(r["cond"].as_str().unwrap_or("").to_owned())
             .or_default()
-            .push(hit(r, key) as u8 as f64);
+            .push(f64::from(u8::from(hit(r, key))));
     }
     let rate = |p: &(String, bool, Rates), c: &str| {
         p.2.get(c).map(|v| v.iter().sum::<f64>() / v.len() as f64)
@@ -900,8 +901,8 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
         }
         for (x, y) in cell.values() {
             if let (Some(x), Some(y)) = (x, y) {
-                b += (*x && !*y) as u64;
-                c += (!*x && *y) as u64;
+                b += u64::from(*x && !*y);
+                c += u64::from(!*x && *y);
             }
         }
         println!(
@@ -919,7 +920,7 @@ fn ln_choose(n: u64, k: u64) -> f64 {
     let lf = |x: u64| (1..=x).map(|i| (i as f64).ln()).sum::<f64>();
     lf(n) - lf(k) - lf(n - k)
 }
-/// Exact two-sided sign test on discordant pairs (McNemar exact).
+/// Exact two-sided sign test on discordant pairs (`McNemar` exact).
 fn mcnemar_p(b: u64, c: u64) -> f64 {
     let n = b + c;
     if n == 0 {
@@ -968,8 +969,9 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
         );
         for r in &rows {
             let f = |k: &str| r[k].to_string().trim_matches('"').to_owned();
-            s += &format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{}\n",
+            writeln!(
+                s,
+                "{},{},{},{},{},{},{},{},{},{},{},{}",
                 f("task"),
                 f("cond"),
                 f("rep"),
@@ -982,7 +984,8 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
                 f("turns"),
                 f("input_tokens"),
                 f("output_tokens")
-            );
+            )
+            .expect("writing to a String cannot fail");
         }
         fs::write(out.join("rows.csv"), s).map_err(e)?;
     }
@@ -1000,11 +1003,11 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
         match r["cond"].as_str() {
             Some(c) if c == base => {
                 slot.0 = Some(pass);
-                entry.0.push(pass as u8 as f64);
+                entry.0.push(f64::from(u8::from(pass)));
             }
             Some(c) if c == cand => {
                 slot.1 = Some(pass);
-                entry.1.push(pass as u8 as f64);
+                entry.1.push(f64::from(u8::from(pass)));
             }
             _ => {}
         }
@@ -1013,8 +1016,8 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     for (x, y) in cell.values() {
         if let (Some(x), Some(y)) = (x, y) {
             pairs += 1;
-            b += (*x && !*y) as u64;
-            c += (!*x && *y) as u64;
+            b += u64::from(*x && !*y);
+            c += u64::from(!*x && *y);
         }
     }
     let mean = |v: &Vec<f64>| v.iter().sum::<f64>() / v.len().max(1) as f64;
@@ -1041,7 +1044,7 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
         let v: Vec<f64> = rows
             .iter()
             .filter(|r| r["cond"] == cond)
-            .map(|r| (r[key] == true) as u8 as f64)
+            .map(|r| f64::from(u8::from(r[key] == true)))
             .collect();
         mean(&v)
     };
@@ -1064,7 +1067,7 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     };
     println!(
         "model: {}  paired (task,rep) cells: {pairs}  tasks: {}",
-        models.first().map(String::as_str).unwrap_or("?"),
+        models.first().map_or("?", String::as_str),
         diffs.len()
     );
     println!(

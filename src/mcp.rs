@@ -567,7 +567,7 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value, String
                 return Err("Artifact outside run or larger than 8 MiB".into());
             }
             let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
-            if artifact.ends_with(".png") {
+            if matches!(artifact.rsplit_once('.'), Some((_, "png"))) {
                 return Ok(
                     json!({"content":[{"type":"image","mimeType":"image/png","data":base64(&bytes)}]}),
                 );
@@ -965,8 +965,7 @@ impl SessionGuard {
         let path = data.join(proposal_record::MCP_SESSION_FILE);
         let started_at_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
         let session = proposal_record::McpSession {
             pid: std::process::id(),
             project_id: service::project().ok().flatten().map(|p| p.0),
@@ -998,17 +997,16 @@ pub fn serve() -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     for line in io::stdin().lock().lines() {
         let line = line?;
-        let request: Value = match serde_json::from_str(&line) {
-            Ok(value) => value,
-            Err(_) => {
-                writeln!(
-                    stdout,
-                    "{}",
-                    json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}})
-                )?;
-                stdout.flush()?;
-                continue;
-            }
+        let request: Value = if let Ok(value) = serde_json::from_str(&line) {
+            value
+        } else {
+            writeln!(
+                stdout,
+                "{}",
+                json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}})
+            )?;
+            stdout.flush()?;
+            continue;
         };
         let Some(id) = request.get("id") else {
             continue;

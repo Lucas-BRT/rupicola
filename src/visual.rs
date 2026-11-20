@@ -77,14 +77,17 @@ fn lin(c: u8) -> f64 {
         ((c + 0.055) / 1.055).powf(2.4)
     }
 }
+#[must_use]
 pub fn luminance(rgb: [u8; 3]) -> f64 {
     0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
 }
+#[must_use]
 pub fn contrast(a: [u8; 3], b: [u8; 3]) -> f64 {
     let (la, lb) = (luminance(a), luminance(b));
     let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
     (hi + 0.05) / (lo + 0.05)
 }
+#[must_use]
 pub fn parse_hex(text: &str) -> Option<[u8; 3]> {
     let t = text.trim().trim_start_matches('#');
     let v = |s: &str| u8::from_str_radix(s, 16).ok();
@@ -113,6 +116,7 @@ pub struct Diff {
 }
 
 /// Pixels whose largest channel difference exceeds `threshold` count as changed.
+#[must_use]
 pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>) {
     if a.width != b.width || a.height != b.height {
         return (
@@ -511,6 +515,7 @@ pub struct MatrixSpec {
     pub locales: Vec<String>,
 }
 
+#[must_use]
 pub fn matrix_plan(spec: &MatrixSpec, out: &Path) -> Vec<MatrixEntry> {
     let mut entries = Vec::new();
     for state in &spec.states {
@@ -665,7 +670,7 @@ pub fn audit(tree: &Tree) -> Vec<AuditFinding> {
             rule,
             node: node.to_owned(),
             message,
-        })
+        });
     };
     for n in &tree.nodes {
         if n.interactive && (n.w < 24.0 || n.h < 24.0) {

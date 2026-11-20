@@ -232,11 +232,11 @@ fn audit_flags_each_measurable_problem() {
             .map(|f| f.rule)
             .collect()
     };
-    assert!(rules("ok").is_empty());
+    assert_eq!(rules("ok"), [] as [&str; 0]);
     assert_eq!(rules("small"), ["target-size"]);
     assert_eq!(rules("nameless"), ["missing-name"]);
     assert_eq!(rules("hint"), ["contrast"]); // 4.48:1 against 4.5:1
-    assert!(rules("big").is_empty()); // large text needs only 3:1
+    assert_eq!(rules("big"), [] as [&str; 0]); // large text needs only 3:1
     assert_eq!(rules("border"), ["contrast"]); // 1.92:1 against 3:1
     assert_eq!(rules("cut"), ["clipped"]);
     assert_eq!(rules("out"), ["offscreen"]);

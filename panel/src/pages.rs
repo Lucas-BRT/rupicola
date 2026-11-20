@@ -1,4 +1,9 @@
-use super::*;
+use super::{
+    Account, Arc, BTreeMap, Checkpoint, Connection, Cx, Deserialize, Html, IntoResponse, Manifest,
+    PageResult, Panel, PathBuf, Response, Run, StatusCode, TransactionBehavior, Value, auth,
+    db_error, design_record, fix_record, fs, media, pipeline, problem_record, proposal_record,
+    proposes, read_index, read_manifest, redirect, run_dir, safe_name, storage, view,
+};
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
 use std::io::Write;
@@ -1226,8 +1231,9 @@ pub async fn change_password(
     let current = form.current_password;
     let new_pw = form.new_password;
     let new_hash = tokio::task::spawn_blocking(move || -> PageResult<String> {
-        let _permit = permit;
         use argon2::{Argon2, PasswordHash, PasswordVerifier};
+
+        let _permit = permit;
         let verified = PasswordHash::new(&stored).is_ok_and(|hash| {
             Argon2::default()
                 .verify_password(current.as_bytes(), &hash)
@@ -1471,7 +1477,7 @@ pub async fn record_design(
         .map_err(db_error)?;
     let entry = design_record::Entry {
         id: format!("{}-{}", now.as_nanos(), std::process::id()),
-        timestamp_ms: now.as_millis() as u64,
+        timestamp_ms: u64::try_from(now.as_millis()).unwrap_or(u64::MAX),
         kind: form.kind,
         status: form.status,
         title: title.into(),

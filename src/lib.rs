@@ -73,7 +73,7 @@ pub fn files(root: &Path, include_tests: bool) -> Result<Vec<PathBuf>, String> {
             .map_err(|e| format!("{}: {e}", path.display()))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
-        entries.sort_by_key(|e| e.file_name());
+        entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
             let name = entry.file_name();
             let name = name.to_string_lossy();

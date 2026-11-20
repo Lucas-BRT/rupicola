@@ -202,7 +202,7 @@ pub fn run(action: Action) -> Result<(), String> {
             let id = format!("{}-{}", now.as_nanos(), std::process::id());
             let entry = Entry {
                 id,
-                timestamp_ms: now.as_millis() as u64,
+                timestamp_ms: u64::try_from(now.as_millis()).unwrap_or(u64::MAX),
                 kind,
                 status,
                 title,

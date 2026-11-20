@@ -43,7 +43,7 @@ fn layout(title: &str, description: &str, active: &str, panel_url: &str, body: &
     .join("\n          ");
 
     format!(
-        r###"<!DOCTYPE html>
+        r##"<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
@@ -87,7 +87,7 @@ fn layout(title: &str, description: &str, active: &str, panel_url: &str, body: &
     </div>
   </footer>
 </body>
-</html>"###
+</html>"##
     )
 }
 

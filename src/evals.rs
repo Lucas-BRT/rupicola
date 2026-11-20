@@ -74,7 +74,7 @@ fn validate_triggers(root: &Path, out: &mut Vec<Diagnostic>) {
         out.push(Diagnostic {
             path: file.clone(),
             message,
-        })
+        });
     };
     let triggers = match load_triggers(root) {
         Ok(t) => t,
@@ -144,7 +144,7 @@ pub fn validate(root: &Path, out: &mut Vec<Diagnostic>) -> usize {
             out.push(Diagnostic {
                 path: file.clone(),
                 message,
-            })
+            });
         };
         let task =
             match read(&file).and_then(|s| toml::from_str::<Task>(&s).map_err(|e| e.to_string())) {

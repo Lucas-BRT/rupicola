@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    Arc, Body, Cx, Deserialize, FilePath, PageResult, Panel, PathBuf, Response, Run, StatusCode,
+    auth, db_error, design_record, fix_record, header, pages, problem_record, proposal_record,
+    redirect, storage, view,
+};
 use crate::components::badge::{BadgeVariant, badge};
 use auth::{Account, Role};
 use fix_record::{ComparisonPair, FixRecord, FixReview, FixStatus, FixStep};
@@ -19,8 +23,7 @@ pub fn data_root(panel: &Panel) -> PathBuf {
     panel
         .design
         .parent()
-        .map(FilePath::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(".rupicola"))
+        .map_or_else(|| PathBuf::from(".rupicola"), FilePath::to_path_buf)
 }
 
 pub fn sync_legacy_findings(panel: &Panel, project_id: &str, runs: &[&Run]) -> Vec<Problem> {
@@ -82,7 +85,7 @@ fn fix_status_badge(st: FixStatus) -> BadgeVariant {
 
 fn is_video_url(url: &str) -> bool {
     let path = url.split('?').next().unwrap_or(url);
-    path.ends_with(".mp4") || path.ends_with(".webm")
+    matches!(path.rsplit_once('.'), Some((_, "mp4" | "webm")))
 }
 
 fn extract_media_url_from_text(text: &str) -> Option<String> {
@@ -92,7 +95,7 @@ fn extract_media_url_from_text(text: &str) -> Option<String> {
         .take_while(|ch| !ch.is_whitespace())
         .collect();
     let clean = token.trim_end_matches(['.', ',', ';', ')']);
-    if clean.ends_with(".mp4") || clean.ends_with(".webm") || clean.ends_with(".png") {
+    if matches!(clean.rsplit_once('.'), Some((_, "mp4" | "webm" | "png"))) {
         Some(clean.to_string())
     } else {
         None
@@ -482,7 +485,7 @@ pub fn render_problems<'a>(
                     <input type="hidden" name="csrf" value=(&account.csrf)>
                     <label for="prob-title">"Problem title"</label>
                     <input id="prob-title" name="title" required="" maxlength="200"
-                        value=(if !prefill_name.is_empty() { format!("Visual issue on {prefill_name}") } else { String::new() })
+                        value=(if prefill_name.is_empty() { String::new() } else { format!("Visual issue on {prefill_name}") })
                         placeholder="e.g. Disconnected 14px gap between Settings cards">
                     <div class="form-row-3">
                         <div>
@@ -1180,8 +1183,7 @@ pub async fn analyze_run_action(
                 let rule_code = candidate
                     .violated_rules
                     .first()
-                    .map(|r| r.code.as_str())
-                    .unwrap_or("");
+                    .map_or("", |r| r.code.as_str());
                 if problem_record::is_suppressed(
                     &existing,
                     &candidate.route,
@@ -1371,10 +1373,10 @@ pub async fn triage_problem_action(
         if agent_id.is_some() {
             exec.agent_id = agent_id;
         }
-        exec.stage = stage.clone();
+        exec.stage.clone_from(&stage);
         exec.progress_pct = pct;
         exec.step_current = step_cur;
-        exec.current_activity = msg.clone();
+        exec.current_activity.clone_from(&msg);
         exec.updated_at_ms = now;
         exec.logs.push(TaskStepLog {
             stage,
@@ -1441,10 +1443,10 @@ pub async fn progress_problem_action(
     if !agent.is_empty() {
         exec.agent_id = Some(agent.clone());
     }
-    exec.stage = stage.clone();
+    exec.stage.clone_from(&stage);
     exec.progress_pct = pct;
     exec.step_current = form.step.clamp(1, exec.step_total.max(1));
-    exec.current_activity = activity.clone();
+    exec.current_activity.clone_from(&activity);
     exec.updated_at_ms = now;
     exec.logs.push(TaskStepLog {
         stage,

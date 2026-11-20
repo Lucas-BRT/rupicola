@@ -4,7 +4,7 @@ use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
 };
-use toml::Value;
+use toml::{Table, Value};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Dependency {
@@ -31,6 +31,7 @@ pub struct Inventory {
     pub configuration: &'static str,
 }
 
+#[must_use]
 pub fn framework(package: &str) -> Option<&'static str> {
     match package {
         "cosmic" | "libcosmic" => Some("libcosmic"),
@@ -59,7 +60,7 @@ fn workspace_dependencies(path: &Path, doc: &Value) -> Result<Value, String> {
         return Ok(ws
             .get("dependencies")
             .cloned()
-            .unwrap_or(Value::Table(Default::default())));
+            .unwrap_or(Value::Table(Table::default())));
     }
     // An explicit workspace path wins over ancestor discovery.
     if let Some(relative) = doc
@@ -72,7 +73,7 @@ fn workspace_dependencies(path: &Path, doc: &Value) -> Result<Value, String> {
             .get("workspace")
             .and_then(|w| w.get("dependencies"))
             .cloned()
-            .unwrap_or(Value::Table(Default::default())));
+            .unwrap_or(Value::Table(Table::default())));
     }
     for dir in path.parent().unwrap().ancestors().skip(1) {
         let manifest = dir.join("Cargo.toml");
@@ -82,11 +83,11 @@ fn workspace_dependencies(path: &Path, doc: &Value) -> Result<Value, String> {
                 return Ok(ws
                     .get("dependencies")
                     .cloned()
-                    .unwrap_or(Value::Table(Default::default())));
+                    .unwrap_or(Value::Table(Table::default())));
             }
         }
     }
-    Ok(Value::Table(Default::default()))
+    Ok(Value::Table(Table::default()))
 }
 
 pub fn package(path: &Path) -> Result<Option<Package>, String> {

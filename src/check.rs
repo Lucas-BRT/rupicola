@@ -128,9 +128,7 @@ pub fn check(root: &Path) -> Result<Check, String> {
             }
         };
         for event in Parser::new(&text) {
-            if let Event::Start(Tag::Link { dest_url, .. })
-            | Event::Start(Tag::Image { dest_url, .. }) = event
-            {
+            if let Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) = event {
                 let target = dest_url.as_ref();
                 if target.starts_with('#')
                     || target.starts_with("//")

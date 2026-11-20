@@ -127,6 +127,7 @@ pub struct ActionSummary {
     pub note: String,
 }
 
+#[must_use]
 pub fn load_config(data_dir: &Path) -> BucketConfig {
     let path = data_dir.join(CONFIG_FILE);
     fs::read(&path)
@@ -145,6 +146,7 @@ pub fn save_config(data_dir: &Path, cfg: &BucketConfig) -> io::Result<()> {
     fs::rename(&tmp, &path)
 }
 
+#[must_use]
 pub fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = 1024.0 * 1024.0;
@@ -162,14 +164,14 @@ pub fn format_bytes(bytes: u64) -> String {
 }
 
 fn epoch_ms_to_ymd(ms: u64) -> String {
-    let secs = (ms / 1000) as i64;
+    let secs = i64::try_from(ms / 1000).expect("u64 milliseconds fit in i64 seconds");
     let days = secs.div_euclid(86_400);
     // Civil date from days since 1970-01-01 (Howard Hinnant algorithm)
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
+    let doe = z - era * 146_097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
+    let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
@@ -198,7 +200,7 @@ fn dir_walk_stats(dir: &Path) -> (u64, usize, u64) {
             if ft.is_dir() {
                 stack.push(path);
             } else if ft.is_file() {
-                let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                let len = entry.metadata().map_or(0, |m| m.len());
                 total_bytes += len;
                 files += 1;
                 let fname = entry.file_name();
@@ -578,7 +580,7 @@ pub fn strip_raw_frames(
                     let name = f.file_name();
                     let s = name.to_string_lossy();
                     if s.starts_with("frame-") && s.ends_with(".png") {
-                        let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+                        let len = f.metadata().map_or(0, |m| m.len());
                         if fs::remove_file(f.path()).is_ok() {
                             freed += len;
                             files += 1;
@@ -743,14 +745,14 @@ pub fn offload_run(data_dir: &Path, run_name: &str) -> Result<ActionSummary, Str
         }
     }
 
-    let public_base = if !cfg.public_base_url.trim().is_empty() {
+    let public_base = if cfg.public_base_url.trim().is_empty() {
+        format!("s3://{}/{}", cfg.bucket.trim_matches('/'), remote_rel)
+    } else {
         format!(
             "{}/{}",
             cfg.public_base_url.trim_end_matches('/'),
             remote_rel
         )
-    } else {
-        format!("s3://{}/{}", cfg.bucket.trim_matches('/'), remote_rel)
     };
 
     let mut freed = 0u64;

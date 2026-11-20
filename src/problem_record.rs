@@ -28,6 +28,7 @@ impl ProblemStatus {
         Self::Resolved,
     ];
 
+    #[must_use]
     pub fn slug(self) -> &'static str {
         match self {
             Self::Open => "open",
@@ -39,6 +40,7 @@ impl ProblemStatus {
         }
     }
 
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Open => "Open",
@@ -50,6 +52,7 @@ impl ProblemStatus {
         }
     }
 
+    #[must_use]
     pub fn from_slug(s: &str) -> Option<Self> {
         match s {
             "open" => Some(Self::Open),
@@ -73,6 +76,7 @@ pub enum Severity {
 }
 
 impl Severity {
+    #[must_use]
     pub fn slug(self) -> &'static str {
         match self {
             Self::Critical => "critical",
@@ -82,6 +86,7 @@ impl Severity {
         }
     }
 
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Critical => "Critical",
@@ -91,6 +96,7 @@ impl Severity {
         }
     }
 
+    #[must_use]
     pub fn from_slug(s: &str) -> Option<Self> {
         match s {
             "critical" => Some(Self::Critical),
@@ -111,6 +117,7 @@ pub enum ProblemOrigin {
 }
 
 impl ProblemOrigin {
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::AgentMeasured => "Agent · Measured",
@@ -195,6 +202,7 @@ pub struct Problem {
     pub updated_at_ms: u64,
 }
 
+#[must_use]
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 80
@@ -203,6 +211,7 @@ pub fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
 
+#[must_use]
 pub fn root(data_dir: &Path, project: &str) -> PathBuf {
     data_dir.join(DIRECTORY).join(project)
 }
@@ -213,7 +222,7 @@ pub fn next_id() -> (String, u64) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let ms = now.as_millis() as u64;
+    let ms = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed) % 1000;
     (format!("{}-{}{:03}", ms, std::process::id(), seq), ms)
 }
@@ -297,6 +306,7 @@ pub fn save(data_dir: &Path, problem: &Problem) -> io::Result<()> {
     fs::rename(&tmp, &target)
 }
 
+#[must_use]
 pub fn is_suppressed(existing: &[Problem], route: &str, rule_code: &str, title: &str) -> bool {
     existing.iter().any(|p| {
         matches!(
@@ -308,6 +318,7 @@ pub fn is_suppressed(existing: &[Problem], route: &str, rule_code: &str, title: 
     })
 }
 
+#[must_use]
 pub fn infer_from_finding(
     project_id: &str,
     run_key: &str,

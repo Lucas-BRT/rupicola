@@ -19,6 +19,7 @@ pub enum Kind {
 }
 
 impl Kind {
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Brief => "Brief",
@@ -38,6 +39,7 @@ pub enum Status {
 }
 
 impl Status {
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Proposed => "Proposed",
@@ -106,6 +108,7 @@ pub fn entries(root: &Path) -> io::Result<Vec<Entry>> {
     Ok(entries)
 }
 
+#[must_use]
 pub fn superseded(entries: &[Entry]) -> std::collections::BTreeSet<&str> {
     entries
         .iter()

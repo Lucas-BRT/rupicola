@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 use std::{fs, io, path::Path};
 
 pub const DIRECTORY: &str = "proposals";
@@ -31,6 +32,7 @@ impl Kind {
         Self::Other,
     ];
 
+    #[must_use]
     pub fn slug(self) -> &'static str {
         match self {
             Self::Palette => "palette",
@@ -44,6 +46,7 @@ impl Kind {
         }
     }
 
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Palette => "Palette",
@@ -70,6 +73,7 @@ pub enum Status {
 }
 
 impl Status {
+    #[must_use]
     pub fn slug(self) -> &'static str {
         match self {
             Self::Draft => "draft",
@@ -81,6 +85,7 @@ impl Status {
         }
     }
 
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Draft => "Draft",
@@ -210,6 +215,7 @@ pub struct Dispatch {
     pub structured_prompt: String,
 }
 
+#[must_use]
 pub fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 80
@@ -308,6 +314,7 @@ pub fn entries(project_root: &Path) -> io::Result<Vec<Proposal>> {
 }
 
 #[allow(dead_code)]
+#[must_use]
 pub fn mcp_session_active(data_dir: &Path) -> Option<McpSession> {
     let session: McpSession = read_json(&data_dir.join(MCP_SESSION_FILE), 16 * 1024).ok()?;
     if session.pid == 0 {
@@ -343,33 +350,41 @@ pub fn dispatches(project_root: &Path) -> io::Result<Vec<Dispatch>> {
     Ok(out)
 }
 
+#[must_use]
 pub fn structured_prompt(project_id: &str, p: &Proposal, parent: Option<&Proposal>) -> String {
     let mut out = String::new();
-    out.push_str(&format!(
-        "Processar proposta `{}` do projeto `{}`\n",
+    writeln!(
+        out,
+        "Processar proposta `{}` do projeto `{}`",
         p.id, project_id
-    ));
-    out.push_str(&format!(
-        "Tipo: {} | Status: {} | Superfície: {}\n",
+    )
+    .expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "Tipo: {} | Status: {} | Superfície: {}",
         p.kind.label(),
         p.status.label(),
         p.surface.as_deref().unwrap_or("não especificada")
-    ));
-    out.push_str(&format!("Título: {}\n", p.title));
+    )
+    .expect("writing to a String cannot fail");
+    writeln!(out, "Título: {}", p.title).expect("writing to a String cannot fail");
     if !p.problem_solved.is_empty() {
-        out.push_str(&format!("Problema a resolver: {}\n", p.problem_solved));
+        writeln!(out, "Problema a resolver: {}", p.problem_solved)
+            .expect("writing to a String cannot fail");
     }
     if !p.rationale.is_empty() {
-        out.push_str(&format!("Justificativa: {}\n", p.rationale));
+        writeln!(out, "Justificativa: {}", p.rationale).expect("writing to a String cannot fail");
     }
     if !p.prompt.is_empty() {
-        out.push_str(&format!("Prompt/Objetivo:\n{}\n", p.prompt));
+        writeln!(out, "Prompt/Objetivo:\n{}", p.prompt).expect("writing to a String cannot fail");
     }
     if !p.tactics.is_empty() {
-        out.push_str(&format!("Táticas aplicadas: {}\n", p.tactics.join(", ")));
+        writeln!(out, "Táticas aplicadas: {}", p.tactics.join(", "))
+            .expect("writing to a String cannot fail");
     }
     if !p.references.is_empty() {
-        out.push_str(&format!("Referências: {}\n", p.references.join(", ")));
+        writeln!(out, "Referências: {}", p.references.join(", "))
+            .expect("writing to a String cannot fail");
     }
     if !p.attachments.is_empty() {
         let files: Vec<_> = p
@@ -377,23 +392,23 @@ pub fn structured_prompt(project_id: &str, p: &Proposal, parent: Option<&Proposa
             .iter()
             .map(|a| format!("{} ({})", a.filename, a.content_type))
             .collect();
-        out.push_str(&format!("Anexos: {}\n", files.join(", ")));
+        writeln!(out, "Anexos: {}", files.join(", ")).expect("writing to a String cannot fail");
     }
     if let Some(parent) = parent {
-        out.push_str(&format!(
-            "Variação baseada em: {} ({})\n",
-            parent.id, parent.title
-        ));
+        writeln!(out, "Variação baseada em: {} ({})", parent.id, parent.title)
+            .expect("writing to a String cannot fail");
     }
     if !p.comments.is_empty() {
         out.push_str("Comentários e observações:\n");
         for c in &p.comments {
-            out.push_str(&format!(
-                "- [{}] {}: {}\n",
+            writeln!(
+                out,
+                "- [{}] {}: {}",
                 c.author,
                 c.action.as_deref().unwrap_or("comment"),
                 c.body
-            ));
+            )
+            .expect("writing to a String cannot fail");
         }
     }
     out.push_str(

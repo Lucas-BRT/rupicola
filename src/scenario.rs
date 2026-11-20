@@ -172,6 +172,7 @@ struct Sample {
     elapsed_ms: u64,
 }
 
+#[must_use]
 pub fn identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
@@ -467,10 +468,10 @@ fn drive_cosmic(output: &Path, options: &CosmicCapture) -> Result<(), String> {
 }
 
 fn now_ms() -> Result<u64, String> {
-    Ok(SystemTime::now()
+    let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_millis() as u64)
+        .map_err(|e| e.to_string())?;
+    u64::try_from(elapsed.as_millis()).map_err(|e| e.to_string())
 }
 
 fn new_run(output: &Path) -> Result<PathBuf, String> {
