@@ -59,16 +59,19 @@ pub async fn init(db: &Connection) -> Result<(), BoxError> {
 }
 
 pub fn token() -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    let mut token = String::with_capacity(2 * bytes.len());
+    for byte in bytes {
+        token.push(char::from(HEX[usize::from(byte >> 4)]));
+        token.push(char::from(HEX[usize::from(byte & 0xf)]));
+    }
+    token
 }
 
 pub fn digest(secret: &str) -> String {
-    Sha256::digest(secret.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    format!("{:x}", Sha256::digest(secret.as_bytes()))
 }
 
 pub fn now() -> i64 {

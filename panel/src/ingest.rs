@@ -60,11 +60,7 @@ fn object_key(project: &str, bundle: &Bundle) -> Result<String, serde_json::Erro
     let mut hasher = Sha256::new();
     hasher.update(project.as_bytes());
     serde_json::to_writer(&mut hasher, bundle)?;
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub async fn publish(
