@@ -27,6 +27,9 @@ pub enum PixelFormat {
 }
 
 impl PixelFormat {
+    /// # Errors
+    ///
+    /// Returns an error if the pixel format name is unsupported.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
             "rgba" | "rgba8" => Ok(Self::Rgba8),
@@ -44,6 +47,10 @@ impl PixelFormat {
     }
 
     /// Convert a raw pixel buffer in this format to straight 8-bit RGBA.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer length is not a multiple of four.
     pub fn to_rgba8(self, src: &[u8]) -> Result<Vec<u8>, String> {
         if !src.len().is_multiple_of(4) {
             return Err(format!(
@@ -104,6 +111,9 @@ pub struct CaptureConfig {
 }
 
 impl CaptureConfig {
+    /// # Errors
+    ///
+    /// Returns an error for zero dimensions or frames, a nonpositive or nonfinite frame rate, or dimensions that overflow the frame buffer size.
     pub fn validate(&self) -> Result<(), String> {
         if self.width == 0 || self.height == 0 {
             return Err("capture width and height must be greater than 0".into());
@@ -128,6 +138,10 @@ impl CaptureConfig {
     }
 
     /// Expected byte length of one raw frame buffer (`width * height * 4`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the frame buffer size overflows `usize`.
     pub fn buffer_len(&self) -> Result<usize, String> {
         (self.width as usize)
             .checked_mul(self.height as usize)
@@ -173,6 +187,10 @@ impl RamCapture {
     ///
     /// `render_frame(frame_index, timestamp_ms, pixel_buffer)` writes one frame
     /// in `config.pixel_format` into the pre-allocated, zeroed `pixel_buffer`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the capture configuration is invalid or the frame renderer fails.
     pub fn record<F>(config: CaptureConfig, mut render_frame: F) -> Result<Self, String>
     where
         F: FnMut(usize, f64, &mut [u8]) -> Result<(), String>,
@@ -211,6 +229,10 @@ impl RamCapture {
     }
 
     /// Write lossless PNG frames (`frame_0000.png`, ...) and `timing.json` to `dir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory, frame PNGs, or timing report cannot be created, or if serialization fails.
     pub fn save_pngs(&self, dir: &Path) -> Result<Vec<PathBuf>, String> {
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let mut paths = Vec::with_capacity(self.frames.len());
@@ -227,11 +249,19 @@ impl RamCapture {
     }
 
     /// Encode the RAM-buffered frames directly to a CFR MP4 via `ffmpeg`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the video options or frames are invalid or `ffmpeg` fails.
     pub fn encode_mp4(&self, out: &Path, options: &VideoOptions) -> Result<VideoReport, String> {
         encode_rgba_images(&self.frames, out, options)
     }
 
     /// Run `rupicola frames` motion analysis directly on the in-RAM frames.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there are fewer than three frames or their dimensions differ.
     pub fn analyze(&self, threshold: u8) -> Result<Frames, String> {
         visual::analyze_images(&self.frames, threshold)
     }

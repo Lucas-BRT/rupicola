@@ -18,6 +18,9 @@ fn err<T: ToString>(x: T) -> String {
     x.to_string()
 }
 
+/// # Errors
+///
+/// Returns an error if the PNG cannot be read or decoded in a supported format.
 pub fn load(path: &Path) -> Result<Image, String> {
     let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut decoder = png::Decoder::new(BufReader::new(file));
@@ -59,6 +62,9 @@ pub fn load(path: &Path) -> Result<Image, String> {
     })
 }
 
+/// # Errors
+///
+/// Returns an error if the output cannot be created or encoded as PNG.
 pub fn save(path: &Path, image: &Image) -> Result<(), String> {
     let file = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut encoder = png::Encoder::new(BufWriter::new(file), image.width, image.height);
@@ -213,6 +219,9 @@ fn natural_key(p: &Path) -> (String, u64) {
     (prefix, digits.parse().unwrap_or(0))
 }
 
+/// # Errors
+///
+/// Returns an error if the directory cannot be opened.
 pub fn list_pngs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
@@ -224,6 +233,9 @@ pub fn list_pngs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(files)
 }
 
+/// # Errors
+///
+/// Returns an error if fewer than three PNGs are found, a PNG cannot be read, or frame dimensions differ.
 pub fn analyze_frames(dir: &Path, threshold: u8) -> Result<Frames, String> {
     let files = list_pngs(dir)?;
     if files.len() < 3 {
@@ -236,6 +248,9 @@ pub fn analyze_frames(dir: &Path, threshold: u8) -> Result<Frames, String> {
     analyze_images(&images, threshold)
 }
 
+/// # Errors
+///
+/// Returns an error if there are fewer than three frames or their dimensions differ.
 pub fn analyze_images(images: &[Image], threshold: u8) -> Result<Frames, String> {
     if images.len() < 3 {
         return Err("need at least 3 frames".into());
@@ -433,6 +448,9 @@ pub fn palette(image: &Image, k: usize) -> Palette {
 }
 
 // ---------- contact sheet ----------
+/// # Errors
+///
+/// Returns an error if the input count is outside 1–64, an image cannot be read, or the output dimensions or buffer exceed supported limits.
 pub fn sheet(files: &[PathBuf], cols: usize, thumb_w: u32) -> Result<Image, String> {
     if files.is_empty() {
         return Err("no images".into());
