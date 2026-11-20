@@ -45,7 +45,7 @@ jobs:
           test "$actual" = "rupicola ${GITHUB_REF_NAME#v}"
 
   tests:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }}, Rust 1.99.1)
     strategy:
       fail-fast: false
       matrix:
