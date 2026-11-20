@@ -625,7 +625,7 @@ pub struct ReviewForm {
     comment: Option<String>,
 }
 
-pub async fn review(
+pub fn review(
     panel: Arc<Panel>,
     account: Account,
     (id, pid): (String, String),

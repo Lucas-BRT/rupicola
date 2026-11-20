@@ -1518,7 +1518,7 @@ pub struct ProbeForm {
     pipeline: Option<String>,
 }
 
-pub async fn trigger_probe(
+pub fn trigger_probe(
     panel: Arc<Panel>,
     account: Account,
     id: String,

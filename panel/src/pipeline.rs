@@ -2009,7 +2009,7 @@ pub struct StorageConfigForm {
     pub delete_local: String,
 }
 
-pub async fn save_storage_config_action(
+pub fn save_storage_config_action(
     panel: Arc<Panel>,
     account: Account,
     project_id: String,
@@ -2045,7 +2045,7 @@ pub struct StorageCleanForm {
     pub run_name: Option<String>,
 }
 
-pub async fn clean_storage_action(
+pub fn clean_storage_action(
     panel: Arc<Panel>,
     account: Account,
     project_id: String,
@@ -2088,7 +2088,7 @@ pub struct StorageOffloadForm {
     pub target: Option<String>,
 }
 
-pub async fn offload_storage_action(
+pub fn offload_storage_action(
     panel: Arc<Panel>,
     account: Account,
     project_id: String,
