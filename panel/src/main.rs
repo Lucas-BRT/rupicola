@@ -72,6 +72,7 @@ macro_rules! shell {
 
 mod auth;
 mod components;
+mod design_system;
 mod ingest;
 mod mcp;
 mod media;
@@ -136,6 +137,7 @@ struct Panel {
     dummy_password: String,
     password_work: Arc<tokio::sync::Semaphore>,
     upload_work: Arc<tokio::sync::Semaphore>,
+    design_validation: tokio::sync::Semaphore,
     login_attempts: Mutex<BTreeMap<String, (u32, i64)>>,
     uploads: Option<PathBuf>,
 }
@@ -207,6 +209,7 @@ async fn main() -> Result<(), BoxError> {
         .await?;
 
     auth::init(&index).await?;
+    design_system::init(&index).await?;
     if let Some(Action::Recover { username }) = args.action {
         return auth::recover(&index, &username).await;
     }
@@ -303,6 +306,7 @@ async fn main() -> Result<(), BoxError> {
         dummy_password: auth::password_hash(&auth::token())?,
         password_work: Arc::new(tokio::sync::Semaphore::new(4)),
         upload_work: Arc::new(tokio::sync::Semaphore::new(2)),
+        design_validation: tokio::sync::Semaphore::new(1),
         login_attempts: Mutex::new(BTreeMap::new()),
         uploads,
     });
