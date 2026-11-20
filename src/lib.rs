@@ -2,9 +2,15 @@
 //! No inspected project code is compiled or executed by these functions.
 pub mod capture;
 pub mod check;
+pub mod design_record;
 pub mod discover;
 pub mod evals;
+pub mod fix_record;
+pub mod problem_record;
+pub mod proposal_record;
 pub mod scan;
+pub mod scenario;
+pub mod storage;
 pub mod visual;
 
 use serde::Serialize;

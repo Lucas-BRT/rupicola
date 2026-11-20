@@ -101,7 +101,17 @@ pub fn check(root: &Path) -> Result<Check, String> {
     }
     for path in files(&root, true)? {
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py") {
+        if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py")
+            && ![
+                "src/browser-capture.cjs",
+                "src/cosmic-capture.sh",
+                "src/browser-probe.cjs",
+                "panel/src/panel.js",
+                "panel/dev.sh",
+            ]
+            .iter()
+            .any(|allowed| path == root.join(allowed))
+        {
             error(
                 path.clone(),
                 "non-Rust executable source is not part of this project".into(),

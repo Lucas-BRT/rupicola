@@ -1,6 +1,15 @@
+mod design;
+mod mcp;
+mod pipeline;
+mod probe;
+mod propose;
+mod service;
 use clap::{Parser, Subcommand};
-use ferris_atelier::{FRAMEWORKS, TOPICS, capture, check, discover, scan, visual};
-use std::{path::PathBuf, process::ExitCode};
+use ferris_atelier::{
+    FRAMEWORKS, TOPICS, capture, check, design_record, discover, fix_record, problem_record,
+    proposal_record, scan, scenario, storage, visual,
+};
+use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
 #[command(
@@ -13,6 +22,8 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Serve Ferris Atelier tools over MCP stdio.
+    Mcp,
     /// Identify declared UI framework dependencies without building or fetching.
     Discover {
         #[arg(default_value = ".")]
@@ -58,6 +69,134 @@ enum Command {
         threshold: u8,
         #[arg(long)]
         json: bool,
+    },
+    /// Capture a declarative scenario in headless Chromium.
+    Capture {
+        /// Versioned TOML scenario.
+        scenario: PathBuf,
+        /// New project run directory, typically .ferris-atelier/captures/<run>.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Path to the installed Playwright Node.js module.
+        #[arg(long)]
+        playwright_module: Option<PathBuf>,
+        /// Largest per-channel difference still treated as unchanged.
+        #[arg(long, default_value_t = 8)]
+        threshold: u8,
+        /// Encode an approximate MP4 preview with ffmpeg.
+        #[arg(long)]
+        video: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Capture a COSMIC applet under an isolated nested compositor and panel (Linux).
+    CaptureCosmic {
+        #[arg(long)]
+        applet: PathBuf,
+        #[arg(long)]
+        desktop_entry: PathBuf,
+        #[arg(long)]
+        app_id: String,
+        /// Directory with fixture executables, such as a mock tailscale.
+        #[arg(long)]
+        fixtures: PathBuf,
+        /// SVG installed as <app-id>-symbolic in the private XDG icon theme.
+        #[arg(long)]
+        symbolic_icon: Option<PathBuf>,
+        #[arg(long)]
+        project_id: Option<String>,
+        #[arg(long)]
+        project_label: Option<String>,
+        #[arg(long)]
+        revision: Option<String>,
+        /// Click position in the private 1280x800 display.
+        #[arg(long, num_args = 2, value_names = ["X", "Y"], default_values = ["640", "18"])]
+        click: Vec<u32>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Record a visual inspection note against a completed or blocked capture.
+    CaptureReview {
+        /// Path to the run's manifest.json.
+        manifest: PathBuf,
+        /// Concrete observation from inspecting the available evidence.
+        #[arg(long)]
+        note: String,
+        /// Optional evidence artifact path relative to the manifest.
+        #[arg(long)]
+        evidence: Option<PathBuf>,
+    },
+    /// Install and start the per-user evidence panel on Linux.
+    Setup {
+        /// Print the systemd unit without modifying the system.
+        #[arg(long)]
+        print_unit: bool,
+    },
+    /// Link the current checkout to a project in the local panel.
+    Link { project: String },
+    /// Report this checkout's link and panel service status.
+    Doctor,
+    /// Open or record design context for the current project.
+    Design {
+        #[command(subcommand)]
+        action: design::Action,
+    },
+    /// Manage detailed visual proposals, previews, and extractions.
+    Propose {
+        #[command(subcommand)]
+        action: propose::Action,
+    },
+    /// Manage the project's visual problems triage queue.
+    Problem {
+        #[command(subcommand)]
+        action: pipeline::ProblemAction,
+    },
+    /// Manage recorded UI fixes and before/after comparisons.
+    Fix {
+        #[command(subcommand)]
+        action: pipeline::FixAction,
+    },
+    /// Inspect disk usage by project/date/fix, clean up unpinned captures, or offload to an external bucket.
+    Storage {
+        #[command(subcommand)]
+        action: pipeline::StorageAction,
+    },
+    /// Run a combinatorial UI inspection matrix (pages × viewports × themes × interaction depth).
+    Probe {
+        /// Base HTTP(S) URL of the application under test.
+        #[arg(long)]
+        url: String,
+        #[arg(long, value_enum, default_value = "responsive-matrix")]
+        mode: probe::Mode,
+        /// "all" (auto-crawl) or comma-separated routes (e.g. /,/projects,/settings).
+        #[arg(long, default_value = "/")]
+        pages: String,
+        /// Comma-separated WxH or presets (mobile,tablet,laptop,desktop,wide).
+        #[arg(long, default_value = "")]
+        viewports: String,
+        /// Comma-separated themes (dark,light).
+        #[arg(long, default_value = "dark")]
+        themes: String,
+        #[arg(long, default_value_t = 20)]
+        max_pages: usize,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        playwright_module: Option<PathBuf>,
+        #[arg(long)]
+        video: bool,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Serve project evidence using the optional ferris-atelier-panel executable.
+    Serve {
+        /// Options forwarded to ferris-atelier-panel, including --captures, --db and --port.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        options: Vec<OsString>,
     },
     /// Assemble PNG frames or a raw RGBA/BGRA stdin stream into a constant-framerate MP4 via ffmpeg.
     Video {
@@ -166,8 +305,195 @@ fn json(value: &impl serde::Serialize) -> Result<(), String> {
     );
     Ok(())
 }
+fn print_capture(
+    manifest: &scenario::Manifest,
+    out: &std::path::Path,
+    output_json: bool,
+) -> Result<u8, String> {
+    if output_json {
+        json(manifest)?;
+    } else {
+        println!(
+            "{}: {}",
+            out.join("manifest.json").display(),
+            manifest.status
+        );
+        if let Some(blocker) = &manifest.result.blocker {
+            eprintln!("{blocker}");
+        }
+    }
+    Ok(u8::from(manifest.result.blocker.is_some()))
+}
 fn run(cli: Cli) -> Result<u8, String> {
     match cli.command {
+        Command::Mcp => mcp::serve().map(|()| 0).map_err(|e| e.to_string()),
+        Command::Capture {
+            scenario: path,
+            out,
+            playwright_module,
+            threshold,
+            video,
+            json: output_json,
+        } => {
+            let mut scenario = scenario::Scenario::load(&path)?;
+            let out = match out {
+                Some(out) => out,
+                None => {
+                    let (id, label) = service::detect_project()?;
+                    scenario.set_project(id, label);
+                    service::output()?
+                }
+            };
+            let manifest = scenario::web(
+                scenario,
+                &out,
+                playwright_module.as_deref(),
+                threshold,
+                video,
+            )?;
+            print_capture(&manifest, &out, output_json)
+        }
+        Command::CaptureCosmic {
+            applet,
+            desktop_entry,
+            app_id,
+            fixtures,
+            symbolic_icon,
+            project_id,
+            project_label,
+            revision,
+            click,
+            out,
+            json: output_json,
+        } => {
+            let (out, project_id, project_label) = match out {
+                Some(out) => (
+                    out,
+                    project_id.ok_or("--project-id is required with --out")?,
+                    project_label.ok_or("--project-label is required with --out")?,
+                ),
+                None => {
+                    let (id, label) = service::detect_project()?;
+                    (service::output()?, id, label)
+                }
+            };
+            let options = scenario::CosmicCapture {
+                applet,
+                desktop_entry,
+                app_id,
+                fixtures,
+                symbolic_icon,
+                project_id,
+                project_label,
+                revision,
+                x: click[0],
+                y: click[1],
+            };
+            let manifest = scenario::cosmic(options, &out)?;
+            print_capture(&manifest, &out, output_json)
+        }
+        Command::CaptureReview {
+            manifest,
+            note,
+            evidence,
+        } => {
+            scenario::review(&manifest, note, evidence)?;
+            println!("{}: inspection recorded", manifest.display());
+            Ok(0)
+        }
+        Command::Setup { print_unit } => {
+            service::setup(print_unit)?;
+            Ok(0)
+        }
+        Command::Link { project } => {
+            service::link(project)?;
+            Ok(0)
+        }
+        Command::Design { action } => {
+            design::run(action)?;
+            Ok(0)
+        }
+        Command::Propose { action } => {
+            propose::run(action)?;
+            Ok(0)
+        }
+        Command::Problem { action } => pipeline::run_problem(action),
+        Command::Fix { action } => pipeline::run_fix(action),
+        Command::Storage { action } => pipeline::run_storage(action),
+        Command::Probe {
+            url,
+            mode,
+            pages,
+            viewports,
+            themes,
+            max_pages,
+            out,
+            playwright_module,
+            video,
+            dry_run,
+            json,
+        } => {
+            let summary = probe::run(probe::Config {
+                url,
+                mode,
+                pages,
+                viewports,
+                themes,
+                max_pages,
+                out,
+                playwright_module,
+                video,
+                dry_run,
+            })?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?
+                );
+            } else {
+                println!(
+                    "Probe {} ({}) -> {} ({} pages, {} viewports, {} checkpoints, {} clips, {} findings)",
+                    summary.mode,
+                    summary.depth,
+                    summary.manifest_path.display(),
+                    summary.pages.len(),
+                    summary.viewports.len(),
+                    summary.checkpoints,
+                    summary.clips,
+                    summary.findings_count
+                );
+                for f in &summary.findings {
+                    println!("  - {}", f.note);
+                }
+            }
+            Ok(if summary.blocker.is_some() {
+                1
+            } else if summary.findings_count > 0 {
+                2
+            } else {
+                0
+            })
+        }
+        Command::Doctor => {
+            service::doctor()?;
+            Ok(0)
+        }
+        Command::Serve { options } => {
+            let status = std::process::Command::new("ferris-atelier-panel")
+                .args(options)
+                .status()
+                .map_err(|error| {
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        "install the optional panel with cargo install --path panel --locked and add it to PATH".into()
+                    } else {
+                        format!("start ferris-atelier-panel: {error}")
+                    }
+                })?;
+            Ok(status
+                .code()
+                .and_then(|code| u8::try_from(code).ok())
+                .unwrap_or(1))
+        }
         Command::Discover {
             path,
             json: output_json,
