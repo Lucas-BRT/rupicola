@@ -223,7 +223,8 @@ pub fn render_section<'a>(
                     <span class="muted">"MCP offline · connect an agent to dispatch proposals"</span>
                 }
             </div>
-            <form class="filters" method="get" action=(format!("{base}/proposes"))>
+            <form class="filters" method="get" action=(format!("{base}/design"))>
+                <input type="hidden" name="view" value="proposals">
                 <label for="prop-kind">"Type"</label>
                 <select id="prop-kind" name="kind">
                     <option value="">"All types"</option>
@@ -623,7 +624,7 @@ pub async fn create(
         dispatched_at_ms: None,
     };
     proposal_record::write_proposal(&root, &proposal).map_err(db_error)?;
-    Ok(redirect(&format!("/projects/{id}/proposes")))
+    Ok(redirect(&format!("/projects/{id}/design?view=proposals")))
 }
 
 #[derive(serde::Deserialize)]
@@ -737,7 +738,7 @@ pub fn review(
         _ => return Err(StatusCode::BAD_REQUEST),
     }
 
-    Ok(redirect(&format!("/projects/{id}/proposes")))
+    Ok(redirect(&format!("/projects/{id}/design?view=proposals")))
 }
 
 fn queue_dispatch(

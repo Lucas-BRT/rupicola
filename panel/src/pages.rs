@@ -1,8 +1,9 @@
 use super::{
     Account, Arc, BTreeMap, Checkpoint, Connection, Cx, Deserialize, Html, IntoResponse, Manifest,
     PageResult, Panel, PathBuf, Response, Run, StatusCode, TransactionBehavior, Value, auth,
-    db_error, design_record, fix_record, fs, media, pipeline, problem_record, proposal_record,
-    proposes, read_index, read_manifest, redirect, run_dir, safe_name, storage, view,
+    db_error, design_record, design_system, fix_record, fs, media, pipeline, problem_record,
+    proposal_record, proposes, read_index, read_manifest, redirect, run_dir, safe_name, storage,
+    view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
@@ -98,6 +99,7 @@ pub struct Filter {
     pub kind: Option<String>,
     pub status: Option<String>,
     pub view: Option<String>,
+    pub version: Option<String>,
     pub health: Option<String>,
     pub asset: Option<String>,
     pub name: Option<String>,
@@ -574,7 +576,18 @@ async fn project_view(
     } else {
         None
     };
-    let propose_state = if section == "proposes" {
+    let design_tab = match filter.view.as_deref() {
+        Some("system") => "system",
+        Some("screens") => "screens",
+        Some("proposals") => "proposals",
+        _ => "records",
+    };
+    let studio = if section == "design" {
+        Some(design_system::load(&panel, &id, filter.version.as_deref()).await?)
+    } else {
+        None
+    };
+    let propose_state = if section == "design" && design_tab == "proposals" {
         Some(proposes::load(
             &panel,
             &id,
@@ -604,7 +617,6 @@ async fn project_view(
                 ("captures", "Captures"),
                 ("problems", "Problems"),
                 ("fixes", "Fixes"),
-                ("proposes", "Proposes"),
                 ("design", "Design"),
                 ("storage", "Storage"),
                 ("settings", "Settings"),
@@ -720,10 +732,13 @@ async fn project_view(
                 report,
             ))
         }
+        if let Some(studio) = &studio {
+            (design_system::render(cx, &account, role, &base, design_tab, studio))
+        }
         if let Some(state) = &propose_state {
             (proposes::render_section(cx, &account, role, &id, &base, state))
         }
-        if section == "design" {
+        if section == "design" && design_tab == "records" {
             if role == Role::Owner {
                 <details class="surface panel-padding design-editor">
                     <summary>"Add or revise a design record"</summary>
@@ -870,7 +885,7 @@ async fn project_view(
             }
         }
     });
-    auth::page(cx, content).await
+    Box::pin(auth::page(cx, content)).await
 }
 
 struct AccessItem {
@@ -1516,7 +1531,7 @@ pub async fn record_design(
         serde_json::to_value(entry).map_err(db_error)?,
     )?;
     let target = if form.return_to.as_deref() == Some("proposes") {
-        format!("/projects/{id}/proposes")
+        format!("/projects/{id}/design?view=proposals")
     } else {
         format!("/projects/{id}/design")
     };

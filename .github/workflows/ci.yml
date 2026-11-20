@@ -62,6 +62,8 @@ jobs:
         with:
           shared-key: rupicola
       - run: cargo test --locked
+      - if: runner.os == 'Linux'
+        run: cargo test --locked -p rupicola-panel
 
   docker:
     name: Build and push Docker image
