@@ -12,6 +12,7 @@ For the catalog of tactics (transitions, choreography, gesture physics, feedback
 4. Never block input on an animation. Repeated keyboard selection must not wait for movement, and transitions must be interruptible.
 5. Content that moves, blinks or scrolls for more than 5 seconds needs a way to pause or stop (WCAG 2.2.2). Nothing flashes more than three times per second (2.3.1).
 6. On the web animate `transform` and `opacity`; avoid `transition: all`, which animates layout properties and ignores which properties you intended.
+7. Keep synchronous tab and view switches instant (`opacity: 1` immediately) rather than fading panels from `opacity: 0`; use `cubic-bezier(0.16, 1, 0.3, 1)` for state transitions, `:active { transform: translateY(1px); }` for tactile press feedback, and never translate elements on `:hover` (which causes pointer-edge jitter).
 
 ## Examples
 

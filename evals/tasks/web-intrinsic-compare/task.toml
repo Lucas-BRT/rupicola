@@ -1,0 +1,20 @@
+id = "web-intrinsic-compare"
+framework = "topcoat"
+kind = "review"
+split = "dev"
+should_trigger = true
+prompt = "At a wide browser window, the two screenshots in this Topcoat page's rendered comparison.html spill beyond the review pane. Inspect the page and identify the cause and a targeted fix. Leave the fixture unchanged."
+constraints = ["Do not modify the fixture"]
+[[seeded_defect]]
+id = "wrong-responsive-context"
+keywords = ["container query", "containing block", "available inline size", "pane width"]
+file = "comparison.html"
+description = "The breakpoint measures the viewport instead of the comparison pane. The pane can be narrow inside a wide viewport."
+[[seeded_defect]]
+id = "track-minimum-exceeds-space"
+keywords = ["minmax", "grid tracks", "fixed minimum", "two 260", "minimum track"]
+file = "comparison.html"
+description = "Two grid tracks with fixed minimums plus the gap cannot fit in the 380px pane."
+[[verifier]]
+name = "fixture-unchanged"
+command = '''test -z "$(git status --porcelain -- comparison.html)"'''

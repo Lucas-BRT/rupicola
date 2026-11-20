@@ -1,6 +1,6 @@
 # Improve an interface
 
-Establish the actual defect and acceptance condition before editing. Preserve healthy behavior, existing identity and frequently used controls unless the authorized change requires otherwise. Use the responsible shared component or token when appropriate; keep unrelated screens out of scope.
+Establish the actual defect and acceptance condition before editing. Preserve healthy behavior, existing identity and frequently used controls unless the authorized change requires otherwise. Distinguish **polish/token fixes** from a **structural redesign**: when the user asks for a new visual direction or says the UI looks generic/uninspired, do not merely recolor or restyle existing cards—redesign the shell, navigation topology, spatial hierarchy, and evidence stage (see [common](../common.md)). Use the responsible shared component or token when appropriate; keep unrelated screens out of scope.
 
 Scan the [tactics library](../tactics/index.md) for missing states, inputs and conventions and propose a ranked list with where and why. When the request is about polish, or the screen has state changes that arrive without transition or feedback, scan [motion library](../motion/index.md) and propose a ranked list of tactics with where and why; apply it when polish is the request or the user agrees.
 

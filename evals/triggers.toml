@@ -444,8 +444,8 @@ prompt = "Build a ratatui terminal dashboard that shows CPU usage."
 
 [[prompt]]
 id = "neg-03"
-category = "negative"
-expect = false
+category = "implicit"
+expect = true
 split = "dev"
 prompt = "Create a React component with a searchable table in TypeScript."
 
@@ -500,36 +500,36 @@ prompt = "Implement a Rust binary tree with iterators."
 
 [[prompt]]
 id = "neg-11"
-category = "negative"
-expect = false
+category = "implicit"
+expect = true
 split = "holdout"
 prompt = "Create a Flutter screen with a bottom navigation bar."
 
 [[prompt]]
 id = "neg-12"
-category = "negative"
-expect = false
+category = "implicit"
+expect = true
 split = "dev"
 prompt = "Write Qt C++ code for a custom table model."
 
 [[prompt]]
 id = "neg-13"
-category = "negative"
-expect = false
+category = "implicit"
+expect = true
 split = "dev"
 prompt = "Build a Vue 3 form with validation."
 
 [[prompt]]
 id = "neg-14"
-category = "negative"
-expect = false
+category = "implicit"
+expect = true
 split = "holdout"
 prompt = "Write a Python Tkinter window with a menu."
 
 [[prompt]]
 id = "neg-15"
-category = "negative"
-expect = false
+category = "implicit"
+expect = true
 split = "dev"
 prompt = "Style a pure HTML and CSS landing page with a hero section."
 
@@ -612,15 +612,15 @@ prompt = "Design a Postgres schema for a booking system."
 
 [[prompt]]
 id = "neg-27"
-category = "negative"
-expect = false
+category = "implicit"
+expect = true
 split = "dev"
 prompt = "Create an Electron app with a React renderer."
 
 [[prompt]]
 id = "neg-28"
-category = "negative"
-expect = false
+category = "implicit"
+expect = true
 split = "dev"
 prompt = "Write SwiftUI code for a settings screen."
 
@@ -630,3 +630,17 @@ category = "negative"
 expect = false
 split = "holdout"
 prompt = "Profile this Rust program with perf and explain the flamegraph."
+
+[[prompt]]
+id = "cross-axum"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Fix keyboard focus and spacing on the order form rendered by Axum."
+
+[[prompt]]
+id = "cross-webview"
+category = "implicit"
+expect = true
+split = "holdout"
+prompt = "Our desktop settings window embeds a webview. Smooth its close animation and preserve keyboard focus."

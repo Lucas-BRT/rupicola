@@ -20,6 +20,8 @@ Shared adaptation rules: [common](../common.md). The rules are self-contained; d
 
 ## Check
 
+Reproduce failures with the actual content, then inspect the parent constraints and intrinsic size before changing child dimensions.
+
 Resize to the minimum supported size and to a very wide window; trigger longest realistic text and 200% text scaling; confirm nothing clips, overlaps or scrolls in two directions.
 
 ## Adapt

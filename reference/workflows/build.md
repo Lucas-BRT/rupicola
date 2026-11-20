@@ -1,12 +1,12 @@
-# Build a Rust interface
+# Build an interface
 
 1. Inspect the requested task, relevant project context, package manifest and resolved version/features. Preserve existing architecture unless a change is necessary and authorized.
-2. Select the framework/rendering module and environment. Read UX and OS guidance only where it affects this slice.
+2. Select the renderer and environment. Use a framework module when it matches the project. Read UX and OS guidance only where it affects this slice.
 3. Identify real inputs, state ownership, events, asynchronous boundaries and loading/error/retry behavior. Do not invent product data or introduce a runtime by habit.
 4. Implement the smallest complete functional flow, reusing components and toolkit primitives. Keep tasks cancellable or reject stale results; preserve focus and entered data.
 5. Build using the actual target/features and run meaningful checks. Exercise the flow and changed interaction where possible. Read reference/verification.md for evidence boundaries.
 5a. Tactics the feature's own states and inputs require (labels, validation, empty, loading and error states, keyboard path, platform conventions) are in scope: choose them from the [tactics library](../tactics/index.md) without being asked and keep them minimal. Motion that the feature's own states need (a new surface entering and leaving, loading, press feedback) is in scope: pick it from [motion library](../motion/index.md) without being asked, keep it minimal and give it a reduced-motion fallback. Decorative motion beyond that stays out of the diff.
 5b. Look at the result when a capture is possible, following [visual verification](../visual-verification.md) (never on the user's desktop without agreement); otherwise report it as visually unverified.
-6. Report changes, observed checks and concrete remaining limits. Stop when the scoped flow works; unrelated enhancements stay outside the diff.
+6. Repeat the capture and interaction checks after each correction. Get equivalent before and after evidence where possible; after reveal or scroll, wait for the media under inspection to decode before capturing. Avoid opacity entrance animations on synchronous tab/view switches (which produce blank or faded captures right after `.click()`), and exclude unmounted/closed modal placeholders (`dialog:not([open]) img`) from broken-image checks. Fix any defect found in the affected flow, including regressions from the correction, without asking for routine approval. Recheck the adjacent states and interactions the fix could affect. Continue until the latest pass finds no remaining UI/UX issue in the checked scope, then hand off for human feedback. Report concrete verification gaps separately.
 
 Resolve questions from the repository before asking. Existing user authorization applies to necessary in-scope work. New publishing, account mutations or expanded scope require their own authorization.
