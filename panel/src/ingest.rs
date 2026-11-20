@@ -70,6 +70,9 @@ pub async fn publish(
     headers: HeaderMap,
     body: Body,
 ) -> PageResult<(StatusCode, Json<serde_json::Value>)> {
+    if !safe_name(&project) {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let uploads = panel.uploads.as_ref().ok_or(StatusCode::NOT_FOUND)?;
     let bearer = headers
         .get(header::AUTHORIZATION)
@@ -80,7 +83,9 @@ pub async fn publish(
     let digest = auth::digest(bearer);
     {
         let db = panel.index.lock().await;
-        if device_label(&db, &project, &digest).await?.is_none() {
+        if device_label(&db, &project, &digest).await?.is_none()
+            && machine_token_owner(&db, &digest).await?.is_none()
+        {
             return Err(StatusCode::UNAUTHORIZED);
         }
     }
@@ -102,27 +107,93 @@ pub async fn publish(
     drop(bytes);
     let project_copy = project.clone();
     let uploads = uploads.clone();
-    let (stage, target, key, permit) = tokio::task::spawn_blocking(move || {
-        let (stage, target, key) = stage_bundle(&uploads, &project_copy, bundle)?;
-        Ok::<_, StatusCode>((stage, target, key, permit))
+    let (stage, target, key, project_label, permit) = tokio::task::spawn_blocking(move || {
+        let (stage, target, key, project_label) = stage_bundle(&uploads, &project_copy, bundle)?;
+        Ok::<_, StatusCode>((stage, target, key, project_label, permit))
     })
     .await
     .map_err(db_error)??;
     let _permit = permit;
     let db = panel.index.lock().await;
-    let label = device_label(&db, &project, &digest)
-        .await?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let device = device_label(&db, &project, &digest).await?;
+    let machine = if device.is_none() {
+        machine_token_owner(&db, &digest).await?
+    } else {
+        None
+    };
+    if device.is_none() && machine.is_none() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     if target.is_dir() {
         return Ok((StatusCode::OK, Json(serde_json::json!({ "run": key }))));
     }
     fs::rename(stage.path(), target).map_err(db_error)?;
-    db.transactional_batch([
-        ("UPDATE devices SET last_seen = ? WHERE digest = ?", Vec::from(turso::params![auth::now(), digest])),
-        ("INSERT INTO audit(project, actor, event, occurred) VALUES (?, ?, 'Capture published', ?)",
-         Vec::from(turso::params![project, label, auth::now()])),
-    ], TransactionBehavior::Immediate).await.map_err(db_error)?;
+    if let Some(label) = device {
+        db.transactional_batch(
+            [
+                (
+                    "UPDATE devices SET last_seen = ? WHERE digest = ?",
+                    Vec::from(turso::params![auth::now(), digest]),
+                ),
+                (
+                    "INSERT INTO audit(project, actor, event, occurred) VALUES (?, ?, 'Capture published', ?)",
+                    Vec::from(turso::params![project, label, auth::now()]),
+                ),
+            ],
+            TransactionBehavior::Immediate,
+        )
+        .await
+        .map_err(db_error)?;
+    } else if let Some((owner, label)) = machine {
+        let proj_label = if project_label.trim().is_empty() {
+            project.clone()
+        } else {
+            project_label
+        };
+        db.transactional_batch(
+            [
+                (
+                    "INSERT OR IGNORE INTO projects (id, label) VALUES (?, ?)",
+                    Vec::from(turso::params![project.clone(), proj_label]),
+                ),
+                (
+                    "INSERT OR IGNORE INTO members (project, handle, role) VALUES (?, ?, 'owner')",
+                    Vec::from(turso::params![project.clone(), owner]),
+                ),
+                (
+                    "UPDATE machine_tokens SET last_seen = ? WHERE digest = ?",
+                    Vec::from(turso::params![auth::now(), digest]),
+                ),
+                (
+                    "INSERT INTO audit(project, actor, event, occurred) VALUES (?, ?, 'Capture published', ?)",
+                    Vec::from(turso::params![project, label, auth::now()]),
+                ),
+            ],
+            TransactionBehavior::Immediate,
+        )
+        .await
+        .map_err(db_error)?;
+    }
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "run": key }))))
+}
+
+async fn machine_token_owner(
+    db: &Connection,
+    digest: &str,
+) -> PageResult<Option<(String, String)>> {
+    let mut rows = db
+        .query(
+            "SELECT owner, label FROM machine_tokens WHERE digest = ?",
+            [digest],
+        )
+        .await
+        .map_err(db_error)?;
+    rows.next()
+        .await
+        .map_err(db_error)?
+        .map(|row| Ok::<_, turso::Error>((row.get(0)?, row.get(1)?)))
+        .transpose()
+        .map_err(db_error)
 }
 
 async fn device_label(db: &Connection, project: &str, digest: &str) -> PageResult<Option<String>> {
@@ -145,9 +216,10 @@ fn stage_bundle(
     uploads: &FilePath,
     project: &str,
     mut bundle: Bundle,
-) -> PageResult<(tempfile::TempDir, PathBuf, String)> {
+) -> PageResult<(tempfile::TempDir, PathBuf, String, String)> {
     let manifest: Manifest = serde_json::from_value(bundle.manifest.clone())
         .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    let project_label = manifest.project.label.clone();
     if manifest.version != 1
         || manifest.project.id != project
         || !matches!(manifest.status.as_str(), "complete" | "blocked")
@@ -195,7 +267,7 @@ fn stage_bundle(
             .map_err(db_error)?;
     }
     fs::write(stage.path().join("manifest.json"), metadata).map_err(db_error)?;
-    Ok((stage, target, key))
+    Ok((stage, target, key, project_label))
 }
 
 pub fn send(run: &FilePath, server: &str) -> Result<(), BoxError> {

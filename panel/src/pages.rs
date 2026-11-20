@@ -859,6 +859,23 @@ struct AccessItem {
     key: String,
 }
 
+async fn query_access_items(
+    db: &Connection,
+    sql: &str,
+    param: &str,
+) -> PageResult<Vec<AccessItem>> {
+    let mut rows = db.query(sql, [param]).await.map_err(db_error)?;
+    let mut items = Vec::new();
+    while let Some(row) = rows.next().await.map_err(db_error)? {
+        items.push(AccessItem {
+            label: row.get(0).map_err(db_error)?,
+            detail: row.get(1).map_err(db_error)?,
+            key: row.get(2).map_err(db_error)?,
+        });
+    }
+    Ok(items)
+}
+
 async fn access_lists(
     panel: &Panel,
     id: &str,
@@ -870,16 +887,7 @@ async fn access_lists(
         "SELECT label, CASE WHEN last_seen IS NULL THEN 'Awaiting first upload' ELSE 'Has published' END, digest FROM devices WHERE project = ? ORDER BY created DESC",
         "SELECT event, actor, CAST(occurred * 1000 AS TEXT) FROM audit WHERE project = ? ORDER BY id DESC LIMIT 30",
     ] {
-        let mut rows = db.query(sql, [id]).await.map_err(db_error)?;
-        let mut items = Vec::new();
-        while let Some(row) = rows.next().await.map_err(db_error)? {
-            items.push(AccessItem {
-                label: row.get(0).map_err(db_error)?,
-                detail: row.get(1).map_err(db_error)?,
-                key: row.get(2).map_err(db_error)?,
-            });
-        }
-        groups.push(items);
+        groups.push(query_access_items(&db, sql, id).await?);
     }
     let mut groups = groups.into_iter();
     Ok((
@@ -992,20 +1000,32 @@ pub async fn project_action(
 }
 
 pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<String>> {
-    let session_count: i64 = {
+    let (session_count, tokens) = {
         let db = panel.index.lock().await;
-        db.query(
-            "SELECT COUNT(*) FROM sessions WHERE handle = ? AND expires > ?",
-            Vec::from(turso::params![account.handle.clone(), auth::now()]),
-        )
-        .await
-        .map_err(db_error)?
-        .next()
-        .await
-        .map_err(db_error)?
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
-        .get(0)
-        .map_err(db_error)?
+        let count: i64 = db
+            .query(
+                "SELECT COUNT(*) FROM sessions WHERE handle = ? AND expires > ?",
+                Vec::from(turso::params![account.handle.clone(), auth::now()]),
+            )
+            .await
+            .map_err(db_error)?
+            .next()
+            .await
+            .map_err(db_error)?
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+            .get(0)
+            .map_err(db_error)?;
+        let tokens = if account.owner {
+            query_access_items(
+                &db,
+                "SELECT label, CASE WHEN last_seen IS NULL THEN 'Awaiting first publish' ELSE 'Active' END, digest FROM machine_tokens WHERE owner = ? ORDER BY created DESC",
+                account.handle.as_str(),
+            )
+            .await?
+        } else {
+            Vec::new()
+        };
+        (count, tokens)
     };
     let cx = &Cx::default();
     let content = shell!(cx, "Settings", account, panel, "settings", {
@@ -1058,6 +1078,31 @@ pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<St
                     <p class="muted">(panel.roots.len()) (if panel.roots.len() == 1 { " capture directory configured" } else { " capture directories configured" })</p>
                     <p class="muted">(if panel.uploads.is_some() { "Publication enabled" } else { "Publication disabled" })</p>
                 </section>
+                <section class="surface panel-padding">
+                    <h2>"Global machine tokens"</h2>
+                    if panel.uploads.is_none() {
+                        <p class="muted">"Enable a managed upload directory to publish captures from any project."</p>
+                    } else {
+                        <p class="muted">"Authorizes publishing captures and auto-creating new projects across all repos from this machine."</p>
+                        if tokens.is_empty() { <p class="muted">"No global machine tokens."</p> }
+                        for item in &tokens {
+                            <form method="post" action="/settings/tokens" class="entry">
+                                <input type="hidden" name="csrf" value=(&account.csrf)>
+                                <input type="hidden" name="action" value="revoke">
+                                <input type="hidden" name="value" value=(&item.key)>
+                                <span><strong>(&item.label)</strong><small>(&item.detail)</small></span>
+                                <button class="button" type="submit">"Revoke"</button>
+                            </form>
+                        }
+                        <form method="post" action="/settings/tokens" class="stack-form">
+                            <input type="hidden" name="csrf" value=(&account.csrf)>
+                            <input type="hidden" name="action" value="create">
+                            <label for="global-machine-label">"Machine name"</label>
+                            <input id="global-machine-label" name="value" required="" maxlength="100" placeholder="notebook">
+                            <button class="button primary" type="submit">"Create global machine token"</button>
+                        </form>
+                    }
+                </section>
             }
         </div>
     });
@@ -1078,6 +1123,63 @@ pub async fn account_action(
     .await
     .map_err(db_error)?;
     Ok(redirect("/settings"))
+}
+
+pub async fn machine_tokens_action(
+    panel: Arc<Panel>,
+    account: Account,
+    form: ProjectAction,
+) -> PageResult<Response> {
+    auth::check_csrf(&account, &form.csrf)?;
+    if !account.owner {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let value = form.value.trim();
+    match form.action.as_str() {
+        "create" if panel.uploads.is_some() && !value.is_empty() && value.len() <= 100 => {
+            let secret = auth::token();
+            let digest = auth::digest(&secret);
+            {
+                let db = panel.index.lock().await;
+                db.execute(
+                    "INSERT INTO machine_tokens (digest, owner, label, created, last_seen) VALUES (?, ?, ?, ?, NULL)",
+                    Vec::from(turso::params![
+                        digest,
+                        account.handle.clone(),
+                        value.to_owned(),
+                        auth::now()
+                    ]),
+                )
+                .await
+                .map_err(db_error)?;
+            }
+            let cx = &Cx::default();
+            let content = shell!(cx, "Global machine token", account, panel, "settings", {
+                <section class="surface panel-padding">
+                    <h2>"Global machine token"</h2>
+                    <p>"Save this credential securely. It authorizes publishing captures and auto-creating projects for your account."</p>
+                    <p><code>(format!("{}/api/publish/<project>", panel.origin))</code></p>
+                    <pre class="credential">(secret)</pre>
+                    <p><a class="button" href="/settings">"Return to settings"</a></p>
+                </section>
+            });
+            auth::page(cx, content)
+                .await?
+                .into_response(cx)
+                .map_err(db_error)
+        }
+        "revoke" => {
+            let db = panel.index.lock().await;
+            db.execute(
+                "DELETE FROM machine_tokens WHERE digest = ? AND owner = ?",
+                [value, account.handle.as_str()],
+            )
+            .await
+            .map_err(db_error)?;
+            Ok(redirect("/settings"))
+        }
+        _ => Err(StatusCode::UNPROCESSABLE_ENTITY),
+    }
 }
 
 #[derive(Deserialize)]

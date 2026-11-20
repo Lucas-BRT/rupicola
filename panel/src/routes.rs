@@ -46,6 +46,7 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(record_design)
         .route(settings)
         .route(account_action)
+        .route(machine_tokens)
         .route(change_password)
         .route(accept_invitation)
         .route(healthz)
@@ -184,6 +185,14 @@ async fn account_action(cx: &Cx, Form(form): Form<auth::Csrf>) -> Result<Respons
     respond(
         cx,
         pages::account_action(panel(cx), account(cx), form).await,
+    )
+}
+
+#[route(POST "/settings/tokens")]
+async fn machine_tokens(cx: &Cx, Form(form): Form<pages::ProjectAction>) -> Result<Response> {
+    respond(
+        cx,
+        pages::machine_tokens_action(panel(cx), account(cx), form).await,
     )
 }
 

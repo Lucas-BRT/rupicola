@@ -42,6 +42,10 @@ pub async fn init(db: &Connection) -> Result<(), BoxError> {
             digest TEXT PRIMARY KEY, project TEXT NOT NULL, label TEXT NOT NULL, created INTEGER NOT NULL,
             last_seen INTEGER
         );
+        CREATE TABLE IF NOT EXISTS machine_tokens (
+            digest TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, created INTEGER NOT NULL,
+            last_seen INTEGER
+        );
         CREATE TABLE IF NOT EXISTS audit (
             id INTEGER PRIMARY KEY, project TEXT NOT NULL, actor TEXT NOT NULL, event TEXT NOT NULL,
             occurred INTEGER NOT NULL
