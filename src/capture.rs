@@ -45,7 +45,7 @@ impl PixelFormat {
 
     /// Convert a raw pixel buffer in this format to straight 8-bit RGBA.
     pub fn to_rgba8(self, src: &[u8]) -> Result<Vec<u8>, String> {
-        if src.len() % 4 != 0 {
+        if !src.len().is_multiple_of(4) {
             return Err(format!(
                 "pixel buffer length {} is not a multiple of 4",
                 src.len()
@@ -55,7 +55,7 @@ impl PixelFormat {
             Self::Rgba8 => Ok(src.to_vec()),
             Self::PremultipliedRgba8 => {
                 let mut out = Vec::with_capacity(src.len());
-                for px in src.chunks_exact(4) {
+                for px in src.as_chunks::<4>().0 {
                     let [r, g, b, a] = [px[0], px[1], px[2], px[3]];
                     out.extend_from_slice(&unpremultiply(r, g, b, a));
                 }
@@ -63,14 +63,14 @@ impl PixelFormat {
             }
             Self::Bgra8 => {
                 let mut out = Vec::with_capacity(src.len());
-                for px in src.chunks_exact(4) {
+                for px in src.as_chunks::<4>().0 {
                     out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
                 }
                 Ok(out)
             }
             Self::PremultipliedBgra8 => {
                 let mut out = Vec::with_capacity(src.len());
-                for px in src.chunks_exact(4) {
+                for px in src.as_chunks::<4>().0 {
                     let [b, g, r, a] = [px[0], px[1], px[2], px[3]];
                     out.extend_from_slice(&unpremultiply(r, g, b, a));
                 }
@@ -476,10 +476,10 @@ struct FfmpegPipe {
 
 impl FfmpegPipe {
     fn spawn(width: u32, height: u32, out: &Path, options: &VideoOptions) -> Result<Self, String> {
-        if let Some(parent) = out.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-            }
+        if let Some(parent) = out.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
         let fps_str = format_fps(options.fps);
         let size_str = format!("{width}x{height}");

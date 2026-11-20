@@ -369,18 +369,17 @@ pub fn run(cfg: Config) -> Result<ProbeSummary, String> {
     if res.checkpoints.len() > 1 {
         let shots_dir = output.join("checkpoints");
         let sheet_rel = PathBuf::from("checkpoints/matrix-sheet.png");
-        if let Ok(files) = visual::list_pngs(&shots_dir) {
-            if let Ok(img) = visual::sheet(&files, 3, 360) {
-                if visual::save(&output.join(&sheet_rel), &img).is_ok() {
-                    res.checkpoints.insert(
-                        0,
-                        Checkpoint {
-                            id: "matrix-contact-sheet".into(),
-                            path: sheet_rel,
-                        },
-                    );
-                }
-            }
+        if let Ok(files) = visual::list_pngs(&shots_dir)
+            && let Ok(img) = visual::sheet(&files, 3, 360)
+            && visual::save(&output.join(&sheet_rel), &img).is_ok()
+        {
+            res.checkpoints.insert(
+                0,
+                Checkpoint {
+                    id: "matrix-contact-sheet".into(),
+                    path: sheet_rel,
+                },
+            );
         }
     }
 
@@ -409,19 +408,17 @@ pub fn run(cfg: Config) -> Result<ProbeSummary, String> {
             if let Ok(json_bytes) = serde_json::to_vec_pretty(&serde_json::json!({
                 "threshold": 8,
                 "frame_report": report,
-            })) {
-                if fs::write(output.join(&analysis_rel), json_bytes).is_ok() {
-                    clip.analysis_path = Some(analysis_rel);
-                }
+            })) && fs::write(output.join(&analysis_rel), json_bytes).is_ok()
+            {
+                clip.analysis_path = Some(analysis_rel);
             }
         }
         let sheet_rel = PathBuf::from(format!("samples/{}/sheet.png", clip.id));
-        if let Ok(files) = visual::list_pngs(&clip_dir) {
-            if let Ok(img) = visual::sheet(&files, 5, 320) {
-                if visual::save(&output.join(&sheet_rel), &img).is_ok() {
-                    clip.sheet_path = Some(sheet_rel);
-                }
-            }
+        if let Ok(files) = visual::list_pngs(&clip_dir)
+            && let Ok(img) = visual::sheet(&files, 5, 320)
+            && visual::save(&output.join(&sheet_rel), &img).is_ok()
+        {
+            clip.sheet_path = Some(sheet_rel);
         }
         if cfg.video {
             let video_rel = PathBuf::from(format!("samples/{}/preview.mp4", clip.id));

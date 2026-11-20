@@ -36,13 +36,17 @@ pub fn load(path: &Path) -> Result<Image, String> {
     match info.color_type {
         png::ColorType::Rgba => rgba.extend_from_slice(data),
         png::ColorType::Rgb => data
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .for_each(|c| rgba.extend_from_slice(&[c[0], c[1], c[2], 255])),
         png::ColorType::Grayscale => data
             .iter()
             .for_each(|&g| rgba.extend_from_slice(&[g, g, g, 255])),
         png::ColorType::GrayscaleAlpha => data
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .for_each(|c| rgba.extend_from_slice(&[c[0], c[0], c[0], c[1]])),
         png::ColorType::Indexed => {
             return Err(format!("{}: indexed PNG was not expanded", path.display()));
@@ -330,7 +334,7 @@ pub fn palette(image: &Image, k: usize) -> Palette {
     let mut buckets: std::collections::HashMap<u16, (u64, [u64; 3])> =
         std::collections::HashMap::new();
     let mut total = 0u64;
-    for px in image.rgba.chunks_exact(4) {
+    for px in image.rgba.as_chunks::<4>().0 {
         if px[3] < 128 {
             continue;
         }
@@ -466,7 +470,7 @@ pub fn sheet(files: &[PathBuf], cols: usize, thumb_w: u32) -> Result<Image, Stri
         rows as u32 * (cell_h + pad) + pad,
     );
     let mut rgba = vec![0u8; (w * h * 4) as usize];
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         px.copy_from_slice(&[90, 90, 90, 255]);
     }
     for (n, t) in thumbs.iter().enumerate() {

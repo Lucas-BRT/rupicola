@@ -155,27 +155,22 @@ impl Inspector<'_> {
     fn markup(&mut self, stream: TokenStream, class_macro: bool) {
         let tokens: Vec<_> = stream.into_iter().collect();
         for (i, token) in tokens.iter().enumerate() {
-            if class_macro {
-                if let TokenTree::Literal(literal) = token {
-                    self.classes(literal);
-                }
+            if class_macro && let TokenTree::Literal(literal) = token {
+                self.classes(literal);
             }
             if let TokenTree::Ident(ident) = token {
-                if ident == "class" || ident == "className" {
-                    if let (Some(TokenTree::Punct(separator)), Some(TokenTree::Literal(value))) =
+                if (ident == "class" || ident == "className")
+                    && let (Some(TokenTree::Punct(separator)), Some(TokenTree::Literal(value))) =
                         (tokens.get(i + 1), tokens.get(i + 2))
-                    {
-                        if matches!(separator.as_char(), '=' | ':') {
-                            self.classes(value);
-                        }
-                    }
+                    && matches!(separator.as_char(), '=' | ':')
+                {
+                    self.classes(value);
                 }
                 if ident == "class"
                     && matches!(tokens.get(i+1), Some(TokenTree::Punct(p)) if p.as_char() == '!')
+                    && let Some(TokenTree::Group(g)) = tokens.get(i + 2)
                 {
-                    if let Some(TokenTree::Group(g)) = tokens.get(i + 2) {
-                        self.markup(g.stream(), true);
-                    }
+                    self.markup(g.stream(), true);
                 }
             }
             if let TokenTree::Group(group) = token {
@@ -219,62 +214,62 @@ impl<'ast> Visit<'ast> for Inspector<'_> {
         self.ui_depth -= usize::from(ui);
     }
     fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
-        if self.ui_depth > 0 {
-            if let syn::Expr::Path(path) = &*node.func {
-                let name = path
-                    .path
-                    .segments
-                    .iter()
-                    .map(|s| s.ident.to_string())
-                    .collect::<Vec<_>>()
-                    .join("::");
-                if matches!(
-                    name.as_str(),
-                    "std::thread::sleep"
-                        | "thread::sleep"
-                        | "std::fs::read"
-                        | "std::fs::read_to_string"
-                        | "fs::read"
-                        | "fs::read_to_string"
-                ) {
+        if self.ui_depth > 0
+            && let syn::Expr::Path(path) = &*node.func
+        {
+            let name = path
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::");
+            if matches!(
+                name.as_str(),
+                "std::thread::sleep"
+                    | "thread::sleep"
+                    | "std::fs::read"
+                    | "std::fs::read_to_string"
+                    | "fs::read"
+                    | "fs::read_to_string"
+            ) {
+                use syn::spanned::Spanned;
+                self.hit("blocking-ui", path.span());
+            }
+            // Color::from_rgb8(0x12, 0x34, 0x56) and similar: all-literal arguments.
+            let segments: Vec<String> = path
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect();
+            if let [.., owner, ctor] = segments.as_slice() {
+                let is_color_type = matches!(
+                    owner.as_str(),
+                    "Color" | "Color32" | "Rgba" | "Srgba" | "Hsla"
+                );
+                let is_ctor = matches!(
+                    ctor.as_str(),
+                    "from_rgb"
+                        | "from_rgb8"
+                        | "from_rgba"
+                        | "from_rgba8"
+                        | "from_gray"
+                        | "from_rgba_unmultiplied"
+                        | "from_rgba_premultiplied"
+                );
+                let literal = |e: &syn::Expr| match e {
+                    syn::Expr::Lit(_) => true,
+                    syn::Expr::Unary(u) => matches!(&*u.expr, syn::Expr::Lit(_)),
+                    _ => false,
+                };
+                if is_color_type
+                    && is_ctor
+                    && !node.args.is_empty()
+                    && node.args.iter().all(literal)
+                {
                     use syn::spanned::Spanned;
-                    self.hit("blocking-ui", path.span());
-                }
-                // Color::from_rgb8(0x12, 0x34, 0x56) and similar: all-literal arguments.
-                let segments: Vec<String> = path
-                    .path
-                    .segments
-                    .iter()
-                    .map(|s| s.ident.to_string())
-                    .collect();
-                if let [.., owner, ctor] = segments.as_slice() {
-                    let is_color_type = matches!(
-                        owner.as_str(),
-                        "Color" | "Color32" | "Rgba" | "Srgba" | "Hsla"
-                    );
-                    let is_ctor = matches!(
-                        ctor.as_str(),
-                        "from_rgb"
-                            | "from_rgb8"
-                            | "from_rgba"
-                            | "from_rgba8"
-                            | "from_gray"
-                            | "from_rgba_unmultiplied"
-                            | "from_rgba_premultiplied"
-                    );
-                    let literal = |e: &syn::Expr| match e {
-                        syn::Expr::Lit(_) => true,
-                        syn::Expr::Unary(u) => matches!(&*u.expr, syn::Expr::Lit(_)),
-                        _ => false,
-                    };
-                    if is_color_type
-                        && is_ctor
-                        && !node.args.is_empty()
-                        && node.args.iter().all(literal)
-                    {
-                        use syn::spanned::Spanned;
-                        self.hit("hardcoded-color", path.span());
-                    }
+                    self.hit("hardcoded-color", path.span());
                 }
             }
         }

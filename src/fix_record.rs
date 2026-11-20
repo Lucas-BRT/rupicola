@@ -156,12 +156,12 @@ pub fn entries(data_dir: &Path, project: &str) -> io::Result<Vec<FixRecord>> {
         if path.extension().and_then(|s| s.to_str()) != Some("json") {
             continue;
         }
-        if let Ok(bytes) = fs::read(&path) {
-            if let Ok(item) = serde_json::from_slice::<FixRecord>(&bytes) {
-                if item.project_id == project && valid_id(&item.id) {
-                    out.push(item);
-                }
-            }
+        if let Ok(bytes) = fs::read(&path)
+            && let Ok(item) = serde_json::from_slice::<FixRecord>(&bytes)
+            && item.project_id == project
+            && valid_id(&item.id)
+        {
+            out.push(item);
         }
     }
     out.sort_by(|a, b| {

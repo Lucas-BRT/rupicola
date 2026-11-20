@@ -442,10 +442,10 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value, String
             json!({"url":url,"fixture":args["demo"] == true}).to_string()
         }
         "preview_status" => {
-            if let Some(child) = preview.0.as_mut() {
-                if child.try_wait().map_err(|e| e.to_string())?.is_some() {
-                    *preview = Preview::default();
-                }
+            if let Some(child) = preview.0.as_mut()
+                && child.try_wait().map_err(|e| e.to_string())?.is_some()
+            {
+                *preview = Preview::default();
             }
             json!({"url":preview.1}).to_string()
         }
@@ -506,10 +506,10 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value, String
             let mut runs = Vec::new();
             if dir.exists() {
                 for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten() {
-                    if let Some(id) = entry.file_name().to_str() {
-                        if let Ok((_, value)) = manifest(id) {
-                            runs.push(json!({"run":id,"scenario":value["scenario"],"status":value["status"],"inspection":value["inspection"]}));
-                        }
+                    if let Some(id) = entry.file_name().to_str()
+                        && let Ok((_, value)) = manifest(id)
+                    {
+                        runs.push(json!({"run":id,"scenario":value["scenario"],"status":value["status"],"inspection":value["inspection"]}));
                     }
                 }
             }
@@ -983,12 +983,11 @@ impl SessionGuard {
 
 impl Drop for SessionGuard {
     fn drop(&mut self) {
-        if let Some(path) = self.0.take() {
-            if proposal_record::read_json::<proposal_record::McpSession>(&path, 16 * 1024)
+        if let Some(path) = self.0.take()
+            && proposal_record::read_json::<proposal_record::McpSession>(&path, 16 * 1024)
                 .is_ok_and(|s| s.pid == std::process::id())
-            {
-                let _ = std::fs::remove_file(path);
-            }
+        {
+            let _ = std::fs::remove_file(path);
         }
     }
 }
