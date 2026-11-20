@@ -1,0 +1,35 @@
+# Local run: `docker compose -f compose.local.yml up --build` serves http://127.0.0.1:4731/.
+# Production / open-internet deployments use `compose.yml` behind Dokploy / Traefik with HTTPS.
+services:
+  web:
+    build: .
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${FERRIS_BIND_IP:-127.0.0.1}:${FERRIS_PORT:-4731}:4731"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "4731"
+      XDG_DATA_HOME: "/data"
+      FERRIS_DB: "/data/panel.db"
+      FERRIS_CAPTURES: "/data/captures"
+      FERRIS_UPLOADS: "/data/uploads"
+      FERRIS_SETUP_CODE: "${FERRIS_SETUP_CODE:-}"
+    volumes:
+      - ferris-local-data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    healthcheck:
+      test: ["CMD", "./ferris-atelier-panel", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ferris-local-data:

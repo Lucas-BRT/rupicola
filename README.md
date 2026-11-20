@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Lucas-BRT/ferris-atelier/actions/workflows/ci.yml/badge.svg)](https://github.com/Lucas-BRT/ferris-atelier/actions/workflows/ci.yml)
 
-A modular AI skill and Rust-native CLI for designing, building and reviewing Rust interfaces across web and desktop. Load only the framework, UX and platform guidance relevant to the task.
+A modular AI skill and Rust-native CLI for designing, building and reviewing graphical interfaces across web, native desktop and webviews. Load only the framework, UX and platform guidance relevant to the task.
 
 The skill covers libcosmic, GPUI, Iced, Topcoat, Leptos, Yew, Tauri, Dioxus, egui/eframe, Slint, GTK4, libadwaita and Relm4. Automated analysis covers a narrower set of syntax patterns; it never certifies runtime behavior or accessibility.
 
@@ -25,7 +25,11 @@ Install just the CLI directly from Git when Git authentication is configured:
 cargo install --git https://github.com/Lucas-BRT/ferris-atelier.git --locked
 ```
 
-The installed CLI runs without Cargo, Node.js, a model endpoint or an API key. Inspected applications still require their own toolchains for compilation and runtime checks. All executable project source and tests are Rust.
+The installed CLI needs neither Cargo nor a model API key. Core analysis commands run without Node.js. Headless web capture uses Node.js and Playwright. The local review panel is an optional executable. Inspected applications still require their own toolchains for compilation and runtime checks.
+
+To enable Ferris Atelier in a project, add an opt-in instruction to its `AGENTS.md`:
+
+> Use Ferris Atelier for visual or interaction changes. Capture and inspect the affected UI states, recapture after authorized fixes, and report any blocked checks. API-only work is outside this workflow.
 
 ## Install a release binary
 
@@ -76,6 +80,15 @@ ferris-atelier discover /path/to/project --json
 ferris-atelier scan /path/to/project --json
 ferris-atelier scan page.rs --framework leptos --json
 ferris-atelier check /path/to/ferris-atelier --json
+ferris-atelier probe --url http://127.0.0.1:3000 --mode exhaustive --pages all --viewports 320x844,768x1024,1440x900 --themes dark,light --json
+ferris-atelier problem list --project my-app --json
+ferris-atelier problem claim <problem-id> --agent codex-ui --activity "Inspecting evidence and violated norms"
+ferris-atelier problem progress <problem-id> --agent codex-ui --stage verifying --step 3 --total-steps 4 --pct 80 --activity "Running Playwright matrix verification"
+ferris-atelier fix record --project my-app --problem <problem-id> --title "Fix hairline seams" --summary "Unified 1px grid seams" --before-url /media/0/before/shot.png --after-url /media/0/after/shot.png
+ferris-atelier propose list --project my-app --json
+ferris-atelier storage status --project my-app
+ferris-atelier storage clean --mode strip-frames --project my-app
+ferris-atelier storage offload --fix <fix-id> --project my-app
 ferris-atelier diff before.png after.png --out diff.png
 ferris-atelier frames frames-dir
 ferris-atelier video frames-dir --out anim.mp4 --fps 60
@@ -114,6 +127,90 @@ Paths are relative to the directory containing `.ferris-atelier`. A standalone `
 
 Project decisions live in `.ferris-atelier/context.md` when explicitly requested. Visit recording is opt-in. See [project context](reference/project-context.md), [reports](reference/reports.md) and [verification](reference/verification.md).
 
+## Capture and review a web scenario
+
+```sh
+ferris-atelier capture settings.toml --out .ferris-atelier/captures/before --video
+ferris-atelier capture-review .ferris-atelier/captures/before/manifest.json --note "The popup opens and its heading is visible."
+cargo install --path panel --locked
+ferris-atelier serve --captures .ferris-atelier/captures
+```
+
+The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel indexes multiple capture roots and supports shared review behind an HTTPS reverse proxy. See [panel installation](panel/README.md), [scenario format and inspection](reference/capture-scenarios.md) and the [nested COSMIC applet spike](reference/libcosmic-capture-spike.md). `capture` handles HTTP(S) previews. On Linux, `capture-cosmic` uses an isolated panel host for two native applet checkpoints.
+
+## Run the local panel in the background
+
+On Linux, install the CLI and panel once, then register the panel with the user
+systemd manager:
+
+```sh
+cargo install --path . --locked
+cargo install --path panel --locked
+ferris-atelier setup
+```
+
+Run captures from a Git checkout without `--out`. Ferris detects the local Git
+repository, groups its worktrees under the same ID and writes evidence to the
+shared directory. Use `ferris-atelier link PROJECT_ID` to choose an explicit ID. Captures and inspection notes
+remain available on disk while the service is stopped and appear when the
+service resumes. Use `ferris-atelier doctor` to check the link and service.
+`setup --print-unit` previews the unit.
+
+Open http://127.0.0.1:4731. The background service is local. Shared HTTPS
+publication still uses the [panel's explicit publish command](panel/README.md).
+
+## Record project design context
+
+The skill calls `ferris-atelier design open` from the checkout before design work.
+The project appears in **Projects** on the local panel even with no captures.
+
+```sh
+ferris-atelier design open
+ferris-atelier design add direction --title "Graphite and copper" \
+  --note "Keep capture media prominent and use copper for the review action." --surface "Review"
+ferris-atelier design add tactic --status proposed --title "Aligned comparison" \
+  --note "Put paired screenshots on equal tracks when the review pane has room."
+```
+
+Use `brief`, `direction`, `tactic` or `decision`. Add `--supersedes ENTRY_ID`
+to revise a record while preserving history, `--reference URL` to attach a
+design reference, or `--evidence /path/to/manifest.json` to attach a capture
+stored in the same project's shared directory.
+
+The panel reads the design register beside its database. For the per-user
+service, this is the same local data directory that the CLI uses. Shared
+HTTPS capture publication does not sync the design register.
+
+## Visual QA Pipeline & Web Panel (Captures → Problems → Fixes → Storage)
+
+The Topcoat web panel (`ferris-atelier-panel`) organizes visual engineering into a structured pipeline per project:
+
+- **`Captures` (`/projects/{id}/captures`):** Unified research hub combining matrix runs, screenshots, contact sheets, and interaction recordings with a **Screen health** filter (`All captured screens`, `Clean / verified only`, `With problems only`, `Unanalyzed`), inline `Run inspection matrix` launcher (`page-check`, `all-pages`, `responsive-matrix`, `interaction-map`, `exhaustive`), and 1-click problem extraction (`Extract problems` / `Flag problem`).
+- **`Problems` (`/projects/{id}/problems`):** Structured triage queue linking captured evidence assets, violated **Global Norms** (`SKILL.md` / `reference/`) and **Project Design Norms**, root-cause diagnosis, proposed solution, and a live **Agent & Task Execution Tracker** (`AGENT`, `STAGE`, `STEP X / Y · Z%`, `<progress>` bar, activity log, and `2.5s` live polling via `/projects/{id}/problems/status.json`). Problems marked `Intentional` or `False positive` are automatically suppressed in subsequent probes.
+- **`Fixes` (`/projects/{id}/fixes`):** Interactive Before/After verification workbench supporting both static screenshots (`.png`) and motion recordings (`.mp4` / `.webm`) across **`Split Slider`**, **`Side by Side`**, **`Video Player (Slow-Mo 1× / 0.5× / 0.25×)`**, and **`Pixel Diff`**, plus applied tactics, modified files, intermediate steps timeline, and user approval (`Approve Fix` / `Request Changes`).
+- **`Proposes` & `Design` (`/projects/{id}/proposes`, `/projects/{id}/design`):** Isolated `<iframe sandbox="allow-scripts">` HTML and high-resolution image proposals with viewport switcher (`320px`, `768px`, `Full`), structured prompt extraction, and automatic promotion of approved proposals to `Design`.
+- **`Storage` (`/projects/{id}/storage`):** Disk usage telemetry grouped **By Fix**, **By Date**, **By Capture Run**, and **By Asset Category**, with selective cleanup (`Strip raw clip frames`, `Prune unpinned runs`) and external bucket offload (`S3-Compatible / Cloudflare R2 / MinIO / B2`, `rclone`, or mounted volume) with optional automatic offload when a Fix is approved.
+
+## Docker & Open-Internet Deployment (Dokploy / Traefik)
+
+The repository ships a multi-stage, `cargo-chef`-cached `Dockerfile`, an open-internet hardened `compose.yml` for Dokploy/Traefik, and a `compose.local.yml` for local testing:
+
+```sh
+# Local container test on http://127.0.0.1:4731
+docker compose -f compose.local.yml up -d --build
+
+# Production / VPS behind Dokploy & Traefik (joins external dokploy-network via expose: 4731)
+FERRIS_PUBLIC_ORIGIN=https://atelier.example.com \
+FERRIS_SETUP_CODE="$(openssl rand -hex 32)" \
+docker compose up -d --build
+```
+
+Security posture for open-internet multi-device deployments:
+- **Zero raw host port exposure in `compose.yml`:** traffic enters exclusively through Traefik over TLS (`dokploy-network`, container port `4731`).
+- **Bootstrap & Auth hardening:** `FERRIS_PUBLIC_ORIGIN` (`https://...`) requires `FERRIS_SETUP_CODE` (>= 32 chars, SHA-256 constant-time check) for initial owner creation. Passwords use **Argon2id** with sliding-window rate-limiting (8 failed attempts / 5 min lockout), concurrency semaphore (`429 Too Many Requests`), constant-time dummy verification against user enumeration, `HttpOnly; SameSite=Lax; Secure` session cookies, strict `Host` and `Origin` header pinning, per-session CSRF tokens, and authenticated web password rotation (`Settings → Change password`).
+- **Container hardening:** runs as non-root `uid 10001:10001` (`ferris`) with `read_only: true`, `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 128`, `mem_limit: 512m`, and a native self-contained `./ferris-atelier-panel --healthcheck` probe.
+- **Multi-device capture publishing:** generate per-machine credentials in `Project settings → Machines` and publish from any workstation or CI runner with `FERRIS_PUBLISH_TOKEN=<token> ferris-atelier-panel publish <run-dir> --server https://atelier.example.com`.
+
 ## Development
 
 ```console
@@ -143,7 +240,7 @@ cargo run -p xtask -- run --cond c0=none --cond c1=<git rev> --model <exact-id> 
 cargo run -p xtask -- analyze evals/results/run --base c0 --cand c1 --csv
 ```
 
-`run` is a dry run unless `--execute` is given, is resumable (finished runs are skipped), stops at `--max-usd`, and runs the agent with a clean `CLAUDE_CONFIG_DIR` holding only the credential, so user-level skills, hooks, plugins and MCP servers do not leak into any condition (`--no-isolate` disables this). Every run audits the skills the harness reported against the condition; a mismatch counts as a failure. Each run uses a throwaway directory with the skill extracted from the given revision; the agent is allowed Bash there, so prefer a container. `trigger` measures only whether the skill is invoked, over the prompts in `evals/triggers.toml` (30 explicit, 30 implicit, 30 negative; tune on `dev`, judge on `holdout`), and `trigger-analyze` reports precision, recall, F1 and false-positive rate with prompt-cluster bootstrap CIs. A condition can be `none`, a git revision or `worktree` (current files, to test uncommitted edits). `analyze` reports paired pass rate, a task-cluster bootstrap CI, an exact McNemar test, pass^k and cost; it does not fit mixed-effects models (use `--csv`) and does not yet score review recall or free-text constraints. Skill invocation and false "verified" claims are text heuristics over the trajectory.
+`run` is a dry run unless `--execute` is given, is resumable (finished runs are skipped), stops at `--max-usd`, and runs the agent with a clean `CLAUDE_CONFIG_DIR` holding only the credential, so user-level skills, hooks, plugins and MCP servers do not leak into any condition (`--no-isolate` disables this). Every run audits the skills the harness reported against the condition; a mismatch counts as a failure. Each run uses a throwaway directory with the skill extracted from the given revision; the agent is allowed Bash there, so prefer a container. `trigger` measures only whether the skill is invoked, over the prompts in `evals/triggers.toml` (30 explicit, 40 implicit, 22 negative; tune on `dev`, judge on `holdout`), and `trigger-analyze` reports precision, recall, F1 and false-positive rate with prompt-cluster bootstrap CIs. The cross-stack update keeps existing prompt IDs and changes eight expected labels. Use the same corpus revision for paired runs. A condition can be `none`, a git revision or `worktree` (current files, to test uncommitted edits). `analyze` reports paired pass rate, a task-cluster bootstrap CI, an exact McNemar test, pass^k and cost; it does not fit mixed-effects models (use `--csv`) and does not yet score review recall or free-text constraints. Skill invocation and false "verified" claims are text heuristics over the trajectory.
 
 ## CI and releases
 

@@ -1,0 +1,9 @@
+/target
+/panel/target
+/dist
+/.git
+/.ferris-atelier
+/evals/results
+/examples
+*.swp
+.DS_Store

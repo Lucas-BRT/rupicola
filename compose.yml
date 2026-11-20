@@ -1,0 +1,48 @@
+# Dokploy (Compose type) — open-internet hardened deployment behind Traefik.
+# Dokploy's Traefik reaches the container through `dokploy-network`, so no host port is published here:
+# in the application's "Domains" tab choose service `web`, container port 4731, and enable HTTPS.
+# Before initial startup, set FERRIS_PUBLIC_ORIGIN (e.g. https://atelier.yourdomain.com) and
+# FERRIS_SETUP_CODE (at least 32 characters of high-entropy secret) in the Dokploy environment.
+# For local testing with a published port, use: `docker compose -f compose.local.yml up --build`.
+services:
+  web:
+    build: .
+    init: true
+    restart: unless-stopped
+    expose:
+      - "4731"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "4731"
+      XDG_DATA_HOME: "/data"
+      FERRIS_DB: "/data/panel.db"
+      FERRIS_CAPTURES: "/data/captures"
+      FERRIS_UPLOADS: "/data/uploads"
+      FERRIS_PUBLIC_ORIGIN: "${FERRIS_PUBLIC_ORIGIN}"
+      FERRIS_SETUP_CODE: "${FERRIS_SETUP_CODE:-}"
+    volumes:
+      - ferris-data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    mem_limit: 512m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "./ferris-atelier-panel", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - dokploy-network
+
+volumes:
+  ferris-data:
+
+networks:
+  dokploy-network:
+    external: true
