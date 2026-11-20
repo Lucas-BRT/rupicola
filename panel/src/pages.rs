@@ -355,7 +355,14 @@ pub async fn create_project(
 }
 
 pub async fn project(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Html<String>> {
-    project_view(panel, account, id, "overview".into(), Filter::default()).await
+    Box::pin(project_view(
+        panel,
+        account,
+        id,
+        "overview".into(),
+        Filter::default(),
+    ))
+    .await
 }
 
 pub async fn project_section(
@@ -364,7 +371,7 @@ pub async fn project_section(
     (id, section): (String, String),
     filter: Filter,
 ) -> PageResult<Html<String>> {
-    project_view(panel, account, id, section, filter).await
+    Box::pin(project_view(panel, account, id, section, filter)).await
 }
 
 pub fn read_run(panel: &Panel, key: &str) -> Option<Manifest> {

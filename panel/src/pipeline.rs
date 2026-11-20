@@ -682,10 +682,10 @@ pub fn render_problems<'a>(
                         }
 
                         <div class="problem-rules">
-                            for rule in &item.violated_rules {
-                                <span class=(if rule.scope == "project" { "rule-chip project-rule" } else { "rule-chip global-rule" })>
-                                    <strong>(if rule.scope == "project" { "Project Norm" } else { "Global Norm" })</strong>
-                                    " · " (&rule.code) " — " (&rule.title)
+                            for violation in &item.violated_rules {
+                                <span class=(if violation.scope == "project" { "rule-chip project-rule" } else { "rule-chip global-rule" })>
+                                    <strong>(if violation.scope == "project" { "Project Norm" } else { "Global Norm" })</strong>
+                                    " · " (&violation.code) " — " (&violation.title)
                                 </span>
                             }
                         </div>

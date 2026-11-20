@@ -101,7 +101,7 @@ fn unpremultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 }
 
 /// Configuration for a deterministic offscreen RAM capture sequence.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CaptureConfig {
     pub width: u32,
     pub height: u32,

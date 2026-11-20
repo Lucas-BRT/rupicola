@@ -126,7 +126,7 @@ fn setup_config(no_isolate: bool) -> R<(Option<PathBuf>, Cleanup)> {
         let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
         let creds = Path::new(&home).join(".claude/.credentials.json");
         let _ = fs::remove_dir_all(dir);
-        fs::create_dir_all(dir).map_err(e)?;
+        fs::create_dir_all(dir).map_err(|error| error.to_string())?;
         fs::copy(&creds, dir.join(".credentials.json")).map_err(|x| {
             format!(
                 "cannot copy {} (use --no-isolate to skip isolation): {x}",
@@ -138,9 +138,6 @@ fn setup_config(no_isolate: bool) -> R<(Option<PathBuf>, Cleanup)> {
 }
 
 type R<T> = Result<T, String>;
-fn e<T: ToString>(x: T) -> String {
-    x.to_string()
-}
 
 #[allow(clippy::type_complexity)]
 fn matrix(m: &Matrix) -> R<(Vec<Task>, Vec<(String, String)>)> {
@@ -176,13 +173,16 @@ fn order(tasks: &[Task], conds: &[(String, String)], k: usize) -> Vec<(usize, us
 }
 
 fn copy_dir(from: &Path, to: &Path) -> R<()> {
-    fs::create_dir_all(to).map_err(e)?;
-    for entry in fs::read_dir(from).map_err(e)?.flatten() {
+    fs::create_dir_all(to).map_err(|error| error.to_string())?;
+    for entry in fs::read_dir(from)
+        .map_err(|error| error.to_string())?
+        .flatten()
+    {
         let (src, dst) = (entry.path(), to.join(entry.file_name()));
         if src.is_dir() {
             copy_dir(&src, &dst)?;
         } else {
-            fs::copy(&src, &dst).map_err(e)?;
+            fs::copy(&src, &dst).map_err(|error| error.to_string())?;
         }
     }
     Ok(())
@@ -228,7 +228,7 @@ fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
 
 /// Extracts a skill version into `dest`.
 fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
-    fs::create_dir_all(dest).map_err(e)?;
+    fs::create_dir_all(dest).map_err(|error| error.to_string())?;
     let skip = "--exclude=evals --exclude=xtask --exclude=target --exclude=.git";
     // `worktree` takes the current files, tracked or not, so uncommitted edits can be measured.
     let (rev, desc_file) = match rev.split_once('+') {
@@ -256,7 +256,7 @@ fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
     if let Some(file) = desc_file {
         let text = fs::read_to_string(root.join(file)).map_err(|x| format!("{file}: {x}"))?;
         let skill = dest.join("SKILL.md");
-        let body = fs::read_to_string(&skill).map_err(e)?;
+        let body = fs::read_to_string(&skill).map_err(|error| error.to_string())?;
         let replaced: Vec<String> = body
             .lines()
             .map(|l| {
@@ -267,7 +267,7 @@ fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
                 }
             })
             .collect();
-        fs::write(&skill, replaced.join("\n")).map_err(e)?;
+        fs::write(&skill, replaced.join("\n")).map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -381,7 +381,7 @@ fn execute_one(
     let root = std::env::temp_dir().join("rupicola-eval").join(&id);
     let _ = fs::remove_dir_all(&root);
     let work = root.join("w");
-    fs::create_dir_all(&work).map_err(e)?;
+    fs::create_dir_all(&work).map_err(|error| error.to_string())?;
     let fixture = task_dir.join("fixture");
     if fixture.is_dir() {
         copy_dir(&fixture, &work)?;
@@ -419,14 +419,14 @@ fn execute_one(
         .args(["--max-budget-usd", &run_usd.to_string()])
         .current_dir(&work)
         .stdin(Stdio::null())
-        .stdout(File::create(&traj).map_err(e)?)
+        .stdout(File::create(&traj).map_err(|error| error.to_string())?)
         .stderr(Stdio::null())
         .spawn()
         .map_err(|x| format!("cannot start `claude`: {x}"))?;
     let start = Instant::now();
     let mut timed_out = false;
     loop {
-        match child.try_wait().map_err(e)? {
+        match child.try_wait().map_err(|error| error.to_string())? {
             Some(_) => break,
             None if start.elapsed() > timeout => {
                 let _ = child.kill();
@@ -527,8 +527,8 @@ fn run(
         return Ok(());
     }
     let (config, _cleanup) = setup_config(no_isolate)?;
-    fs::create_dir_all(out).map_err(e)?;
-    fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&json!({"model": model, "conditions": m.conds, "split": m.split, "k": m.k, "run_usd": run_usd, "max_usd": max_usd})).unwrap()).map_err(e)?;
+    fs::create_dir_all(out).map_err(|error| error.to_string())?;
+    fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&json!({"model": model, "conditions": m.conds, "split": m.split, "k": m.k, "run_usd": run_usd, "max_usd": max_usd})).unwrap()).map_err(|error| error.to_string())?;
     let mut spent = 0.0;
     for (n, (t, c, rep)) in list.into_iter().enumerate() {
         let (task, cond) = (&tasks[t], &conds[c]);
@@ -572,7 +572,8 @@ fn run(
             rec["pass"],
             rec["cost_usd"].as_f64().unwrap_or(0.0)
         );
-        fs::write(&file, serde_json::to_string_pretty(&rec).unwrap()).map_err(e)?;
+        fs::write(&file, serde_json::to_string_pretty(&rec).unwrap())
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -607,7 +608,7 @@ fn trigger_run(
         return Ok(());
     }
     let (config, _cleanup) = setup_config(no_isolate)?;
-    fs::create_dir_all(out).map_err(e)?;
+    fs::create_dir_all(out).map_err(|error| error.to_string())?;
     fs::write(
         out.join("manifest.json"),
         serde_json::to_string_pretty(
@@ -615,7 +616,7 @@ fn trigger_run(
         )
         .unwrap(),
     )
-    .map_err(e)?;
+    .map_err(|error| error.to_string())?;
     let mut spent = 0.0;
     for rep in 0..m.k {
         for t in &prompts {
@@ -637,15 +638,16 @@ fn trigger_run(
                 let root = std::env::temp_dir().join("rupicola-eval").join(&id);
                 let _ = fs::remove_dir_all(&root);
                 let work = root.join("w");
-                fs::create_dir_all(&work).map_err(e)?;
+                fs::create_dir_all(&work).map_err(|error| error.to_string())?;
                 // A stub project, so "my app" prompts do not become a hunt for missing code.
-                fs::create_dir_all(work.join("src")).map_err(e)?;
+                fs::create_dir_all(work.join("src")).map_err(|error| error.to_string())?;
                 fs::write(
                     work.join("Cargo.toml"),
                     "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
                 )
-                .map_err(e)?;
-                fs::write(work.join("src/main.rs"), "fn main() {}\n").map_err(e)?;
+                .map_err(|error| error.to_string())?;
+                fs::write(work.join("src/main.rs"), "fn main() {}\n")
+                    .map_err(|error| error.to_string())?;
                 let with_skill = rev != "none";
                 if with_skill {
                     install_skill(&m.root, rev, &work.join(".claude/skills/rupicola"))?;
@@ -676,13 +678,17 @@ fn trigger_run(
                     .args(["--max-budget-usd", &run_usd.to_string()])
                     .current_dir(&work)
                     .stdin(Stdio::null())
-                    .stdout(File::create(&traj).map_err(e)?)
+                    .stdout(File::create(&traj).map_err(|error| error.to_string())?)
                     .stderr(Stdio::null())
                     .spawn()
                     .map_err(|x| format!("cannot start `claude`: {x}"))?;
                 let start = Instant::now();
                 loop {
-                    if child.try_wait().map_err(e)?.is_some() {
+                    if child
+                        .try_wait()
+                        .map_err(|error| error.to_string())?
+                        .is_some()
+                    {
                         break;
                     }
                     if start.elapsed() > Duration::from_secs(timeout) {
@@ -716,7 +722,8 @@ fn trigger_run(
                     t.expect,
                     rec["cost_usd"].as_f64().unwrap_or(0.0)
                 );
-                fs::write(&file, serde_json::to_string_pretty(&rec).unwrap()).map_err(e)?;
+                fs::write(&file, serde_json::to_string_pretty(&rec).unwrap())
+                    .map_err(|error| error.to_string())?;
             }
         }
     }
@@ -780,12 +787,18 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
     type Rates = BTreeMap<String, Vec<f64>>;
 
     let mut rows: Vec<Value> = Vec::new();
-    for entry in fs::read_dir(out).map_err(e)?.flatten() {
+    for entry in fs::read_dir(out)
+        .map_err(|error| error.to_string())?
+        .flatten()
+    {
         let p = entry.path();
         if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
             n.starts_with("trig__") && matches!(n.rsplit_once('.'), Some((_, "json")))
         }) {
-            rows.push(serde_json::from_str(&fs::read_to_string(&p).map_err(e)?).map_err(e)?);
+            rows.push(
+                serde_json::from_str(&fs::read_to_string(&p).map_err(|error| error.to_string())?)
+                    .map_err(|error| error.to_string())?,
+            );
         }
     }
     let bad = rows.iter().filter(|r| r["config_error"] == true).count();
@@ -957,12 +970,18 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
         return Err("provide at least one bootstrap resample".into());
     }
     let mut rows: Vec<Value> = Vec::new();
-    for entry in fs::read_dir(out).map_err(e)?.flatten() {
+    for entry in fs::read_dir(out)
+        .map_err(|error| error.to_string())?
+        .flatten()
+    {
         let p = entry.path();
         if p.extension().is_some_and(|x| x == "json")
             && p.file_name().is_some_and(|n| n != "manifest.json")
         {
-            rows.push(serde_json::from_str(&fs::read_to_string(&p).map_err(e)?).map_err(e)?);
+            rows.push(
+                serde_json::from_str(&fs::read_to_string(&p).map_err(|error| error.to_string())?)
+                    .map_err(|error| error.to_string())?,
+            );
         }
     }
     let mut models: Vec<String> = rows
@@ -1000,7 +1019,7 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
             )
             .expect("writing to a String cannot fail");
         }
-        fs::write(out.join("rows.csv"), s).map_err(e)?;
+        fs::write(out.join("rows.csv"), s).map_err(|error| error.to_string())?;
     }
     // (task, rep) -> pass per condition
     let mut cell: BTreeMap<(String, u64), (Option<bool>, Option<bool>)> = BTreeMap::new();

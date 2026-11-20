@@ -14,10 +14,6 @@ pub struct Image {
     pub rgba: Vec<u8>,
 }
 
-fn err<T: ToString>(x: T) -> String {
-    x.to_string()
-}
-
 /// # Errors
 ///
 /// Returns an error if the PNG cannot be read or decoded in a supported format.
@@ -70,8 +66,10 @@ pub fn save(path: &Path, image: &Image) -> Result<(), String> {
     let mut encoder = png::Encoder::new(BufWriter::new(file), image.width, image.height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().map_err(err)?;
-    writer.write_image_data(&image.rgba).map_err(err)
+    let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
+    writer
+        .write_image_data(&image.rgba)
+        .map_err(|error| error.to_string())
 }
 
 // ---------- contrast ----------
@@ -123,12 +121,12 @@ pub struct Diff {
 
 /// Pixels whose largest channel difference exceeds `threshold` count as changed.
 #[must_use]
-pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>) {
-    if a.width != b.width || a.height != b.height {
+pub fn diff_images(before: &Image, after: &Image, threshold: u8) -> (Diff, Option<Image>) {
+    if before.width != after.width || before.height != after.height {
         return (
             Diff {
-                width: b.width,
-                height: b.height,
+                width: after.width,
+                height: after.height,
                 dimension_mismatch: true,
                 changed_pixels: 0,
                 changed_ratio: 1.0,
@@ -139,20 +137,20 @@ pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>)
             None,
         );
     }
-    let (w, h) = (a.width as usize, a.height as usize);
-    let mut out = Vec::with_capacity(w * h * 4);
+    let (width, height) = (before.width as usize, before.height as usize);
+    let mut out = Vec::with_capacity(width * height * 4);
     let (mut changed, mut sum, mut max) = (0u64, 0u64, 0u8);
     let mut bbox: Option<[u32; 4]> = None;
-    for y in 0..a.height {
-        for x in 0..a.width {
-            let i = (y as usize * w + x as usize) * 4;
-            let d = (0..4)
-                .map(|c| a.rgba[i + c].abs_diff(b.rgba[i + c]))
+    for y in 0..before.height {
+        for x in 0..before.width {
+            let offset = (y as usize * width + x as usize) * 4;
+            let delta = (0..4)
+                .map(|channel| before.rgba[offset + channel].abs_diff(after.rgba[offset + channel]))
                 .max()
                 .unwrap_or(0);
-            sum += u64::from(d);
-            max = max.max(d);
-            if d > threshold {
+            sum += u64::from(delta);
+            max = max.max(delta);
+            if delta > threshold {
                 changed += 1;
                 bbox = Some(match bbox {
                     None => [x, y, x, y],
@@ -160,16 +158,16 @@ pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>)
                 });
                 out.extend_from_slice(&[255, 0, 0, 255]);
             } else {
-                let g = b.rgba[i] / 4 + 160;
-                out.extend_from_slice(&[g, g, g, 255]);
+                let gray = after.rgba[offset] / 4 + 160;
+                out.extend_from_slice(&[gray, gray, gray, 255]);
             }
         }
     }
-    let total = (w * h).max(1) as f64;
+    let total = (width * height).max(1) as f64;
     (
         Diff {
-            width: a.width,
-            height: a.height,
+            width: before.width,
+            height: before.height,
             dimension_mismatch: false,
             changed_pixels: changed,
             changed_ratio: changed as f64 / total,
@@ -178,8 +176,8 @@ pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>)
             max_delta: max,
         },
         Some(Image {
-            width: a.width,
-            height: a.height,
+            width: before.width,
+            height: before.height,
             rgba: out,
         }),
     )
