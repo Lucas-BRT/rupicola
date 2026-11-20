@@ -1,7 +1,7 @@
 use crate::{Diagnostic, FRAMEWORKS, TOPICS, files, read};
 use pulldown_cmark::{Event, Parser, Tag};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
 pub struct Check {
@@ -99,7 +99,17 @@ pub fn check(root: &Path) -> Result<Check, String> {
             error(skill_path.clone(), format!("missing direct module link: {relative}"));
         }
     }
-    for path in files(&root, true)? {
+    result.markdown_files = check_documents(&root, &mut error)?;
+    check_sources(&root, &mut error);
+    let mut eval_diagnostics = Vec::new();
+    result.eval_tasks = crate::evals::validate(&root, &mut eval_diagnostics);
+    result.diagnostics.extend(eval_diagnostics);
+    Ok(result)
+}
+
+fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Result<usize, String> {
+    let mut markdown_files = 0;
+    for path in files(root, true)? {
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py")
             && ![
@@ -122,7 +132,7 @@ pub fn check(root: &Path) -> Result<Check, String> {
         if extension != "md" {
             continue;
         }
-        result.markdown_files += 1;
+        markdown_files += 1;
         let text = match read(&path) {
             Ok(text) => text,
             Err(message) => {
@@ -150,7 +160,7 @@ pub fn check(root: &Path) -> Result<Check, String> {
                 };
                 let resolved = parent.join(target);
                 match resolved.canonicalize() {
-                    Ok(p) if p.starts_with(&root) => {}
+                    Ok(p) if p.starts_with(root) => {}
                     Ok(_) => error(
                         path.clone(),
                         format!("local link escapes the skill directory: {target}"),
@@ -160,6 +170,10 @@ pub fn check(root: &Path) -> Result<Check, String> {
             }
         }
     }
+    Ok(markdown_files)
+}
+
+fn check_sources(root: &Path, mut error: impl FnMut(PathBuf, String)) {
     let sources_path = root.join("reference/sources.toml");
     match read(&sources_path)
         .and_then(|s| toml::from_str::<toml::Value>(&s).map_err(|e| e.to_string()))
@@ -188,8 +202,4 @@ pub fn check(root: &Path) -> Result<Check, String> {
         }
         Err(message) => error(sources_path, message),
     }
-    let mut eval_diagnostics = Vec::new();
-    result.eval_tasks = crate::evals::validate(&root, &mut eval_diagnostics);
-    result.diagnostics.extend(eval_diagnostics);
-    Ok(result)
 }
