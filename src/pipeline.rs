@@ -738,7 +738,8 @@ pub fn run_fix(action: FixAction) -> Result<u8, String> {
                         format!("Verified & recorded Fix #{id} with Before/After comparison");
                     exec.updated_at_ms = now;
                     for st in &record.steps {
-                        let pct = ((st.index * 100) / total).min(100) as u8;
+                        let pct = u8::try_from((st.index.saturating_mul(100) / total).min(100))
+                            .expect("progress is bounded by 100");
                         exec.logs.push(TaskStepLog {
                             stage: if st.index == total {
                                 "completed".into()

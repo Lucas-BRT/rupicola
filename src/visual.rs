@@ -155,7 +155,7 @@ pub fn diff_images(a: &Image, b: &Image, threshold: u8) -> (Diff, Option<Image>)
                 });
                 out.extend_from_slice(&[255, 0, 0, 255]);
             } else {
-                let g = (u16::from(b.rgba[i]) / 4 + 160) as u8;
+                let g = b.rgba[i] / 4 + 160;
                 out.extend_from_slice(&[g, g, g, 255]);
             }
         }

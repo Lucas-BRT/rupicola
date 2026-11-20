@@ -245,7 +245,8 @@ impl Scenario {
                 } => {
                     if !(2..=60).contains(samples)
                         || !(1..=1000).contains(interval_ms)
-                        || (*samples - 1) as u32 * *interval_ms > 10_000
+                        || (*samples - 1) * usize::try_from(*interval_ms).unwrap_or(usize::MAX)
+                            > 10_000
                     {
                         return Err(format!(
                             "clip {id} needs 2..=60 samples spaced 1..=1000 ms across at most 10 seconds"

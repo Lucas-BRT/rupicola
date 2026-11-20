@@ -244,9 +244,8 @@ fn summarize_timings(config: &CaptureConfig, frames: Vec<FrameTiming>) -> Captur
     let max_render_ms = frames.iter().map(|t| t.render_ms).fold(0.0f64, f64::max);
     let mut sorted: Vec<f64> = frames.iter().map(|t| t.render_ms).collect();
     sorted.sort_by(f64::total_cmp);
-    let p95_idx = ((sorted.len() as f64 * 0.95).ceil() as usize)
-        .saturating_sub(1)
-        .min(sorted.len() - 1);
+    // ceil(0.95 * n) is n - floor(n / 20).
+    let p95_idx = (sorted.len() - sorted.len() / 20).saturating_sub(1);
     let p95_render_ms = sorted[p95_idx];
     let over_budget_frames = frames
         .iter()

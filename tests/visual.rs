@@ -99,12 +99,8 @@ fn frames_detect_a_tween_a_stall_and_a_jump() {
 
     // Numeric frame order: f2 comes before f10.
     let order = TempDir::new().unwrap();
-    for i in [1, 2, 10, 11] {
-        put(
-            order.path(),
-            &format!("f{i}.png"),
-            &solid(2, 2, [i as u8, 0, 0]),
-        );
+    for i in [1_u8, 2, 10, 11] {
+        put(order.path(), &format!("f{i}.png"), &solid(2, 2, [i, 0, 0]));
     }
     let names: Vec<_> = visual::list_pngs(order.path())
         .unwrap()
@@ -119,9 +115,9 @@ fn frames_detect_a_tween_a_stall_and_a_jump() {
 fn palette_finds_background_text_and_accent() {
     // 70% white, 20% near-black text, 10% saturated blue.
     let mut im = solid(100, 10, [255, 255, 255]);
-    for y in 0..10 {
+    for y in 0_usize..10 {
         for x in 0..100 {
-            let i = ((y * 100 + x) * 4) as usize;
+            let i = (y * 100 + x) * 4;
             if x >= 90 {
                 im.rgba[i..i + 3].copy_from_slice(&[20, 90, 220]);
             } else if x >= 70 {

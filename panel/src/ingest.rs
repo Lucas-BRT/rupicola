@@ -14,7 +14,7 @@ use std::{
 use topcoat::router::{content::Json, to_bytes};
 
 const MAX_MEDIA: usize = 40 * 1024 * 1024;
-const MAX_ENVELOPE: u64 = 64 * 1024 * 1024;
+const MAX_ENVELOPE: usize = 64 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
 pub struct Bundle {
@@ -96,7 +96,7 @@ pub async fn publish(
 
     let bytes = tokio::time::timeout(
         std::time::Duration::from_secs(90),
-        to_bytes(body, MAX_ENVELOPE as usize),
+        to_bytes(body, MAX_ENVELOPE),
     )
     .await
     .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
