@@ -6,7 +6,8 @@
 # For local testing with a published port, use: `docker compose -f compose.local.yml up --build`.
 services:
   web:
-    build: .
+    image: ${RUPICOLA_IMAGE:-lucasbrt/rupicola:latest}
+    pull_policy: always
     init: true
     restart: unless-stopped
     expose:
