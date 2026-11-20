@@ -72,6 +72,7 @@ macro_rules! shell {
 mod auth;
 mod components;
 mod ingest;
+mod mcp;
 mod media;
 mod pages;
 mod pipeline;

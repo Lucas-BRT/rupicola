@@ -59,6 +59,7 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(inspect)
         .route(artifact)
         .route(publish)
+        .route(remote_mcp)
         .route(styles)
         .route(script)
         .build()
@@ -577,5 +578,13 @@ async fn offload_storage(
             form,
         )
         .await,
+    )
+}
+
+#[route(POST "/mcp/{project}")]
+async fn remote_mcp(cx: &Cx, body: Body) -> Result<Response> {
+    respond(
+        cx,
+        mcp::handle(panel(cx), path_param::<Project>(cx).into(), request::headers(cx), body).await,
     )
 }

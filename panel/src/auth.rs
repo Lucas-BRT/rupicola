@@ -104,7 +104,7 @@ pub async fn authenticate(
     ) {
         return Ok(None);
     }
-    if path.starts_with("/api/publish/") {
+    if path.starts_with("/api/publish/") || path.starts_with("/mcp/") {
         return Ok(None);
     }
     let Some(id) = cookie(headers, "rp_session") else {

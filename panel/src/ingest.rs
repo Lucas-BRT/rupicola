@@ -196,7 +196,7 @@ async fn machine_token_owner(
         .map_err(db_error)
 }
 
-async fn device_label(db: &Connection, project: &str, digest: &str) -> PageResult<Option<String>> {
+pub(crate) async fn device_label(db: &Connection, project: &str, digest: &str) -> PageResult<Option<String>> {
     let mut rows = db
         .query(
             "SELECT label FROM devices WHERE project = ? AND digest = ?",

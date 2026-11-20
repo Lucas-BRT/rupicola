@@ -251,3 +251,21 @@ Pushing a version tag such as `v0.1.0` also runs all checks, verifies the tag ma
 To release, update `Cargo.toml` and `Cargo.lock` together, merge the version change, then tag that commit and push the tag. Do not move a released tag to different code. The release workflow supports retrying asset uploads for the same tag.
 
 The repository is private. No project license has been assigned.
+
+### Hosted MCP for Codex
+
+Use a project device token issued in the hosted panel. Keep the bearer in
+`RUPICOLA_MCP_TOKEN` in the environment that launches Codex. Replace the local
+`command` and `args` configuration with:
+
+```toml
+[mcp_servers.rupicola]
+url = "https://rupicola.lucasbrt.dev/mcp/PROJECT_ID"
+bearer_token_env_var = "RUPICOLA_MCP_TOKEN"
+```
+
+Restart Codex after the panel version with this endpoint is deployed.
+The stateless endpoint lists published captures, problems, and fixes for the
+token's project. It checks the token on every request. Revoke the device in
+the panel to disable access. Device tokens also authorize the existing capture
+publish API for their project. The hosted MCP only exposes read tools.
