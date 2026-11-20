@@ -177,7 +177,7 @@ pub async fn publish(
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "run": key }))))
 }
 
-async fn machine_token_owner(
+pub(crate) async fn machine_token_owner(
     db: &Connection,
     digest: &str,
 ) -> PageResult<Option<(String, String)>> {

@@ -1,5 +1,6 @@
 mod design;
 mod mcp;
+mod mcp_bridge;
 mod pipeline;
 mod probe;
 mod propose;
@@ -24,6 +25,20 @@ struct Cli {
 enum Command {
     /// Serve Rupicola tools over MCP stdio.
     Mcp,
+    /// Bridge MCP stdio to a remote Rupicola panel using the stored bearer token.
+    McpBridge {
+        /// Base URL of the remote Rupicola panel or its /mcp endpoint.
+        #[arg(long, default_value = "https://rupicola.lucasbrt.dev/mcp")]
+        server_url: String,
+        /// Optional project ID to scope the remote MCP session.
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Manage credentials for remote Rupicola panels.
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
     /// Identify declared UI framework dependencies without building or fetching.
     Discover {
         #[arg(default_value = ".")]
@@ -324,9 +339,26 @@ fn print_capture(
     }
     Ok(u8::from(manifest.result.blocker.is_some()))
 }
+#[derive(Subcommand)]
+enum AuthAction {
+    /// Save a 64-hex bearer token to ~/.local/share/rupicola/auth-token (0600).
+    SetToken {
+        /// Bearer token (omit to read from stdin).
+        #[arg(long)]
+        token: Option<String>,
+    },
+}
+
 fn run(cli: Cli) -> Result<u8, String> {
     match cli.command {
         Command::Mcp => mcp::serve().map(|()| 0).map_err(|e| e.to_string()),
+        Command::McpBridge {
+            server_url,
+            project,
+        } => mcp_bridge::serve(&server_url, project.as_deref()).map(|()| 0),
+        Command::Auth {
+            action: AuthAction::SetToken { token },
+        } => mcp_bridge::set_token(token).map(|()| 0),
         Command::Capture {
             scenario: path,
             out,

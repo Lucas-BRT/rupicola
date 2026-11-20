@@ -59,6 +59,7 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(inspect)
         .route(artifact)
         .route(publish)
+        .route(global_mcp)
         .route(remote_mcp)
         .route(styles)
         .route(script)
@@ -578,6 +579,14 @@ async fn offload_storage(
             form,
         )
         .await,
+    )
+}
+
+#[route(POST "/mcp")]
+async fn global_mcp(cx: &Cx, body: Body) -> Result<Response> {
+    respond(
+        cx,
+        mcp::handle_global(panel(cx), request::headers(cx), body).await,
     )
 }
 
