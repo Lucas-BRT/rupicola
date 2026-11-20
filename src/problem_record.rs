@@ -328,6 +328,10 @@ pub fn is_suppressed(existing: &[Problem], route: &str, rule_code: &str, title: 
 }
 
 #[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the ruleset keeps each finding and its corresponding diagnostic text together"
+)]
 pub fn infer_from_finding(
     project_id: &str,
     run_key: &str,

@@ -349,6 +349,10 @@ enum AuthAction {
     },
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the top-level CLI dispatcher is one exhaustive match on subcommands"
+)]
 fn run(cli: Cli) -> Result<u8, String> {
     match cli.command {
         Command::Mcp => mcp::serve().map(|()| 0).map_err(|e| e.to_string()),

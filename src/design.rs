@@ -96,6 +96,10 @@ fn evidence(path: &Path, root: &Path, project: &str) -> Result<String, String> {
         .ok_or("Invalid capture directory name".into())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the CLI dispatcher keeps the design subcommands together"
+)]
 pub fn run(action: Action) -> Result<(), String> {
     let (id, label) = service::detect_project()?;
     if !rupicola::scenario::identifier(&id) {

@@ -279,6 +279,10 @@ pub fn parse_rule(raw: &str) -> ViolatedRule {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the CLI dispatcher keeps problem state transitions and their output together"
+)]
 pub fn run_problem(action: ProblemAction) -> Result<u8, String> {
     let data = service::data()?;
     match action {
@@ -600,6 +604,10 @@ pub fn run_problem(action: ProblemAction) -> Result<u8, String> {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the CLI dispatcher keeps fix state transitions and their output together"
+)]
 pub fn run_fix(action: FixAction) -> Result<u8, String> {
     let data = service::data()?;
     match action {
@@ -824,6 +832,10 @@ pub fn run_fix(action: FixAction) -> Result<u8, String> {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the CLI dispatcher keeps storage subcommands and their output together"
+)]
 pub fn run_storage(action: StorageAction) -> Result<u8, String> {
     let data = service::data()?;
     match action {

@@ -105,6 +105,10 @@ fn code_block(label: &str, code: &str) -> String {
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the homepage template keeps related markup together"
+)]
 pub fn render_home(panel_url: &str) -> String {
     let install_cmd = "curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash";
     let esc_cmd = escape_html(install_cmd);

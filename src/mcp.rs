@@ -339,6 +339,10 @@ fn manifest(run: &str) -> Result<(PathBuf, Value), String> {
     Ok((path, value))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the MCP dispatcher keeps tool names, argument decoding, and response shaping together"
+)]
 fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value, String> {
     let arg = |key: &str| {
         args[key]

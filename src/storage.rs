@@ -229,6 +229,10 @@ fn extract_run_and_rel(media_url: &str) -> Option<(String, String)> {
     Some((run_name.to_string(), rel.to_string()))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the report aggregates capture sizes, references, and retention totals together"
+)]
 pub fn analyze(data_dir: &Path, project_filter: Option<&str>) -> StorageReport {
     let config = load_config(data_dir);
     let captures_dir = data_dir.join("captures");
@@ -703,6 +707,10 @@ pub fn delete_run(data_dir: &Path, run_name: &str, force: bool) -> io::Result<Ac
 /// # Errors
 ///
 /// Returns an error if the bucket is unconfigured, the manifest cannot be read or written, or the transfer command fails.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the workflow keeps transfer, manifest update, and optional local cleanup in execution order"
+)]
 pub fn offload_run(data_dir: &Path, run_name: &str) -> Result<ActionSummary, String> {
     let cfg = load_config(data_dir);
     if cfg.bucket.trim().is_empty() {

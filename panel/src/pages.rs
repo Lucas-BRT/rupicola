@@ -146,6 +146,10 @@ fn project_design(panel: &Panel, id: &str) -> Vec<design_record::Entry> {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the dashboard view keeps its markup with the data it displays"
+)]
 pub async fn dashboard(
     panel: Arc<Panel>,
     account: Account,
@@ -379,6 +383,10 @@ pub fn read_run(panel: &Panel, key: &str) -> Option<Manifest> {
     read_manifest(&run_dir(panel, root.parse().ok()?, name)?)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the project view keeps section routing and the shared project layout together"
+)]
 async fn project_view(
     panel: Arc<Panel>,
     account: Account,
@@ -1011,6 +1019,10 @@ pub async fn project_action(
         .map_err(db_error)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the settings view keeps its form markup together"
+)]
 pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<String>> {
     let (session_count, tokens) = {
         let db = panel.index.lock().await;
@@ -1394,6 +1406,10 @@ pub struct DesignForm {
     return_to: Option<String>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the handler keeps authorization, input validation, and record persistence in order"
+)]
 pub async fn record_design(
     panel: Arc<Panel>,
     account: Account,

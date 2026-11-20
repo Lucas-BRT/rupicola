@@ -151,6 +151,10 @@ fn error(code: i32, message: &str) -> JsonValue {
     json!({"error": {"code": code, "message": message}})
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the MCP dispatcher keeps method routing, scope checks, and responses together"
+)]
 async fn dispatch(panel: &Panel, scope: &Scope, request: &JsonValue) -> PageResult<JsonValue> {
     let params = &request["params"];
     Ok(match request["method"].as_str() {

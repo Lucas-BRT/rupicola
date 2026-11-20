@@ -63,6 +63,10 @@ fn object_key(project: &str, bundle: &Bundle) -> Result<String, serde_json::Erro
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the ingest handler keeps validation, upload, and persistence in execution order"
+)]
 pub async fn publish(
     panel: Arc<Panel>,
     project: String,

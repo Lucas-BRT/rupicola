@@ -366,6 +366,10 @@ fn analyze_trajectory(path: &Path) -> Value {
     clippy::cast_precision_loss,
     reason = "evaluation rates and statistical estimates are computed in floating point"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the evaluation workflow keeps fixture setup, execution, and scoring in order"
+)]
 fn execute_one(
     task: &Task,
     task_dir: &Path,
@@ -591,6 +595,10 @@ fn run(
     clippy::cast_precision_loss,
     reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the evaluation loop keeps per-run setup, execution, and cost accounting together"
+)]
 fn trigger_run(
     m: &Matrix,
     max_turns: u32,
@@ -800,6 +808,10 @@ fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> R<()
     clippy::cast_precision_loss,
     reason = "evaluation rates and statistical estimates are computed in floating point"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the statistical report keeps its cohort selection and result calculations together"
+)]
 fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &str) -> R<()> {
     type Rates = BTreeMap<String, Vec<f64>>;
 
@@ -995,6 +1007,10 @@ impl Rng {
 #[expect(
     clippy::cast_precision_loss,
     reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the evaluation report shares paired samples between statistics and output formats"
 )]
 fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R<()> {
     if resamples == 0 {

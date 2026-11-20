@@ -212,6 +212,10 @@ struct Run {
 }
 
 #[tokio::main]
+#[expect(
+    clippy::too_many_lines,
+    reason = "server startup keeps initialization, configuration, and serving in order"
+)]
 async fn main() -> Result<(), BoxError> {
     let args = Args::parse();
     let configured_port = args
@@ -477,6 +481,10 @@ struct Comparison {
     before: Option<String>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the capture detail view keeps its markup and presentation branches together"
+)]
 async fn detail(
     comparison: Comparison,
     account: Account,

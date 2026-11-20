@@ -182,6 +182,10 @@ pub fn load(panel: &Panel, project_id: &str, filter: ProposeFilter) -> PageResul
     Ok(ProposeState { filter, all, mcp })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the proposals view keeps markup and presentation branches together"
+)]
 pub fn render_section<'a>(
     cx: &'a Cx,
     account: &'a Account,
@@ -460,6 +464,10 @@ pub fn render_section<'a>(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the handler keeps validation, attachment handling, and persistence in execution order"
+)]
 pub async fn create(
     panel: Arc<Panel>,
     account: Account,

@@ -128,6 +128,10 @@ fn copy_asset(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the CLI dispatcher keeps proposal subcommands and their output together"
+)]
 pub fn run(action: Action) -> Result<(), String> {
     match action {
         Action::List { project, json } => {

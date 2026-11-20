@@ -124,6 +124,10 @@ fn effective_after_url(fix: &FixRecord, pair: &ComparisonPair) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the captures view keeps its markup and presentation branches together"
+)]
 pub fn render_captures<'a>(
     cx: &'a Cx,
     panel: &'a Panel,
@@ -404,6 +408,10 @@ pub fn render_captures<'a>(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the problems view keeps its markup and presentation branches together"
+)]
 pub fn render_problems<'a>(
     cx: &'a Cx,
     account: &'a Account,
@@ -806,6 +814,10 @@ pub fn render_problems<'a>(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixes view keeps its markup and presentation branches together"
+)]
 pub fn render_fixes<'a>(
     cx: &'a Cx,
     account: &'a Account,
@@ -1665,6 +1677,10 @@ pub async fn review_fix_action(
     )))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the storage view keeps its markup and presentation branches together"
+)]
 pub fn render_storage<'a>(
     cx: &'a Cx,
     account: &'a Account,

@@ -217,6 +217,10 @@ fn find_node() -> &'static str {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the probe workflow keeps command setup, execution, and artifact processing in order"
+)]
 pub fn run(cfg: Config) -> Result<ProbeSummary, String> {
     if !cfg.url.starts_with("http://") && !cfg.url.starts_with("https://") {
         return Err("probe URL must start with http:// or https://".into());
