@@ -774,6 +774,9 @@ fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> R<()
 }
 
 fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &str) -> R<()> {
+    if resamples == 0 {
+        return Err("provide at least one bootstrap resample".into());
+    }
     type Rates = BTreeMap<String, Vec<f64>>;
 
     let mut rows: Vec<Value> = Vec::new();
@@ -849,9 +852,7 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let (mut df1, mut dimp, mut dfpr) = (Vec::new(), Vec::new(), Vec::new());
     for _ in 0..resamples {
-        let sample: Vec<&String> = (0..ids.len())
-            .map(|_| ids[(rng.next() % ids.len() as u64) as usize])
-            .collect();
+        let sample: Vec<&String> = (0..ids.len()).map(|_| ids[rng.index(ids.len())]).collect();
         df1.push(metric(&sample, |x| x.2, cand) - metric(&sample, |x| x.2, base));
         dimp.push(imp_recall(&sample, cand) - imp_recall(&sample, base));
         dfpr.push(metric(&sample, |x| x.3, cand) - metric(&sample, |x| x.3, base));
@@ -874,11 +875,10 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
         ),
     ] {
         v.sort_by(f64::total_cmp);
-        let q = |p: f64| v[((v.len() - 1) as f64 * p) as usize];
+        let [low, high] = confidence_bounds(&v);
         println!(
             "{name} ({cand}-{base}) = {point:+.3}  95% prompt-cluster bootstrap CI [{:+.3}, {:+.3}]",
-            q(0.025),
-            q(0.975)
+            low, high
         );
     }
     // Exact McNemar on (prompt, rep) pairs, positives and negatives separately.
@@ -931,8 +931,19 @@ fn mcnemar_p(b: u64, c: u64) -> f64 {
         .sum();
     (2.0 * tail).min(1.0)
 }
+fn confidence_bounds(sorted: &[f64]) -> [f64; 2] {
+    let last = sorted.len() - 1;
+    // Floor of 2.5% and 97.5% of the last index.
+    [sorted[last / 40], sorted[last - last.div_ceil(40)]]
+}
+
 struct Rng(u64);
 impl Rng {
+    fn index(&mut self, len: usize) -> usize {
+        let bound = u64::try_from(len).expect("array length fits in u64");
+        usize::try_from(self.next() % bound).expect("remainder is less than array length")
+    }
+
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -942,6 +953,9 @@ impl Rng {
 }
 
 fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R<()> {
+    if resamples == 0 {
+        return Err("provide at least one bootstrap resample".into());
+    }
     let mut rows: Vec<Value> = Vec::new();
     for entry in fs::read_dir(out).map_err(e)?.flatten() {
         let p = entry.path();
@@ -1032,13 +1046,13 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     let mut boots: Vec<f64> = (0..resamples)
         .map(|_| {
             (0..diffs.len())
-                .map(|_| diffs[(rng.next() % diffs.len() as u64) as usize])
+                .map(|_| diffs[rng.index(diffs.len())])
                 .sum::<f64>()
                 / diffs.len() as f64
         })
         .collect();
     boots.sort_by(f64::total_cmp);
-    let q = |p: f64| boots[((boots.len() - 1) as f64 * p) as usize];
+    let [low, high] = confidence_bounds(&boots);
     let rate = |cond: &str, key: &str| {
         let v: Vec<f64> = rows
             .iter()
@@ -1086,8 +1100,8 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     println!(
         "delta pass ({cand}-{base}) = {:+.3}  95% cluster-bootstrap CI [{:+.3}, {:+.3}] ({resamples} resamples over tasks)",
         mean(&diffs),
-        q(0.025),
-        q(0.975)
+        low,
+        high
     );
     println!(
         "discordant pairs: {base}-only={b} {cand}-only={c}  exact McNemar p={:.4}",
