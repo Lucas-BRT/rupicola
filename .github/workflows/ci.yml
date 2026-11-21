@@ -170,7 +170,10 @@ jobs:
           mkdir -p dist/rupicola
           cp "target/$TARGET/release/$BINARY" dist/rupicola/
           cp README.md SKILL.md dist/rupicola/
-          cp -R agents reference dist/rupicola/
+          cp -R agents reference examples dist/rupicola/
+          mkdir -p dist/rupicola/panel dist/rupicola/evals
+          cp panel/README.md dist/rupicola/panel/
+          cp evals/PREREG.md dist/rupicola/evals/
           "dist/rupicola/$BINARY" check dist/rupicola
           tar -czf "rupicola-$GITHUB_REF_NAME-$TARGET.tar.gz" -C dist rupicola
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
