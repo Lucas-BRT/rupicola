@@ -2,8 +2,8 @@ use std::fmt::Write;
 
 use crate::docs::{DOCS, DocPage, render_markdown};
 
-const GITHUB_URL: &str = "https://github.com/Lucas-BRT/ferris-atelier";
-const RELEASES_URL: &str = "https://github.com/Lucas-BRT/ferris-atelier/releases";
+const GITHUB_URL: &str = "https://github.com/Lucas-BRT/rupicola";
+const RELEASES_URL: &str = "https://github.com/Lucas-BRT/rupicola/releases";
 
 pub fn escape_html(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -256,7 +256,7 @@ pub fn render_install(panel_url: &str) -> String {
     );
     let source_block = code_block(
         "Cargo (Git)",
-        "cargo install --git https://github.com/Lucas-BRT/ferris-atelier.git --locked\nrupicola --version",
+        "cargo install --git https://github.com/Lucas-BRT/rupicola.git --locked\nrupicola --version",
     );
     let release_block = code_block(
         "Linux / macOS Release Archive",
