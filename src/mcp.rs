@@ -259,7 +259,7 @@ const TOOLS: &[(&str, &str, &[&str], &[&str])] = &[
     ),
     (
         "problem_add",
-        "Record a visual problem with evidence assets, violated rules, and a proposed solution",
+        "Record a visual problem citing Rupicola UI/UX skill rules (reference/common.md, reference/ux/*.md), evidence assets, and a proposed solution",
         &["title", "diagnosis", "solution"],
         &[
             "project", "route", "viewport", "theme", "severity", "rule", "evidence",
@@ -285,7 +285,7 @@ const TOOLS: &[(&str, &str, &[&str], &[&str])] = &[
     ),
     (
         "fix_record",
-        "Record a completed fix with before/after asset URLs, applied tactics, and intermediate steps",
+        "Record a completed fix with before/after asset URLs, applied Rupicola UI/UX skill tactics (reference/tactics/*.md), and intermediate steps",
         &["title", "summary", "before_url", "after_url"],
         &[
             "project", "problem", "route", "viewport", "theme", "diff_url", "tactic", "file",

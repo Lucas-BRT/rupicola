@@ -327,53 +327,11 @@ pub fn is_suppressed(existing: &[Problem], route: &str, rule_code: &str, title: 
     })
 }
 
+/// Infer severity, global rule code, rule title, and default solution from finding text.
 #[must_use]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the ruleset keeps each finding and its corresponding diagnostic text together"
-)]
-pub fn infer_from_finding(
-    project_id: &str,
-    run_key: &str,
-    note: &str,
-    evidence: Option<&str>,
-) -> Problem {
-    let (id, now) = next_id();
-    let origin = if note.starts_with("measured") || note.contains("Visto e medido") {
-        ProblemOrigin::AgentMeasured
-    } else {
-        ProblemOrigin::AgentVisual
-    };
-
-    // Parse optional "[/route @ 1440×900 dark]" coordinate header
-    let mut route = "/".to_string();
-    let mut viewport = "1440×900".to_string();
-    let mut theme = "dark".to_string();
-    let mut body = note.trim().to_string();
-
-    if let Some(start) = note.find('[')
-        && let Some(end) = note[start..].find(']')
-    {
-        let inside = &note[start + 1..start + end];
-        body = note[start + end + 1..]
-            .trim_start_matches([':', ' ', '·'])
-            .to_string();
-        if let Some((r, rest)) = inside.split_once('@') {
-            route = r.trim().to_string();
-            let parts: Vec<&str> = rest.split_whitespace().collect();
-            if let Some(vp) = parts.first() {
-                viewport = (*vp).to_string();
-            }
-            if let Some(th) = parts.get(1) {
-                theme = (*th).to_string();
-            }
-        } else {
-            route = inside.trim().to_string();
-        }
-    }
-
-    let lower = note.to_lowercase();
-    let (severity, rule_code, rule_title, solution) = if lower.contains("target-size") {
+pub fn infer_rule(text: &str) -> (Severity, &'static str, &'static str, &'static str) {
+    let lower = text.to_lowercase();
+    if lower.contains("target-size") {
         (
             Severity::Major,
             "common.md#target-size-24px",
@@ -439,7 +397,138 @@ pub fn infer_from_finding(
             "Visual Craft & Structural Hierarchy Standard",
             "Inspect the referenced checkpoint asset and align spacing, contrast, and hierarchy with the active project Design direction.",
         )
+    }
+}
+
+/// Return Rupicola UI/UX skill modules relevant to a problem's rules and diagnosis.
+#[must_use]
+pub fn recommended_skill_modules(problem: &Problem) -> Vec<&'static str> {
+    let mut modules = vec!["reference/common.md", "reference/ux/content.md"];
+    let mut push_unique = |path: &'static str| {
+        if !modules.contains(&path) {
+            modules.push(path);
+        }
     };
+
+    let mut combined = format!("{} {}", problem.title, problem.diagnosis).to_lowercase();
+    for rule in &problem.violated_rules {
+        combined.push(' ');
+        combined.push_str(&rule.code.to_lowercase());
+        combined.push(' ');
+        combined.push_str(&rule.title.to_lowercase());
+    }
+
+    if [
+        "layout", "overflow", "overlap", "grid", "spacing", "viewport", "seam", "hairline",
+    ]
+    .iter()
+    .any(|kw| combined.contains(kw))
+    {
+        push_unique("reference/ux/layout.md");
+        push_unique("reference/tactics/layout-structure.md");
+    }
+    if [
+        "target-size",
+        "contrast",
+        "focus",
+        "keyboard",
+        "aria",
+        "wcag",
+        "a11y",
+    ]
+    .iter()
+    .any(|kw| combined.contains(kw))
+    {
+        push_unique("reference/ux/accessibility.md");
+        push_unique("reference/tactics/accessibility.md");
+    }
+    if [
+        "motion",
+        "hover",
+        "animation",
+        "stall",
+        "jump",
+        "transition",
+    ]
+    .iter()
+    .any(|kw| combined.contains(kw))
+    {
+        push_unique("reference/ux/motion.md");
+        push_unique("reference/tactics/states-feedback.md");
+    }
+    if ["typography", "clipped", "font", "truncat", "label"]
+        .iter()
+        .any(|kw| combined.contains(kw))
+    {
+        push_unique("reference/ux/typography.md");
+        push_unique("reference/tactics/visual-system.md");
+    }
+    if ["color", "theme", "token", "palette", "contrast"]
+        .iter()
+        .any(|kw| combined.contains(kw))
+    {
+        push_unique("reference/ux/color.md");
+        push_unique("reference/tactics/visual-system.md");
+    }
+    if [
+        "visual-verification",
+        "broken images",
+        "asset",
+        "http 4",
+        "http 5",
+    ]
+    .iter()
+    .any(|kw| combined.contains(kw))
+    {
+        push_unique("reference/visual-verification.md");
+        push_unique("reference/critique.md");
+    }
+    push_unique("reference/tactics/index.md");
+    modules
+}
+
+#[must_use]
+pub fn infer_from_finding(
+    project_id: &str,
+    run_key: &str,
+    note: &str,
+    evidence: Option<&str>,
+) -> Problem {
+    let (id, now) = next_id();
+    let origin = if note.starts_with("measured") || note.contains("Visto e medido") {
+        ProblemOrigin::AgentMeasured
+    } else {
+        ProblemOrigin::AgentVisual
+    };
+
+    // Parse optional "[/route @ 1440×900 dark]" coordinate header
+    let mut route = "/".to_string();
+    let mut viewport = "1440×900".to_string();
+    let mut theme = "dark".to_string();
+    let mut body = note.trim().to_string();
+
+    if let Some(start) = note.find('[')
+        && let Some(end) = note[start..].find(']')
+    {
+        let inside = &note[start + 1..start + end];
+        body = note[start + end + 1..]
+            .trim_start_matches([':', ' ', '·'])
+            .to_string();
+        if let Some((r, rest)) = inside.split_once('@') {
+            route = r.trim().to_string();
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if let Some(vp) = parts.first() {
+                viewport = (*vp).to_string();
+            }
+            if let Some(th) = parts.get(1) {
+                theme = (*th).to_string();
+            }
+        } else {
+            route = inside.trim().to_string();
+        }
+    }
+
+    let (severity, rule_code, rule_title, solution) = infer_rule(note);
 
     let title = if body.len() > 88 {
         format!("{}…", body.chars().take(85).collect::<String>())

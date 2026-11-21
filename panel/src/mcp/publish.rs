@@ -15,6 +15,19 @@ struct Request<T> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ViolatedRuleInput {
+    #[serde(default = "default_rule_scope")]
+    scope: String,
+    code: String,
+    title: String,
+}
+
+fn default_rule_scope() -> String {
+    "global".into()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ProblemInput {
     title: String,
     diagnosis: String,
@@ -28,6 +41,8 @@ struct ProblemInput {
     theme: String,
     #[serde(default)]
     evidence: Vec<String>,
+    #[serde(default)]
+    violated_rules: Vec<ViolatedRuleInput>,
 }
 
 #[derive(Deserialize)]
@@ -158,7 +173,11 @@ pub(super) fn update(panel: &Panel, actor: &str, tool: &str, args: &Value) -> Pa
         "problem_progress" => {
             let data = update_input(args)?;
             pipeline::progress_problem(panel, &data.project, &data.id, &data.record)?;
-            Ok(json!({"id":data.id}))
+            let root = pipeline::data_root(panel);
+            let skill_modules = problems::load(&root, &data.project, &data.id)
+                .map(|problem| problems::recommended_skill_modules(&problem))
+                .unwrap_or_default();
+            Ok(json!({"id": data.id, "skill_modules": skill_modules}))
         }
         "problem_analyze" => {
             let data = Update::<serde::de::IgnoredAny>::deserialize(args)
@@ -365,12 +384,15 @@ pub(super) const CREATES: [&str; 3] = ["problem_create", "fix_create", "propose_
 
 pub(super) fn tools() -> [Value; 3] {
     [
-        ("problem_create", "Publish a problem with optional same-project evidence", json!({
+        ("problem_create", "Publish a problem citing Rupicola UI/UX skill rules (reference/common.md, reference/ux/*.md) and optional same-project evidence", json!({
             "title":{"type":"string"}, "diagnosis":{"type":"string"}, "solution":{"type":"string"},
             "severity":{"enum":["critical","major","minor","polish"]}, "evidence":{"type":"array","items":{"type":"string"}},
-            "route":{"type":"string"}, "viewport":{"type":"string"}, "theme":{"type":"string"}
+            "route":{"type":"string"}, "viewport":{"type":"string"}, "theme":{"type":"string"},
+            "violated_rules":{"type":"array","description":"Rupicola UI/UX or project rules violated (inferred from diagnosis if omitted)","items":{"type":"object","properties":{
+                "scope":{"enum":["global","project"]},"code":{"type":"string"},"title":{"type":"string"}
+            },"required":["code","title"],"additionalProperties":false}}
         }), json!(["title","diagnosis","solution","severity"])),
-        ("fix_create", "Publish a fix for review with same-project before and after media", json!({
+        ("fix_create", "Publish a fix for review with same-project before and after media and applied Rupicola UI/UX skill tactics", json!({
             "title":{"type":"string"}, "summary":{"type":"string"},
             "comparisons":{"type":"array","items":{"type":"object","properties":{
                 "label":{"type":"string"},"route":{"type":"string"},"viewport":{"type":"string"},"theme":{"type":"string"},
@@ -378,9 +400,9 @@ pub(super) fn tools() -> [Value; 3] {
                 "changed_ratio":{"type":"number"}
             },"required":["label","route","viewport","theme","before_url","after_url"],"additionalProperties":false}},
             "problem_ids":{"type":"array","items":{"type":"string"}},
-            "tactics":{"type":"array","items":{"type":"string"}},
+            "tactics":{"type":"array","minItems":1,"description":"Applied Rupicola UI/UX skill tactics (from reference/tactics/*.md or reference/ux/*.md)","items":{"type":"string"}},
             "modified_files":{"type":"array","items":{"type":"string"}}
-        }), json!(["title","summary","comparisons"])),
+        }), json!(["title","summary","comparisons","tactics"])),
         ("propose_create", "Create a legacy proposal draft with a stable retry key", json!({
             "title":{"type":"string"},"kind":{"enum":["palette","component","page","layout","application","design-system","motion","other"]},
             "problem_solved":{"type":"string"},"rationale":{"type":"string"},"prompt":{"type":"string"},
@@ -561,8 +583,31 @@ fn publish_problem(
         .into_iter()
         .all(|value| nonempty(value))
         || p.evidence.len() > 16
+        || p.violated_rules.len() > 16
     {
         return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut violated_rules = Vec::with_capacity(p.violated_rules.len().max(1));
+    for rule in p.violated_rules {
+        if !nonempty(&rule.code)
+            || !nonempty(&rule.title)
+            || !matches!(rule.scope.as_str(), "global" | "project")
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        violated_rules.push(problems::ViolatedRule {
+            scope: rule.scope,
+            code: rule.code.trim().into(),
+            title: rule.title.trim().into(),
+        });
+    }
+    if violated_rules.is_empty() {
+        let (_, code, title, _) = problems::infer_rule(&format!("{} {}", p.title, p.diagnosis));
+        violated_rules.push(problems::ViolatedRule {
+            scope: "global".into(),
+            code: code.into(),
+            title: title.into(),
+        });
     }
     let assets = p
         .evidence
@@ -582,7 +627,7 @@ fn publish_problem(
         theme: p.theme,
         diagnosis: p.diagnosis,
         proposed_solution: p.solution,
-        violated_rules: vec![],
+        violated_rules,
         evidence_assets: assets,
         comments: vec![],
         linked_fix_id: None,
@@ -592,7 +637,13 @@ fn publish_problem(
         updated_at_ms: now,
     };
     problems::save(&data, &record).map_err(db_error)?;
-    Ok(json!({"id":record.id,"created":true}))
+    let skill_modules = problems::recommended_skill_modules(&record);
+    Ok(json!({
+        "id": record.id,
+        "created": true,
+        "violated_rules": record.violated_rules,
+        "skill_modules": skill_modules,
+    }))
 }
 
 fn publish_fix(
@@ -609,7 +660,17 @@ fn publish_fix(
         Err(err) => return Err(db_error(err)),
     }
     let f = req.record;
-    if !nonempty(&f.title) || !nonempty(&f.summary) || !(1..=16).contains(&f.comparisons.len()) {
+    let tactics: Vec<String> = f
+        .tactics
+        .into_iter()
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if !nonempty(&f.title)
+        || !nonempty(&f.summary)
+        || !(1..=16).contains(&f.comparisons.len())
+        || tactics.is_empty()
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
     for problem in &f.problem_ids {
@@ -630,7 +691,7 @@ fn publish_fix(
         title: f.title,
         summary: f.summary,
         status: fixes::FixStatus::PendingReview,
-        tactics: f.tactics,
+        tactics,
         modified_files: f.modified_files,
         comparisons: f.comparisons,
         steps: vec![],
@@ -856,5 +917,49 @@ mod tests {
             request::<ProblemInput>(&input),
             Err(StatusCode::BAD_REQUEST)
         ));
+    }
+
+    #[test]
+    fn problem_infers_skill_rules_and_fix_requires_tactics() {
+        let inferred = problems::infer_rule("Horizontal overflow on 375px viewport");
+        assert_eq!(inferred.1, "layout.md#no-horizontal-overflow");
+
+        let problem = problems::infer_from_finding(
+            "design",
+            "run-1",
+            "[/ @ 375×812 dark] target-size too small on submit button",
+            None,
+        );
+        let modules = problems::recommended_skill_modules(&problem);
+        assert!(modules.contains(&"reference/common.md"));
+        assert!(modules.contains(&"reference/ux/accessibility.md"));
+        assert!(modules.contains(&"reference/tactics/accessibility.md"));
+
+        let fix_input = json!({
+            "project": "design",
+            "key": "fix-1",
+            "record": {
+                "title": "Enlarge touch target",
+                "summary": "Set min-block-size to 24px",
+                "comparisons": [{
+                    "label": "Submit",
+                    "route": "/",
+                    "viewport": "375×812",
+                    "theme": "dark",
+                    "before_url": "/media/0/run/before.png",
+                    "after_url": "/media/0/run/after.png"
+                }],
+                "tactics": ["   "]
+            }
+        });
+        let (parsed, _) = request::<FixInput>(&fix_input).unwrap();
+        let non_empty_tactics: Vec<String> = parsed
+            .record
+            .tactics
+            .into_iter()
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty())
+            .collect();
+        assert_eq!(non_empty_tactics, Vec::<String>::new());
     }
 }

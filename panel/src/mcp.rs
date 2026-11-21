@@ -294,10 +294,16 @@ async fn project_read(
                     "pinned_by_fixes":run.pinned_by_fixes,"pinned_by_problems":run.pinned_by_problems})).collect::<Vec<_>>(),
                 "fixes":report.by_fix.into_iter().take(100).collect::<Vec<_>>()})
         }
-        "problem_get" => serde_json::to_value(
-            problem_record::load(&data, project, argument.unwrap_or_default())
-                .map_err(|_| StatusCode::NOT_FOUND)?,
-        ).map_err(db_error)?,
+        "problem_get" => {
+            let problem = problem_record::load(&data, project, argument.unwrap_or_default())
+                .map_err(|_| StatusCode::NOT_FOUND)?;
+            let skill_modules = problem_record::recommended_skill_modules(&problem);
+            let mut value = serde_json::to_value(&problem).map_err(db_error)?;
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("skill_modules".into(), json!(skill_modules));
+            }
+            value
+        }
         "fix_get" => serde_json::to_value(
             fix_record::load(&data, project, argument.unwrap_or_default())
                 .map_err(|_| StatusCode::NOT_FOUND)?,
