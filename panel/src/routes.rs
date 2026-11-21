@@ -372,7 +372,7 @@ async fn review_proposal(cx: &Cx, Form(form): Form<proposes::ReviewForm>) -> Res
         path_param::<Project>(cx).into(),
         path_param::<Proposal>(cx).into(),
     );
-    let result = tokio::task::spawn_blocking(move || proposes::review(&panel, account, id, &form))
+    let result = tokio::task::spawn_blocking(move || proposes::review(&panel, &account, id, &form))
         .await
         .unwrap_or_else(|error| Err(super::db_error(error)));
     respond(cx, result)

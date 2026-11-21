@@ -19,6 +19,7 @@ services:
       RUPICOLA_DB: "/data/panel.db"
       RUPICOLA_CAPTURES: "/data/captures"
       RUPICOLA_UPLOADS: "/data/uploads"
+      RUPICOLA_MCP_WRITE: "${RUPICOLA_MCP_WRITE:-0}"
       RUPICOLA_PUBLIC_ORIGIN: "${RUPICOLA_PUBLIC_ORIGIN}"
       RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
     volumes:

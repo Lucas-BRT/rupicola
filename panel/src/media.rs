@@ -12,10 +12,23 @@ pub async fn file(
     let dir = run_dir(&panel, root, &name).ok_or(StatusCode::NOT_FOUND)?;
     let manifest = read_manifest(&dir).ok_or(StatusCode::NOT_FOUND)?;
     auth::role(&panel, &account, &manifest.project.id).await?;
-    if !declared(&manifest, &file) {
+    let source = resolve_artifact(dir, &manifest, &file)?;
+    Ok(ServeFile::new(source)
+        .try_call(request)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map(Body::new))
+}
+
+pub fn resolve_artifact(
+    dir: std::path::PathBuf,
+    manifest: &Manifest,
+    file: &str,
+) -> PageResult<std::path::PathBuf> {
+    if !declared(manifest, file) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let path = FilePath::new(&file);
+    let path = FilePath::new(file);
     if !matches!(
         path.extension().and_then(|ext| ext.to_str()),
         Some("png" | "mp4" | "webm" | "json")
@@ -38,11 +51,7 @@ pub async fn file(
     if !source.is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
-    Ok(ServeFile::new(source)
-        .try_call(request)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .map(Body::new))
+    Ok(source)
 }
 
 pub fn declared(manifest: &Manifest, file: &str) -> bool {
