@@ -342,22 +342,24 @@ pub async fn create_project(
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    let label = form.label.trim();
-    if !safe_name(&form.id) || form.id.len() > 48 || label.is_empty() || label.len() > 400 {
+    register_project(&panel, &form.id, &form.label).await?;
+    Ok(redirect(&format!("/projects/{}", form.id)))
+}
+
+pub(crate) async fn register_project(panel: &Panel, id: &str, label: &str) -> PageResult<()> {
+    let label = label.trim();
+    if !safe_name(id) || id.len() > 48 || label.is_empty() || label.len() > 400 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let db = panel.index.lock().await;
     let created = db
-        .execute(
-            "INSERT OR IGNORE INTO projects VALUES (?, ?)",
-            [form.id.as_str(), label],
-        )
+        .execute("INSERT OR IGNORE INTO projects VALUES (?, ?)", [id, label])
         .await
         .map_err(db_error)?;
     if created == 0 {
         return Err(StatusCode::CONFLICT);
     }
-    Ok(redirect(&format!("/projects/{}", form.id)))
+    Ok(())
 }
 
 pub async fn project(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Html<String>> {
@@ -939,6 +941,53 @@ pub struct ProjectAction {
     value: String,
 }
 
+pub(crate) async fn update_project_access(
+    panel: &Panel,
+    db: &turso::Connection,
+    actor: &str,
+    id: &str,
+    action: &str,
+    value: &str,
+) -> PageResult<String> {
+    let secret = auth::token();
+    let digest = auth::digest(&secret);
+    let value = value.trim();
+    let (sql, params, event) = match action {
+        "device" if panel.uploads.is_some() && !value.is_empty() && value.len() <= 400 => (
+            "INSERT INTO devices VALUES (?, ?, ?, ?, NULL)",
+            Vec::from(turso::params![digest, id, value.to_owned(), auth::now()]),
+            "Machine credential created",
+        ),
+        "invite" if matches!(value, "reader" | "reviewer") => (
+            "INSERT INTO invites VALUES (?, ?, ?, ?)",
+            Vec::from(turso::params![
+                digest,
+                id,
+                value.to_owned(),
+                auth::now() + 86400
+            ]),
+            "Invitation created",
+        ),
+        "revoke-device" => (
+            "DELETE FROM devices WHERE digest = ? AND project = ?",
+            Vec::from(turso::params![value.to_owned(), id]),
+            "Machine credential revoked",
+        ),
+        "revoke-member" => (
+            "DELETE FROM members WHERE handle = ? AND project = ?",
+            Vec::from(turso::params![value.to_owned(), id]),
+            "Member access removed",
+        ),
+        _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
+    };
+    db.transactional_batch([
+            (sql, params),
+            ("INSERT INTO audit(project, actor, event, occurred) SELECT ?, ?, ?, ? WHERE changes() > 0",
+             Vec::from(turso::params![id, actor, event.to_owned(), auth::now()])),
+        ], TransactionBehavior::Immediate).await.map_err(db_error)?;
+    Ok(secret)
+}
+
 pub async fn project_action(
     panel: Arc<Panel>,
     account: Account,
@@ -957,57 +1006,17 @@ pub async fn project_action(
         .await?
         .remove(&id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    let secret = auth::token();
-    let digest = auth::digest(&secret);
     let url = format!("/projects/{id}/settings");
-    let value = form.value.trim();
-    {
-        let db = panel.index.lock().await;
-        db.execute(
-            "INSERT OR IGNORE INTO projects VALUES (?, ?)",
-            [id.as_str(), label.as_str()],
-        )
-        .await
-        .map_err(db_error)?;
-        let (sql, params, event) = match form.action.as_str() {
-            "device" if panel.uploads.is_some() && !value.is_empty() && value.len() <= 400 => (
-                "INSERT INTO devices VALUES (?, ?, ?, ?, NULL)",
-                Vec::from(turso::params![
-                    digest,
-                    id.clone(),
-                    value.to_owned(),
-                    auth::now()
-                ]),
-                "Machine credential created",
-            ),
-            "invite" if matches!(value, "reader" | "reviewer") => (
-                "INSERT INTO invites VALUES (?, ?, ?, ?)",
-                Vec::from(turso::params![
-                    digest,
-                    id.clone(),
-                    value.to_owned(),
-                    auth::now() + 86400
-                ]),
-                "Invitation created",
-            ),
-            "revoke-device" => (
-                "DELETE FROM devices WHERE digest = ? AND project = ?",
-                Vec::from(turso::params![value.to_owned(), id.clone()]),
-                "Machine credential revoked",
-            ),
-            "revoke-member" => (
-                "DELETE FROM members WHERE handle = ? AND project = ?",
-                Vec::from(turso::params![value.to_owned(), id.clone()]),
-                "Member access removed",
-            ),
-            _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
-        };
-        db.transactional_batch([
-            (sql, params),
-            ("INSERT INTO audit(project, actor, event, occurred) SELECT ?, ?, ?, ? WHERE changes() > 0",
-             Vec::from(turso::params![id.clone(), account.handle.clone(), event.to_owned(), auth::now()])),
-        ], TransactionBehavior::Immediate).await.map_err(db_error)?;
-    }
+    let db = panel.index.lock().await;
+    db.execute(
+        "INSERT OR IGNORE INTO projects VALUES (?, ?)",
+        [id.as_str(), label.as_str()],
+    )
+    .await
+    .map_err(db_error)?;
+    let secret =
+        update_project_access(&panel, &db, &account.handle, &id, &form.action, &form.value).await?;
+    drop(db);
     if form.action.starts_with("revoke-") {
         return Ok(redirect(&url));
     }
@@ -1305,7 +1314,7 @@ pub struct Review {
     note: String,
     evidence: Option<String>,
 }
-struct ReviewLock(PathBuf);
+pub(crate) struct ReviewLock(PathBuf);
 impl Drop for ReviewLock {
     fn drop(&mut self) {
         let _ = fs::remove_dir(&self.0);
@@ -1324,16 +1333,17 @@ pub async fn review(
     if auth::role(&panel, &account, &manifest.project.id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    let note = form.note.trim();
-    let evidence = form.evidence.filter(|path| !path.is_empty());
-    if note.is_empty()
-        || note.len() > 8000
-        || evidence
-            .as_ref()
-            .is_some_and(|path| !media::declared(&manifest, path))
-    {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
+    append_capture_review(
+        &dir,
+        &manifest,
+        &account.handle,
+        &form.note,
+        form.evidence.as_deref(),
+    )?;
+    Ok(redirect(&format!("/run/{root}/{name}#review")))
+}
+
+pub(crate) fn lock_capture_manifest(dir: &std::path::Path) -> PageResult<ReviewLock> {
     let lock = dir.join(".review.lock");
     fs::create_dir(&lock).map_err(|error| {
         if error.kind() == std::io::ErrorKind::AlreadyExists {
@@ -1342,8 +1352,28 @@ pub async fn review(
             db_error(error)
         }
     })?;
-    let _lock = ReviewLock(lock);
-    let current = read_manifest(&dir).ok_or(StatusCode::NOT_FOUND)?;
+    Ok(ReviewLock(lock))
+}
+
+pub(crate) fn append_capture_review(
+    dir: &std::path::Path,
+    manifest: &Manifest,
+    actor: &str,
+    note: &str,
+    evidence: Option<&str>,
+) -> PageResult<()> {
+    let note = note.trim();
+    let evidence = evidence.filter(|path| !path.is_empty());
+    if note.is_empty()
+        || note.len() > 8000
+        || evidence
+            .as_ref()
+            .is_some_and(|path| !media::declared(manifest, path))
+    {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let _lock = lock_capture_manifest(dir)?;
+    let current = read_manifest(dir).ok_or(StatusCode::NOT_FOUND)?;
     if manifest.project.id != current.project.id {
         return Err(StatusCode::CONFLICT);
     }
@@ -1356,7 +1386,7 @@ pub async fn review(
     json["findings"]
         .as_array_mut()
         .ok_or(StatusCode::CONFLICT)?
-        .push(serde_json::json!({"note": note, "evidence": evidence, "author": account.handle}));
+        .push(serde_json::json!({"note": note, "evidence": evidence, "author": actor}));
     json["inspection"] = serde_json::json!("reviewed");
     let bytes = serde_json::to_vec_pretty(&json).map_err(db_error)?;
     if bytes.len() > 1024 * 1024 {
@@ -1376,7 +1406,7 @@ pub async fn review(
         let _ = fs::remove_file(&temp);
         return Err(db_error(error));
     }
-    Ok(redirect(&format!("/run/{root}/{name}#review")))
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -1409,6 +1439,7 @@ pub async fn accept_invitation(
 
 #[derive(Deserialize)]
 pub struct DesignForm {
+    #[serde(default)]
     csrf: String,
     kind: design_record::Kind,
     status: design_record::Status,
@@ -1421,10 +1452,6 @@ pub struct DesignForm {
     return_to: Option<String>,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the handler keeps authorization, input validation, and record persistence in order"
-)]
 pub async fn record_design(
     panel: Arc<Panel>,
     account: Account,
@@ -1443,6 +1470,62 @@ pub async fn record_design(
         .await?
         .remove(&id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    let return_to_proposals = form.return_to.as_deref() == Some("proposes");
+    save_design(&panel, &id, &account.handle, &label, &runs, form).await?;
+    let target = if return_to_proposals {
+        format!("/projects/{id}/design?view=proposals")
+    } else {
+        format!("/projects/{id}/design")
+    };
+    Ok(redirect(&target))
+}
+
+pub(crate) async fn record_design_mcp(
+    panel: &Panel,
+    project: &str,
+    actor: &str,
+    form: DesignForm,
+) -> PageResult<String> {
+    if !safe_name(project) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let runs = read_index(panel).await.map_err(db_error)?;
+    let label = {
+        let db = panel.index.lock().await;
+        let mut rows = db
+            .query("SELECT label FROM projects WHERE id=?", [project])
+            .await
+            .map_err(db_error)?;
+        rows.next()
+            .await
+            .map_err(db_error)?
+            .map(|row| row.get::<String>(0))
+            .transpose()
+            .map_err(db_error)?
+    }
+    .or_else(|| {
+        design_record::project(&panel.design.join(project))
+            .ok()
+            .filter(|record| record.id == project)
+            .map(|record| record.label)
+    })
+    .or_else(|| {
+        runs.iter()
+            .find(|run| run.project_id == project)
+            .map(|run| run.project.clone())
+    })
+    .ok_or(StatusCode::NOT_FOUND)?;
+    save_design(panel, project, actor, &label, &runs, form).await
+}
+
+async fn save_design(
+    panel: &Panel,
+    id: &str,
+    actor: &str,
+    label: &str,
+    runs: &[Run],
+    form: DesignForm,
+) -> PageResult<String> {
     let clean =
         |value: Option<String>| value.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
     let reference = clean(form.reference);
@@ -1480,7 +1563,7 @@ pub async fn record_design(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let _guard = panel.index.lock().await;
-    let root = panel.design.join(&id);
+    let root = panel.design.join(id);
     fs::create_dir_all(&root).map_err(db_error)?;
     let persist = |path: &std::path::Path, value: serde_json::Value| -> PageResult<()> {
         let mut tmp = tempfile::NamedTempFile::new_in(&root).map_err(db_error)?;
@@ -1524,18 +1607,14 @@ pub async fn record_design(
         reference,
         evidence,
         supersedes,
-        author: Some(account.handle),
+        author: Some(actor.into()),
     };
+    let entry_id = entry.id.clone();
     persist(
-        &root.join(format!("{}.json", entry.id)),
+        &root.join(format!("{entry_id}.json")),
         serde_json::to_value(entry).map_err(db_error)?,
     )?;
-    let target = if form.return_to.as_deref() == Some("proposes") {
-        format!("/projects/{id}/design?view=proposals")
-    } else {
-        format!("/projects/{id}/design")
-    };
-    Ok(redirect(&target))
+    Ok(entry_id)
 }
 
 #[derive(Deserialize)]

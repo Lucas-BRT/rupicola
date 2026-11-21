@@ -627,12 +627,22 @@ pub async fn edit(
             comparison: form.comparison_notes,
         },
     };
+    patch_document(panel, project, &form.version, form.generation, document).await
+}
+
+async fn patch_document(
+    panel: &Panel,
+    project: &str,
+    id: &str,
+    generation: i64,
+    document: Document,
+) -> PageResult<Response> {
     if !document.valid() {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let db = panel.index.lock().await;
-    let mut version = read(&db, project, &form.version).await?;
-    if version.phase != Phase::Draft || version.generation != form.generation {
+    let mut version = read(&db, project, id).await?;
+    if version.phase != Phase::Draft || version.generation != generation {
         return Err(StatusCode::CONFLICT);
     }
     version.document = document;
@@ -643,6 +653,7 @@ pub async fn edit(
 
 #[derive(Deserialize)]
 pub struct ActionForm {
+    #[serde(default)]
     csrf: String,
     action: String,
     #[serde(default)]
@@ -679,6 +690,15 @@ pub async fn action(
     form: &ActionForm,
 ) -> PageResult<Response> {
     owner(&account, project, &form.csrf)?;
+    apply_action(&panel, &account.handle, project, form).await
+}
+
+async fn apply_action(
+    panel: &Panel,
+    actor: &str,
+    project: &str,
+    form: &ActionForm,
+) -> PageResult<Response> {
     let db = panel.index.lock().await;
     if form.action == "create" {
         let parent = active_version(&db, project).await?;
@@ -686,7 +706,7 @@ pub async fn action(
             Some(id) => read(&db, project, id).await?.document,
             None => Document::default(),
         };
-        let new = Version::draft(auth::token(), parent, account.handle, document);
+        let new = Version::draft(auth::token(), parent, actor.to_owned(), document);
         insert(&db, project, &new).await?;
         return Ok(location(project, "system", &new.id));
     }
@@ -746,17 +766,17 @@ pub async fn action(
         let new = Version::draft(
             auth::token(),
             Some(version.id),
-            account.handle,
+            actor.to_owned(),
             version.document,
         );
         insert(&db, project, &new).await?;
         return Ok(location(project, "system", &new.id));
     }
     if form.action == "adopt" {
-        adopt(&db, project, &mut version, &account.handle).await?;
+        adopt(&db, project, &mut version, actor).await?;
         return Ok(location(project, "system", &version.id));
     }
-    review(&mut version, &account.handle, form)?;
+    review(&mut version, actor, form)?;
     save(&db, project, &version).await?;
     Ok(location(project, "proposals", &version.id))
 }
@@ -882,16 +902,20 @@ pub async fn preview(
     id: &str,
 ) -> PageResult<Response> {
     auth::role(panel, account, project).await?;
-    let db = panel.index.lock().await;
-    let version = read(&db, project, id).await?;
-    let html = version
-        .frozen_screen
-        .unwrap_or_else(|| render_screen(&version.document));
+    let html = preview_html(panel, project, id).await?;
     Response::builder()
         .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
         .header(http::header::CONTENT_SECURITY_POLICY, PREVIEW_POLICY)
         .body(Body::from(html))
         .map_err(db_error)
+}
+
+pub(crate) async fn preview_html(panel: &Panel, project: &str, id: &str) -> PageResult<String> {
+    let db = panel.index.lock().await;
+    let version = read(&db, project, id).await?;
+    Ok(version
+        .frozen_screen
+        .unwrap_or_else(|| render_screen(&version.document)))
 }
 
 pub async fn proof(
@@ -902,17 +926,114 @@ pub async fn proof(
     name: &str,
 ) -> PageResult<Response> {
     auth::role(panel, account, project).await?;
-    let db = panel.index.lock().await;
-    let version = read(&db, project, id).await?;
-    let shot = version
-        .report
-        .and_then(|report| report.shots.into_iter().find(|shot| shot.name == name))
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let png = STANDARD.decode(shot.png).map_err(db_error)?;
+    let png = STANDARD
+        .decode(proof_base64(panel, project, id, name).await?)
+        .map_err(db_error)?;
     Response::builder()
         .header(http::header::CONTENT_TYPE, "image/png")
         .body(Body::from(png))
         .map_err(db_error)
+}
+
+pub(crate) async fn proof_base64(
+    panel: &Panel,
+    project: &str,
+    id: &str,
+    name: &str,
+) -> PageResult<String> {
+    let db = panel.index.lock().await;
+    let version = read(&db, project, id).await?;
+    version
+        .report
+        .and_then(|report| report.shots.into_iter().find(|shot| shot.name == name))
+        .map(|shot| shot.png)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+pub(crate) async fn mcp_action(
+    panel: &Panel,
+    actor: &str,
+    project: &str,
+    args: &serde_json::Value,
+) -> PageResult<Response> {
+    let form = ActionForm::deserialize(args).map_err(|_| StatusCode::BAD_REQUEST)?;
+    if !matches!(
+        form.action.as_str(),
+        "create"
+            | "variation"
+            | "validate"
+            | "submit"
+            | "comment"
+            | "approve"
+            | "changes"
+            | "adopt"
+    ) || (form.action != "create"
+        && (form.version.is_empty() || args.get("generation").is_none()))
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    apply_action(panel, actor, project, &form).await
+}
+
+pub(crate) async fn mcp_edit(
+    panel: &Panel,
+    project: &str,
+    id: &str,
+    generation: i64,
+    changes: &serde_json::Value,
+) -> PageResult<Response> {
+    let version = {
+        let db = panel.index.lock().await;
+        read(&db, project, id).await?
+    };
+    let mut document = serde_json::to_value(version.document).map_err(db_error)?;
+    let changes = changes
+        .as_object()
+        .filter(|map| !map.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let map = document
+        .as_object_mut()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    for (key, value) in changes {
+        let current = map.get_mut(key).ok_or(StatusCode::BAD_REQUEST)?;
+        if key == "guidance" {
+            let guidance = current
+                .as_object_mut()
+                .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+            for (field, value) in value.as_object().ok_or(StatusCode::BAD_REQUEST)? {
+                *guidance.get_mut(field).ok_or(StatusCode::BAD_REQUEST)? = value.clone();
+            }
+        } else {
+            *current = value.clone();
+        }
+    }
+    let doc = serde_json::from_value(document).map_err(|_| StatusCode::BAD_REQUEST)?;
+    patch_document(panel, project, id, generation, doc).await
+}
+
+pub async fn mcp_read(
+    panel: &Panel,
+    project: &str,
+    id: Option<&str>,
+) -> PageResult<serde_json::Value> {
+    use serde_json::json;
+    if let Some(id) = id {
+        let db = panel.index.lock().await;
+        let version = read(&db, project, id).await?;
+        return Ok(
+            json!({"id": id, "phase": version.phase, "generation": version.generation,
+            "parent": version.parent, "document": version.document, "notes": version.notes,
+            "adopted": active_version(&db, project).await?.as_deref() == Some(id),
+            "validation": version.report.map(|report| json!({"outcome": report.outcome,
+                "checks": report.checks, "error": report.error, "baseline": report.baseline,
+                "shots": report.shots.into_iter().map(|shot| shot.name).collect::<Vec<_>>() }))}),
+        );
+    }
+    let studio = load(panel, project, None).await?;
+    Ok(
+        json!({"adopted": studio.active, "versions": studio.items.into_iter()
+        .map(|(id, name, phase)| json!({"id": id, "name": name, "phase": phase})).collect::<Vec<_>>() }),
+    )
 }
 
 #[cfg(test)]

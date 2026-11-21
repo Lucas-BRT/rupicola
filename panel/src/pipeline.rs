@@ -1161,56 +1161,68 @@ pub async fn analyze_run_action(
     if auth::role(&panel, &account, &project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    let data = data_root(&panel);
-    let existing = problem_record::entries(&data, &project_id).unwrap_or_default();
-    if let Some(manifest) = pages::read_run(&panel, &form.run_key)
-        && manifest.project.id == project_id
-    {
-        if manifest.findings.is_empty() {
-            if let Some(first) = manifest.checkpoints.first() {
-                let mut candidate = problem_record::infer_from_finding(
-                    &project_id,
-                    &form.run_key,
-                    &format!(
-                        "[{} @ {}×{} {}] Visual inspection requested on capture '{}'",
-                        first.id,
-                        manifest.environment.width.unwrap_or(1440),
-                        manifest.environment.height.unwrap_or(900),
-                        manifest.environment.color_scheme,
-                        manifest.scenario
-                    ),
-                    Some(&first.path),
-                );
-                candidate.status = ProblemStatus::NeedsReprocess;
-                let _ = problem_record::save(&data, &candidate);
+    match analyze_run(&panel, &project_id, &form.run_key) {
+        Ok(()) | Err(StatusCode::NOT_FOUND) => {}
+        Err(error) => return Err(error),
+    }
+    Ok(redirect(&format!("/projects/{project_id}/problems")))
+}
+
+pub(crate) fn analyze_run(panel: &Panel, project_id: &str, run_key: &str) -> PageResult<()> {
+    let data = data_root(panel);
+    let existing = problem_record::entries(&data, project_id).unwrap_or_default();
+    let manifest = pages::read_run(panel, run_key)
+        .filter(|manifest| manifest.project.id == project_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if manifest.findings.is_empty() {
+        if let Some(first) = manifest.checkpoints.first() {
+            let mut candidate = problem_record::infer_from_finding(
+                project_id,
+                run_key,
+                &format!(
+                    "[{} @ {}×{} {}] Visual inspection requested on capture '{}'",
+                    first.id,
+                    manifest.environment.width.unwrap_or(1440),
+                    manifest.environment.height.unwrap_or(900),
+                    manifest.environment.color_scheme,
+                    manifest.scenario
+                ),
+                Some(&first.path),
+            );
+            candidate.status = ProblemStatus::NeedsReprocess;
+            if !existing
+                .iter()
+                .any(|problem| problem.diagnosis == candidate.diagnosis)
+            {
+                problem_record::save(&data, &candidate).map_err(db_error)?;
             }
-        } else {
-            for f in &manifest.findings {
-                let candidate = problem_record::infer_from_finding(
-                    &project_id,
-                    &form.run_key,
-                    &f.note,
-                    f.evidence.as_deref(),
-                );
-                let rule_code = candidate
-                    .violated_rules
-                    .first()
-                    .map_or("", |r| r.code.as_str());
-                if problem_record::is_suppressed(
-                    &existing,
-                    &candidate.route,
-                    rule_code,
-                    &candidate.title,
-                ) {
-                    continue;
-                }
-                if !existing.iter().any(|p| p.diagnosis == candidate.diagnosis) {
-                    let _ = problem_record::save(&data, &candidate);
-                }
+        }
+    } else {
+        for f in &manifest.findings {
+            let candidate = problem_record::infer_from_finding(
+                project_id,
+                run_key,
+                &f.note,
+                f.evidence.as_deref(),
+            );
+            let rule_code = candidate
+                .violated_rules
+                .first()
+                .map_or("", |r| r.code.as_str());
+            if problem_record::is_suppressed(
+                &existing,
+                &candidate.route,
+                rule_code,
+                &candidate.title,
+            ) {
+                continue;
+            }
+            if !existing.iter().any(|p| p.diagnosis == candidate.diagnosis) {
+                problem_record::save(&data, &candidate).map_err(db_error)?;
             }
         }
     }
-    Ok(redirect(&format!("/projects/{project_id}/problems")))
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -1302,6 +1314,7 @@ pub async fn create_problem_action(
 
 #[derive(Deserialize)]
 pub struct TriageProblemForm {
+    #[serde(default)]
     pub csrf: String,
     pub status: String,
     pub comment: Option<String>,
@@ -1318,9 +1331,22 @@ pub async fn triage_problem_action(
     if auth::role(&panel, &account, &project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    let data = data_root(&panel);
+    triage_problem(&panel, &account.handle, &project_id, &problem_id, form)?;
+    Ok(redirect(&format!(
+        "/projects/{project_id}/problems#problem-{problem_id}"
+    )))
+}
+
+pub(crate) fn triage_problem(
+    panel: &Panel,
+    actor: &str,
+    project_id: &str,
+    problem_id: &str,
+    form: TriageProblemForm,
+) -> PageResult<()> {
+    let data = data_root(panel);
     let mut problem =
-        problem_record::load(&data, &project_id, &problem_id).map_err(|_| StatusCode::NOT_FOUND)?;
+        problem_record::load(&data, project_id, problem_id).map_err(|_| StatusCode::NOT_FOUND)?;
     let Some(status) = ProblemStatus::from_slug(form.status.trim()) else {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     };
@@ -1340,7 +1366,7 @@ pub async fn triage_problem_action(
         .filter(|s| !s.is_empty())
     {
         problem.comments.push(ProblemComment {
-            author: account.handle.clone(),
+            author: actor.to_owned(),
             text: comment,
             created_at_ms: now,
         });
@@ -1367,7 +1393,7 @@ pub async fn triage_problem_action(
                 0,
                 format!(
                     "Queued by {} — waiting for an agent to claim (MCP problem_progress or CLI: rupicola problem claim {} --agent <name>)",
-                    account.handle, problem.id
+                    actor, problem.id
                 ),
             )
         };
@@ -1399,13 +1425,12 @@ pub async fn triage_problem_action(
         problem.execution = Some(exec);
     }
     problem_record::save(&data, &problem).map_err(db_error)?;
-    Ok(redirect(&format!(
-        "/projects/{project_id}/problems#problem-{problem_id}"
-    )))
+    Ok(())
 }
 
 #[derive(Deserialize)]
 pub struct ProgressProblemForm {
+    #[serde(default)]
     pub csrf: String,
     pub agent: String,
     pub stage: String,
@@ -1424,9 +1449,21 @@ pub async fn progress_problem_action(
     if auth::role(&panel, &account, &project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    let data = data_root(&panel);
+    progress_problem(&panel, &project_id, &problem_id, &form)?;
+    Ok(redirect(&format!(
+        "/projects/{project_id}/problems#problem-{problem_id}"
+    )))
+}
+
+pub(crate) fn progress_problem(
+    panel: &Panel,
+    project_id: &str,
+    problem_id: &str,
+    form: &ProgressProblemForm,
+) -> PageResult<()> {
+    let data = data_root(panel);
     let mut problem =
-        problem_record::load(&data, &project_id, &problem_id).map_err(|_| StatusCode::NOT_FOUND)?;
+        problem_record::load(&data, project_id, problem_id).map_err(|_| StatusCode::NOT_FOUND)?;
     let (_, now) = problem_record::next_id();
     let pct = form.pct.min(100);
     let stage = form.stage.trim().to_string();
@@ -1472,9 +1509,7 @@ pub async fn progress_problem_action(
     });
     problem.execution = Some(exec);
     problem_record::save(&data, &problem).map_err(db_error)?;
-    Ok(redirect(&format!(
-        "/projects/{project_id}/problems#problem-{problem_id}"
-    )))
+    Ok(())
 }
 
 pub async fn problems_status_json(
@@ -1613,6 +1648,7 @@ pub async fn create_fix_action(
 
 #[derive(Deserialize)]
 pub struct ReviewFixForm {
+    #[serde(default)]
     pub csrf: String,
     pub status: String,
     pub comment: Option<String>,
@@ -1628,9 +1664,21 @@ pub async fn review_fix_action(
     if auth::role(&panel, &account, &project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    let data = data_root(&panel);
-    let mut fix =
-        fix_record::load(&data, &project_id, &fix_id).map_err(|_| StatusCode::NOT_FOUND)?;
+    review_fix(&panel, &account.handle, &project_id, &fix_id, form)?;
+    Ok(redirect(&format!(
+        "/projects/{project_id}/fixes#fix-{fix_id}"
+    )))
+}
+
+pub(crate) fn review_fix(
+    panel: &Panel,
+    actor: &str,
+    project_id: &str,
+    fix_id: &str,
+    form: ReviewFixForm,
+) -> PageResult<()> {
+    let data = data_root(panel);
+    let mut fix = fix_record::load(&data, project_id, fix_id).map_err(|_| StatusCode::NOT_FOUND)?;
     let Some(status) = FixStatus::from_slug(form.status.trim()) else {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     };
@@ -1643,7 +1691,7 @@ pub async fn review_fix_action(
         .filter(|s| !s.is_empty())
     {
         fix.reviews.push(FixReview {
-            author: account.handle,
+            author: actor.into(),
             action: status.slug().into(),
             comment: c,
             created_at_ms: now,
@@ -1651,7 +1699,7 @@ pub async fn review_fix_action(
     }
     fix_record::save(&data, &fix).map_err(db_error)?;
     for pid in &fix.problem_ids {
-        if let Ok(mut p) = problem_record::load(&data, &project_id, pid) {
+        if let Ok(mut p) = problem_record::load(&data, project_id, pid) {
             p.status = if status == FixStatus::ChangesRequested {
                 ProblemStatus::InProgress
             } else {
@@ -1664,7 +1712,7 @@ pub async fn review_fix_action(
     if status == FixStatus::Approved {
         let cfg = storage::load_config(&data);
         if cfg.auto_policy == "on-fix-approved" && !cfg.bucket.trim().is_empty() {
-            let report = storage::analyze(&data, Some(&project_id));
+            let report = storage::analyze(&data, Some(project_id));
             if let Some(fu) = report.by_fix.iter().find(|f| f.fix_id == fix_id) {
                 for rname in &fu.referenced_runs {
                     let _ = storage::offload_run(&data, rname);
@@ -1672,9 +1720,7 @@ pub async fn review_fix_action(
             }
         }
     }
-    Ok(redirect(&format!(
-        "/projects/{project_id}/fixes#fix-{fix_id}"
-    )))
+    Ok(())
 }
 
 #[expect(

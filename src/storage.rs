@@ -142,11 +142,10 @@ pub fn load_config(data_dir: &Path) -> BucketConfig {
 pub fn save_config(data_dir: &Path, cfg: &BucketConfig) -> io::Result<()> {
     fs::create_dir_all(data_dir)?;
     let path = data_dir.join(CONFIG_FILE);
-    let tmp = data_dir.join(format!(".storage-cfg-{}.tmp", std::process::id()));
-    let bytes = serde_json::to_vec_pretty(cfg)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    fs::write(&tmp, bytes)?;
-    fs::rename(&tmp, &path)
+    let mut tmp = tempfile::NamedTempFile::new_in(data_dir)?;
+    serde_json::to_writer_pretty(&mut tmp, cfg).map_err(io::Error::other)?;
+    tmp.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }
 
 #[must_use]
