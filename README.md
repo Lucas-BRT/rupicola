@@ -276,4 +276,43 @@ Restart Codex after the panel version with this endpoint is deployed.
 The stateless endpoint lists published captures, problems, and fixes for the
 token's project. It checks the token on every request. Revoke the device in
 the panel to disable access. Device tokens also authorize the existing capture
-publish API for their project. The hosted MCP only exposes read tools.
+publish API for their project. The hosted MCP defaults to read access. Set `RUPICOLA_MCP_WRITE=1` on the panel host to expose write tools to owner machine tokens on `/mcp`. Project devices and non-owner tokens remain read-only. `problem_create` and `fix_create` require a `project`, a stable retry `key`, and a `record`. A repeated key returns the existing record. Use published, same-project `/media/…` URLs for evidence. Fixes enter pending review and leave the status of linked Problems unchanged.
+
+Write access also exposes `problem_analyze`, `problem_triage`, `problem_progress`, `fix_review`, `capture_review`, `propose_create`, `propose_enrich`, `propose_review`, `project_create`, `design_record`, `design_system_action`, and `design_system_edit`. Use `design_system_get` to obtain the current generation. Owner tokens can edit, validate, submit, comment, approve, request changes and adopt. Review and adoption require the version and current generation. Use `capture_publish` for capture bundles up to 64 MiB including the JSON-RPC envelope, subject to the publishing API’s media limits.
+
+
+Use `design_system_preview` for rendered HTML and `design_system_proof` with
+`proof: "version/name"` for a validation screenshot. Use `propose_asset_read`
+with `asset: "proposal_id/filename"` to read a declared attachment or preview,
+and `propose_dispatch_list` to inspect up to 25 queued requests without consuming
+them. Proof and proposal asset responses are capped at 4 MiB of base64.
+
+`storage_status` includes storage totals and usage by run and Fix.
+`storage_run_action` requires owner write access. It offloads a single capture
+to the configured bucket or deletes a single unpinned capture under the panel's
+storage directory.
+
+`project_rename` changes the display label while retaining the project ID.
+`project_access` lists members, devices and recent audit events, issues
+project invites or device credentials, and revokes access. Both tools require
+owner write access. Treat newly issued credentials as secrets.
+
+Use `artifact_read_chunk` with `chunk: "0:/media/…"` to read larger declared
+capture artifacts. Repeat with the returned `next_offset` until it is null.
+
+`storage_config` reads the panel-wide bucket configuration and replaces it
+when called with a full `config` object. It requires owner write access.
+Set mounted filesystem paths in the panel.
+
+`project_merge_preview` accepts `source` and `target` project IDs and requires
+owner write access. It reports project file inventory, capture counts, and
+database records and overlaps. It leaves both projects untouched.
+
+`project_merge_apply` merges a registered source into a registered target,
+including capture manifests, JSON records, proposal assets and dispatches.
+Media URLs and record IDs are preserved. Active proposal sessions and
+conflicting files block execution. Set `revoke_source_access: true` to revoke
+source invites, device credentials and memberships during the merge. Target
+access stays intact. By default, incompatible source access blocks execution.
+Retry an interrupted merge with the same IDs to resume its capture journal. Use
+`project_merge_preview` first to review both projects.

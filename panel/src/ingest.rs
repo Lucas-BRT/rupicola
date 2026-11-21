@@ -14,7 +14,7 @@ use std::{
 use topcoat::router::{content::Json, to_bytes};
 
 const MAX_MEDIA: usize = 40 * 1024 * 1024;
-const MAX_ENVELOPE: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_ENVELOPE: usize = 64 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
 pub struct Bundle {
@@ -63,10 +63,6 @@ fn object_key(project: &str, bundle: &Bundle) -> Result<String, serde_json::Erro
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the ingest handler keeps validation, upload, and persistence in execution order"
-)]
 pub async fn publish(
     panel: Arc<Panel>,
     project: String,
@@ -76,7 +72,7 @@ pub async fn publish(
     if !safe_name(&project) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let uploads = panel.uploads.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    panel.uploads.as_ref().ok_or(StatusCode::NOT_FOUND)?;
     let bearer = headers
         .get(header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok())
@@ -108,6 +104,20 @@ pub async fn publish(
     let bundle: Bundle =
         serde_json::from_slice(&bytes).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
     drop(bytes);
+    store_bundle(&panel, project, &digest, bundle, permit).await
+}
+
+pub(crate) async fn store_bundle(
+    panel: &Panel,
+    project: String,
+    digest: &str,
+    bundle: Bundle,
+    permit: tokio::sync::OwnedSemaphorePermit,
+) -> PageResult<(StatusCode, Json<serde_json::Value>)> {
+    if !safe_name(&project) {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let uploads = panel.uploads.as_ref().ok_or(StatusCode::NOT_FOUND)?;
     let project_copy = project.clone();
     let uploads = uploads.clone();
     let (stage, target, key, project_label, permit) = tokio::task::spawn_blocking(move || {
@@ -118,9 +128,9 @@ pub async fn publish(
     .map_err(db_error)??;
     let _permit = permit;
     let db = panel.index.lock().await;
-    let device = device_label(&db, &project, &digest).await?;
+    let device = device_label(&db, &project, digest).await?;
     let machine = if device.is_none() {
-        machine_token_owner(&db, &digest).await?
+        machine_token_owner(&db, digest).await?
     } else {
         None
     };

@@ -629,6 +629,7 @@ pub async fn create(
 
 #[derive(serde::Deserialize)]
 pub struct ReviewForm {
+    #[serde(default)]
     csrf: String,
     action: String,
     comment: Option<String>,
@@ -636,18 +637,28 @@ pub struct ReviewForm {
 
 pub fn review(
     panel: &Panel,
-    account: Account,
+    account: &Account,
     (id, pid): (String, String),
     form: &ReviewForm,
 ) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
+    auth::check_csrf(account, &form.csrf)?;
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    if !safe_name(&id) || !proposal_record::safe_id(&pid) {
+    review_authorized(panel, &account.handle, &id, &pid, form)
+}
+
+pub(crate) fn review_authorized(
+    panel: &Panel,
+    actor: &str,
+    id: &str,
+    pid: &str,
+    form: &ReviewForm,
+) -> PageResult<Response> {
+    if !safe_name(id) || !proposal_record::safe_id(pid) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let root = proposals_root(panel, &id);
+    let root = proposals_root(panel, id);
     let path = root.join(format!("{pid}.json"));
     let mut p = proposal_record::read_proposal(&path).map_err(|_| StatusCode::NOT_FOUND)?;
     let ts = now_ms()?;
@@ -661,7 +672,7 @@ pub fn review(
     if let Some(body) = &note {
         p.comments.push(Comment {
             id: format!("{ts}-{}", std::process::id()),
-            author: account.handle.clone(),
+            author: actor.to_owned(),
             timestamp_ms: ts,
             body: body.clone(),
             action: Some(form.action.clone()),
@@ -672,7 +683,7 @@ pub fn review(
         "approve" => {
             p.status = Status::Approved;
             proposal_record::write_proposal(&root, &p).map_err(db_error)?;
-            promote_to_design(panel, &account, &id, &p)?;
+            promote_to_design(panel, actor, id, &p)?;
         }
         "reject" => {
             p.status = Status::Rejected;
@@ -688,7 +699,7 @@ pub fn review(
             if let Some(body) = note {
                 child_comments.push(Comment {
                     id: format!("{ts}-var"),
-                    author: account.handle.clone(),
+                    author: actor.to_owned(),
                     timestamp_ms: ts,
                     body,
                     action: Some("variation".into()),
@@ -698,7 +709,7 @@ pub fn review(
                 id: child_id,
                 parent_id: Some(p.id.clone()),
                 timestamp_ms: ts + 1,
-                author: Some(account.handle),
+                author: Some(actor.to_owned()),
                 origin: Origin::User,
                 kind: p.kind,
                 status: Status::VariationRequested,
@@ -717,7 +728,7 @@ pub fn review(
             };
             proposal_record::write_proposal(&root, &child).map_err(db_error)?;
             if proposal_record::mcp_session_active(data_dir(panel)).is_some() {
-                queue_dispatch(&root, &id, &child, Some(&p))?;
+                queue_dispatch(&root, id, &child, Some(&p))?;
             }
         }
         "dispatch" => {
@@ -733,7 +744,7 @@ pub fn review(
                 });
             p.dispatched_at_ms = Some(ts);
             proposal_record::write_proposal(&root, &p).map_err(db_error)?;
-            queue_dispatch(&root, &id, &p, parent.as_ref())?;
+            queue_dispatch(&root, id, &p, parent.as_ref())?;
         }
         _ => return Err(StatusCode::BAD_REQUEST),
     }
@@ -765,12 +776,7 @@ fn queue_dispatch(
     .map_err(db_error)
 }
 
-fn promote_to_design(
-    panel: &Panel,
-    account: &Account,
-    project_id: &str,
-    p: &Proposal,
-) -> PageResult<()> {
+fn promote_to_design(panel: &Panel, actor: &str, project_id: &str, p: &Proposal) -> PageResult<()> {
     let design_root = panel.design.join(project_id);
     fs::create_dir_all(&design_root).map_err(db_error)?;
     if design_record::project(&design_root).is_err() {
@@ -818,10 +824,77 @@ fn promote_to_design(
         supersedes: None,
         reference: p.references.first().cloned(),
         evidence: None,
-        author: Some(account.handle.clone()),
+        author: Some(actor.to_owned()),
     };
     proposal_record::write_atomic(&design_root.join(format!("{entry_id}.json")), &entry)
         .map_err(db_error)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EnrichInput {
+    extracted: proposal_record::Extracted,
+    html_content: Option<String>,
+    image_base64: Option<String>,
+    image_format: Option<String>,
+    viewport: Option<String>,
+    stack: Option<String>,
+}
+
+pub(crate) fn enrich(panel: &Panel, project: &str, id: &str, input: EnrichInput) -> PageResult<()> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use sha2::{Digest, Sha256};
+
+    let root = proposals_root(panel, project);
+    let mut proposal = proposal_record::read_proposal(&root.join(format!("{id}.json")))
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    if !matches!(
+        proposal.status,
+        proposal_record::Status::Draft | proposal_record::Status::Proposed
+    ) {
+        return Err(StatusCode::CONFLICT);
+    }
+    let preview = match (
+        input.html_content,
+        input.image_base64,
+        input.image_format.as_deref(),
+    ) {
+        (Some(html), None, None) if !html.trim().is_empty() => Some((
+            proposal_record::ArtifactKind::Html,
+            "html",
+            html.into_bytes(),
+        )),
+        (None, Some(encoded), Some(format @ ("png" | "jpg" | "webp"))) => {
+            let (mime, _) =
+                content_type_for(&format!("render.{format}")).ok_or(StatusCode::BAD_REQUEST)?;
+            let bytes = STANDARD
+                .decode(encoded)
+                .map_err(|_| StatusCode::BAD_REQUEST)?;
+            if !valid_magic(mime, &bytes) {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            Some((proposal_record::ArtifactKind::Image, format, bytes))
+        }
+        (None, None, None) => None,
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    if let Some((kind, extension, bytes)) = preview {
+        let dir = root.join(id).join("assets");
+        proposal_record::private_dir(&dir).map_err(db_error)?;
+        let entry = format!("preview-{:x}.{extension}", Sha256::digest(&bytes));
+        let mut asset = tempfile::NamedTempFile::new_in(&dir).map_err(db_error)?;
+        std::io::Write::write_all(&mut asset, &bytes).map_err(db_error)?;
+        asset.persist(dir.join(&entry)).map_err(db_error)?;
+        proposal.artifact = Some(proposal_record::Artifact {
+            kind,
+            entry,
+            viewport: input.viewport,
+            stack: input.stack,
+        });
+    }
+    proposal.extracted = Some(input.extracted);
+    proposal.status = proposal_record::Status::Proposed;
+    proposal_record::write_proposal(&root, &proposal).map_err(db_error)
 }
 
 pub async fn preview(
@@ -849,7 +922,7 @@ pub async fn preview(
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .header(
             header::CONTENT_SECURITY_POLICY,
-            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
+            "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
         )
         .body(Body::from(html))
         .map_err(db_error)
@@ -864,19 +937,51 @@ pub async fn asset(
     if !safe_name(&id) || !proposal_record::safe_id(&pid) || !safe_asset(&name) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let (mime, _) = content_type_for(&name).ok_or(StatusCode::NOT_FOUND)?;
-    let file = proposals_root(&panel, &id)
-        .join(&pid)
-        .join("assets")
-        .join(&name);
-    let meta = fs::symlink_metadata(&file).map_err(|_| StatusCode::NOT_FOUND)?;
-    if !meta.is_file() || meta.len() > MAX_SINGLE_FILE as u64 {
+    let (mime, bytes) = read_asset(&panel, &id, &pid, &name)?;
+    if mime.starts_with("text/html") {
         return Err(StatusCode::NOT_FOUND);
     }
-    let bytes = fs::read(&file).map_err(|_| StatusCode::NOT_FOUND)?;
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime)
         .body(Body::from(bytes))
         .map_err(db_error)
+}
+
+pub(crate) fn read_asset(
+    panel: &Panel,
+    project: &str,
+    id: &str,
+    name: &str,
+) -> PageResult<(&'static str, Vec<u8>)> {
+    if !safe_name(project) || !proposal_record::safe_id(id) || !safe_asset(name) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let root = proposals_root(panel, project);
+    let proposal = proposal_record::read_proposal(&root.join(format!("{id}.json")))
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let artifact = proposal
+        .artifact
+        .as_ref()
+        .filter(|artifact| artifact.entry == name);
+    if artifact.is_none()
+        && !proposal
+            .attachments
+            .iter()
+            .any(|item| item.filename == name)
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let mime = if artifact.is_some_and(|a| matches!(a.kind, proposal_record::ArtifactKind::Html)) {
+        "text/html; charset=utf-8"
+    } else {
+        content_type_for(name).ok_or(StatusCode::NOT_FOUND)?.0
+    };
+    let file = root.join(id).join("assets").join(name);
+    let meta = fs::symlink_metadata(&file).map_err(|_| StatusCode::NOT_FOUND)?;
+    if !meta.is_file() || meta.len() > MAX_SINGLE_FILE as u64 {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let bytes = fs::read(&file).map_err(|_| StatusCode::NOT_FOUND)?;
+    Ok((mime, bytes))
 }
