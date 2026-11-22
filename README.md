@@ -8,12 +8,12 @@ The skill covers libcosmic, GPUI, Iced, Topcoat, Leptos, Yew, Tauri, Dioxus, egu
 
 ## Install from source
 
-Requirements: Git, a stable Rust toolchain with Cargo, and repository access. The minimum supported Rust version is 1.85.0. Cargo downloads the locked dependencies on the first build. Rust can be installed through [rustup](https://rustup.rs/).
+Requirements: Git, Rust 1.99 or newer with Cargo, and repository access. Cargo downloads the locked dependencies on the first build. Rust can be installed through [rustup](https://rustup.rs/).
 
 ```console
 git clone https://github.com/Lucas-BRT/rupicola.git
 cd rupicola
-cargo install --path . --locked
+cargo install --path apps/cli --locked
 rupicola --version
 ```
 
@@ -22,7 +22,7 @@ Ensure Cargo's binary directory is on `PATH`: normally `~/.cargo/bin` on Linux/m
 Install just the CLI directly from Git when Git authentication is configured:
 
 ```console
-cargo install --git https://github.com/Lucas-BRT/rupicola.git --locked
+cargo install --git https://github.com/Lucas-BRT/rupicola.git --locked rupicola
 ```
 
 The installed CLI needs neither Cargo nor a model API key. Core analysis commands run without Node.js. Headless web capture uses Node.js and Playwright. The local review panel is an optional executable. Inspected applications still require their own toolchains for compilation and runtime checks.
@@ -132,11 +132,11 @@ Project decisions live in `.rupicola/context.md` when explicitly requested. Visi
 ```sh
 rupicola capture settings.toml --out .rupicola/captures/before --video
 rupicola capture-review .rupicola/captures/before/manifest.json --note "The popup opens and its heading is visible."
-cargo install --path panel --locked
+cargo install --path apps/panel --locked
 rupicola serve --captures .rupicola/captures
 ```
 
-The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel indexes multiple capture roots and supports shared review behind an HTTPS reverse proxy. See [panel installation](panel/README.md), [scenario format and inspection](reference/capture-scenarios.md) and the [nested COSMIC applet spike](reference/libcosmic-capture-spike.md). `capture` handles HTTP(S) previews. On Linux, `capture-cosmic` uses an isolated panel host for two native applet checkpoints.
+The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel indexes multiple capture roots and supports shared review behind an HTTPS reverse proxy. See [panel installation](apps/panel/README.md), [scenario format and inspection](reference/capture-scenarios.md) and the [nested COSMIC applet spike](reference/libcosmic-capture-spike.md). `capture` handles HTTP(S) previews. On Linux, `capture-cosmic` uses an isolated panel host for two native applet checkpoints.
 
 ## Run the local panel in the background
 
@@ -144,8 +144,8 @@ On Linux, install the CLI and panel once, then register the panel with the user
 systemd manager:
 
 ```sh
-cargo install --path . --locked
-cargo install --path panel --locked
+cargo install --path apps/cli --locked
+cargo install --path apps/panel --locked
 rupicola setup
 ```
 
@@ -157,7 +157,7 @@ service resumes. Use `rupicola doctor` to check the link and service.
 `setup --print-unit` previews the unit.
 
 Open http://127.0.0.1:4731. The background service is local. Shared HTTPS
-publication still uses the [panel's explicit publish command](panel/README.md).
+publication still uses the [panel's explicit publish command](apps/panel/README.md).
 
 ## Record project design context
 

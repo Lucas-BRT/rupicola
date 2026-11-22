@@ -171,8 +171,8 @@ jobs:
           cp "target/$TARGET/release/$BINARY" dist/rupicola/
           cp README.md SKILL.md dist/rupicola/
           cp -R agents reference examples dist/rupicola/
-          mkdir -p dist/rupicola/panel dist/rupicola/evals
-          cp panel/README.md dist/rupicola/panel/
+          mkdir -p dist/rupicola/apps/panel dist/rupicola/evals
+          cp apps/panel/README.md dist/rupicola/apps/panel/
           cp evals/PREREG.md dist/rupicola/evals/
           "dist/rupicola/$BINARY" check dist/rupicola
           tar -czf "rupicola-$GITHUB_REF_NAME-$TARGET.tar.gz" -C dist rupicola

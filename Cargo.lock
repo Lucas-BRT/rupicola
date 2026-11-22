@@ -2134,14 +2134,42 @@ dependencies = [
 name = "rupicola"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
+ "clap",
+ "rupicola-core",
+ "rupicola-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "rupicola-capture"
+version = "0.2.0"
+source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?tag=v0.2.0#19ca312ce126a598ac8b77853e751cbf8c171460"
+dependencies = [
+ "rupicola-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rupicola-core"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
  "clap",
  "png",
  "proc-macro2",
  "pulldown-cmark",
+ "rupicola-capture",
+ "rupicola-protocol",
  "serde",
  "serde_json",
  "syn 2.0.119",
  "tempfile",
+ "thiserror",
  "toml 0.9.12+spec-1.1.0",
 ]
 
@@ -2149,12 +2177,13 @@ dependencies = [
 name = "rupicola-panel"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "argon2",
  "base64 0.22.1",
  "clap",
  "http",
  "rand 0.8.6",
- "rupicola",
+ "rupicola-core",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2165,6 +2194,15 @@ dependencies = [
  "tower-http",
  "turso",
  "url",
+]
+
+[[package]]
+name = "rupicola-protocol"
+version = "0.2.0"
+source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?tag=v0.2.0#19ca312ce126a598ac8b77853e751cbf8c171460"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3940,7 +3978,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "clap",
- "rupicola",
+ "rupicola-core",
  "serde_json",
 ]
 

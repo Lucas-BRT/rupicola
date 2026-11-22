@@ -1,7 +1,7 @@
 //! Evaluation runner and analyzer. `plan` and `analyze` are offline; `run` spawns an agent
 //! only with `--execute`. Never part of the distributed `rupicola` binary.
 use clap::{Args, Parser, Subcommand};
-use rupicola::evals::{Task, load};
+use rupicola_core::evals::{Task, load};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -141,7 +141,8 @@ type R<T> = Result<T, String>;
 
 #[allow(clippy::type_complexity)]
 fn matrix(m: &Matrix) -> R<(Vec<Task>, Vec<(String, String)>)> {
-    let tasks: Vec<Task> = load(&m.root)?
+    let tasks: Vec<Task> = load(&m.root)
+        .map_err(|e| format!("{e:#}"))?
         .into_iter()
         .filter(|t| t.split == m.split && (m.tasks.is_empty() || m.tasks.contains(&t.id)))
         .collect();
@@ -611,7 +612,8 @@ fn trigger_run(
     timeout: u64,
     no_isolate: bool,
 ) -> R<()> {
-    let prompts: Vec<_> = rupicola::evals::load_triggers(&m.root)?
+    let prompts: Vec<_> = rupicola_core::evals::load_triggers(&m.root)
+        .map_err(|e| format!("{e:#}"))?
         .into_iter()
         .filter(|t| t.split == m.split && (m.tasks.is_empty() || m.tasks.contains(&t.id)))
         .collect();

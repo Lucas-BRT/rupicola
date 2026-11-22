@@ -1,0 +1,26 @@
+[package]
+name = "rupicola-core"
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.99"
+description = "Shared domain, capture, scan, and record logic for Rupicola"
+repository = "https://github.com/Lucas-BRT/rupicola"
+publish = false
+
+[dependencies]
+anyhow = "=1.0.104"
+thiserror = "=2.0.21"
+rupicola-protocol = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", tag = "v0.2.0" }
+rupicola-capture = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", tag = "v0.2.0" }
+clap = { version = "=4.6.7", features = ["derive"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+toml = "=0.9.12"
+syn = { version = "=2.0.119", features = ["full", "visit"] }
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
+pulldown-cmark = "=0.13.6"
+png = "=0.18.1"
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true
