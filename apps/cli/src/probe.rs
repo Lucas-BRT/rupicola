@@ -244,128 +244,9 @@ fn find_node() -> &'static str {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the probe workflow keeps command setup, execution, and artifact processing in order"
-)]
-pub fn run(cfg: Config) -> Result<ProbeSummary> {
-    if !cfg.url.starts_with("http://") && !cfg.url.starts_with("https://") {
-        bail!("probe URL must start with http:// or https://");
-    }
-    let origin = cfg.url.trim_end_matches('/').to_owned();
-    let viewports = parse_viewports(&cfg.viewports, cfg.mode)?;
-    let themes: Vec<String> = cfg
-        .themes
-        .split(',')
-        .map(|s| s.trim().to_ascii_lowercase())
-        .filter(|s| matches!(s.as_str(), "dark" | "light"))
-        .collect();
-    let themes = if themes.is_empty() {
-        vec!["dark".into()]
-    } else {
-        themes
-    };
-    let crawl_all = cfg.mode.crawls_all(&cfg.pages);
-    let seed_pages: Vec<String> = if crawl_all || cfg.pages.trim().is_empty() {
-        vec!["/".into()]
-    } else {
-        cfg.pages
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| {
-                if s.starts_with('/') {
-                    s.to_owned()
-                } else {
-                    format!("/{s}")
-                }
-            })
-            .collect()
-    };
-
-    let output = match cfg.out {
-        Some(dir) => dir,
-        None => service::output()?,
-    };
-    let vp_labels: Vec<String> = viewports
-        .iter()
-        .map(|v| format!("{}x{}", v.width, v.height))
-        .collect();
-
-    if cfg.dry_run {
-        let est_pages = if crawl_all {
-            cfg.max_pages
-        } else {
-            seed_pages.len()
-        };
-        let total_cells = est_pages * viewports.len() * themes.len();
-        return Ok(ProbeSummary {
-            mode: cfg.mode.label().into(),
-            depth: cfg.mode.depth().into(),
-            output_dir: output.clone(),
-            manifest_path: output.join("manifest.json"),
-            pages: seed_pages,
-            viewports: vp_labels,
-            themes,
-            total_cells,
-            checkpoints: 0,
-            clips: 0,
-            findings_count: 0,
-            findings: Vec::new(),
-            status: "dry-run".into(),
-            blocker: None,
-        });
-    }
-
-    fs::create_dir_all(&output).with_context(|| format!("{}", output.display()))?;
-    let script = output.join(".rupicola-browser-probe.cjs");
-    fs::write(&script, include_str!("browser-probe.cjs"))
-        .with_context(|| format!("{}", script.display()))?;
-
-    let req = ProbeRequest {
-        origin: &origin,
-        pages_mode: if crawl_all { "all" } else { "selected" },
-        pages: seed_pages,
-        max_pages: cfg.max_pages.clamp(1, MAX_PAGES),
-        viewports: viewports.clone(),
-        themes: themes.clone(),
-        depth: cfg.mode.depth(),
-        output: &output,
-        module_path: cfg.playwright_module.as_deref(),
-        timeout_ms: PAGE_TIMEOUT_MS,
-    };
-    let payload = serde_json::to_vec(&req)?;
-
-    let mut child = Command::new(find_node())
-        .arg(&script)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("failed to launch node for probe")?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(&payload);
-    }
-    let out = child.wait_with_output()?;
-    let _ = fs::remove_file(&script);
-
-    let mut res: ProbeResponse = serde_json::from_slice(&out.stdout).unwrap_or(ProbeResponse {
-        browser: None,
-        blocker: Some(
-            String::from_utf8_lossy(&out.stderr)
-                .lines()
-                .next()
-                .unwrap_or("probe script failed")
-                .to_owned(),
-        ),
-        discovered_pages: Vec::new(),
-        checkpoints: Vec::new(),
-        clips: Vec::new(),
-        findings: Vec::new(),
-        trees: Vec::new(),
-    });
-
-    // Run visual::audit on every extracted DOM UI tree
+/// Runs `visual::audit` on every DOM tree the browser extracted, saving each tree
+/// and recording the first few findings per page.
+fn audit_trees(output: &Path, res: &mut ProbeResponse) {
     let trees_dir = output.join("trees");
     let _ = fs::create_dir_all(&trees_dir);
     for cell in &res.trees {
@@ -398,8 +279,10 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
             }
         }
     }
+}
 
-    // Build matrix contact sheet when >1 checkpoints exist
+/// Adds a contact sheet of every checkpoint when there is more than one.
+fn add_matrix_sheet(output: &Path, res: &mut ProbeResponse) {
     if res.checkpoints.len() > 1 {
         let shots_dir = output.join("checkpoints");
         let sheet_rel = PathBuf::from("checkpoints/matrix-sheet.png");
@@ -416,8 +299,11 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
             );
         }
     }
+}
 
-    // Analyze clips with visual::analyze_frames (+ optional MP4 video)
+/// Measures each clip's frames, writes its analysis and contact sheet, and
+/// encodes a preview video on request.
+fn analyze_clips(output: &Path, video: bool, res: &mut ProbeResponse) {
     for clip in &mut res.clips {
         let clip_dir = output.join("samples").join(&clip.id);
         if let Ok(report) = visual::analyze_frames(&clip_dir, visual::DEFAULT_DIFF_THRESHOLD) {
@@ -454,7 +340,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
         {
             clip.sheet_path = Some(sheet_rel);
         }
-        if cfg.video {
+        if video {
             let video_rel = PathBuf::from(format!("samples/{}/preview.mp4", clip.id));
             if rupicola_core::capture::encode_png_dir(
                 &clip_dir,
@@ -467,7 +353,102 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
             }
         }
     }
+}
 
+/// Themes the probe can render; anything else in the flag is ignored.
+const KNOWN_THEMES: [&str; 2] = ["dark", "light"];
+
+/// Splits `--themes`, keeping known themes and defaulting to dark.
+fn parse_themes(text: &str) -> Vec<String> {
+    let themes: Vec<String> = text
+        .split(',')
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| KNOWN_THEMES.contains(&s.as_str()))
+        .collect();
+    if themes.is_empty() {
+        vec![KNOWN_THEMES[0].into()]
+    } else {
+        themes
+    }
+}
+
+/// Routes to visit: the home page when crawling or none were given, otherwise the
+/// listed routes, each forced to start with a slash.
+fn seed_pages(pages: &str, crawl_all: bool) -> Vec<String> {
+    if crawl_all || pages.trim().is_empty() {
+        return vec!["/".into()];
+    }
+    pages
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            if s.starts_with('/') {
+                s.to_owned()
+            } else {
+                format!("/{s}")
+            }
+        })
+        .collect()
+}
+
+/// Runs the bundled Playwright script against `req` and reads its answer; a script
+/// that fails to answer becomes a blocker carrying its first stderr line.
+fn run_browser(output: &Path, req: &ProbeRequest) -> Result<ProbeResponse> {
+    let script = output.join(".rupicola-browser-probe.cjs");
+    fs::write(&script, include_str!("browser-probe.cjs"))
+        .with_context(|| format!("{}", script.display()))?;
+
+    let payload = serde_json::to_vec(req)?;
+
+    let mut child = Command::new(find_node())
+        .arg(&script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("failed to launch node for probe")?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(&payload);
+    }
+    let out = child.wait_with_output()?;
+    let _ = fs::remove_file(&script);
+
+    let res: ProbeResponse = serde_json::from_slice(&out.stdout).unwrap_or(ProbeResponse {
+        browser: None,
+        blocker: Some(
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .next()
+                .unwrap_or("probe script failed")
+                .to_owned(),
+        ),
+        discovered_pages: Vec::new(),
+        checkpoints: Vec::new(),
+        clips: Vec::new(),
+        findings: Vec::new(),
+        trees: Vec::new(),
+    });
+    Ok(res)
+}
+
+/// `blocked` when the browser reported a blocker, otherwise `complete`.
+fn probe_status(res: &ProbeResponse) -> &'static str {
+    if res.blocker.is_some() {
+        "blocked"
+    } else {
+        "complete"
+    }
+}
+
+/// The capture manifest for a finished probe: environment of the first viewport,
+/// status, findings and every checkpoint and clip.
+fn build_manifest(
+    mode: Mode,
+    res: &ProbeResponse,
+    viewports: &[Viewport],
+    themes: &[String],
+) -> serde_json::Value {
     let (project_id, project_label) =
         service::detect_project().unwrap_or_else(|_| ("rupicola".into(), "rupicola".into()));
     let created_at_ms = SystemTime::now()
@@ -477,11 +458,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
         width: DESKTOP_VIEWPORT.0,
         height: DESKTOP_VIEWPORT.1,
     });
-    let status = if res.blocker.is_some() {
-        "blocked"
-    } else {
-        "complete"
-    };
+    let status = probe_status(res);
     let inspection = if res.findings.is_empty() && res.blocker.is_none() {
         "reviewed"
     } else {
@@ -489,7 +466,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
     };
     let scenario_label = format!(
         "Probe {} · {}p × {}vp × {}t",
-        cfg.mode.label(),
+        mode.label(),
         res.discovered_pages.len().max(1),
         viewports.len(),
         themes.len()
@@ -519,7 +496,74 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
         "checkpoints": res.checkpoints,
         "clips": res.clips,
     });
+    manifest
+}
 
+pub fn run(cfg: Config) -> Result<ProbeSummary> {
+    if !cfg.url.starts_with("http://") && !cfg.url.starts_with("https://") {
+        bail!("probe URL must start with http:// or https://");
+    }
+    let origin = cfg.url.trim_end_matches('/').to_owned();
+    let viewports = parse_viewports(&cfg.viewports, cfg.mode)?;
+    let themes = parse_themes(&cfg.themes);
+    let crawl_all = cfg.mode.crawls_all(&cfg.pages);
+    let seed_pages = seed_pages(&cfg.pages, crawl_all);
+
+    let output = match cfg.out {
+        Some(dir) => dir,
+        None => service::output()?,
+    };
+    let vp_labels: Vec<String> = viewports
+        .iter()
+        .map(|v| format!("{}x{}", v.width, v.height))
+        .collect();
+
+    if cfg.dry_run {
+        let est_pages = if crawl_all {
+            cfg.max_pages
+        } else {
+            seed_pages.len()
+        };
+        let total_cells = est_pages * viewports.len() * themes.len();
+        return Ok(ProbeSummary {
+            mode: cfg.mode.label().into(),
+            depth: cfg.mode.depth().into(),
+            output_dir: output.clone(),
+            manifest_path: output.join("manifest.json"),
+            pages: seed_pages,
+            viewports: vp_labels,
+            themes,
+            total_cells,
+            checkpoints: 0,
+            clips: 0,
+            findings_count: 0,
+            findings: Vec::new(),
+            status: "dry-run".into(),
+            blocker: None,
+        });
+    }
+
+    fs::create_dir_all(&output).with_context(|| format!("{}", output.display()))?;
+    let req = ProbeRequest {
+        origin: &origin,
+        pages_mode: if crawl_all { "all" } else { "selected" },
+        pages: seed_pages,
+        max_pages: cfg.max_pages.clamp(1, MAX_PAGES),
+        viewports: viewports.clone(),
+        themes: themes.clone(),
+        depth: cfg.mode.depth(),
+        output: &output,
+        module_path: cfg.playwright_module.as_deref(),
+        timeout_ms: PAGE_TIMEOUT_MS,
+    };
+    let mut res = run_browser(&output, &req)?;
+    audit_trees(&output, &mut res);
+    add_matrix_sheet(&output, &mut res);
+    analyze_clips(&output, cfg.video, &mut res);
+
+    let manifest = build_manifest(cfg.mode, &res, &viewports, &themes);
+
+    let status = probe_status(&res);
     let manifest_path = output.join("manifest.json");
     fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)
         .with_context(|| format!("{}", manifest_path.display()))?;
