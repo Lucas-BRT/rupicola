@@ -296,6 +296,71 @@ pub struct CaptureSummary {
     pub preview: Option<String>,
 }
 
+/// `POST /v1/projects/{id}/invites`. The code is valid for `hours` (default 24,
+/// at most 168).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NewInvite {
+    pub role: Role,
+    #[serde(default)]
+    pub hours: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct Invite {
+    /// SHA-256 of the code; the code itself is shown only once.
+    pub id: String,
+    pub role: Role,
+    pub created_by: Option<String>,
+    pub expires_at: i64,
+}
+
+/// A new invitation: give `code` to the invitee.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct IssuedInvite {
+    pub code: String,
+    pub invite: Invite,
+}
+
+/// `POST /v1/register`: create an account with an invitation code.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Register {
+    pub code: String,
+    pub handle: String,
+    pub password: String,
+}
+
+/// `POST /v1/invites/redeem`: a signed-in person joins the inviting project.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Redeem {
+    pub code: String,
+}
+
+/// `POST /v1/tokens` and `POST /v1/projects/{id}/devices`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NewCredential {
+    pub label: String,
+}
+
+/// A credential as listed to its owner. The secret is never shown again.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct Credential {
+    /// SHA-256 of the secret; use it to revoke the credential.
+    pub id: String,
+    pub kind: TokenKind,
+    pub label: String,
+    pub project_id: Option<String>,
+    pub created_at: i64,
+    pub expires_at: Option<i64>,
+    pub last_used_at: Option<i64>,
+}
+
+/// A new credential: `token` is the bearer secret, shown only this once.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct IssuedCredential {
+    pub token: String,
+    pub credential: Credential,
+}
+
 /// Body of every non-2xx API response.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct ErrorBody {

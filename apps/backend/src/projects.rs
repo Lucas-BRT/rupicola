@@ -76,7 +76,7 @@ pub async fn access(
         .ok_or(ApiError::NotFound)
 }
 
-fn parse_role(text: &str) -> Option<Role> {
+pub(crate) fn parse_role(text: &str) -> Option<Role> {
     match text {
         "owner" => Some(Role::Owner),
         "reviewer" => Some(Role::Reviewer),
@@ -85,7 +85,7 @@ fn parse_role(text: &str) -> Option<Role> {
     }
 }
 
-const fn role_text(role: Role) -> &'static str {
+pub(crate) const fn role_text(role: Role) -> &'static str {
     match role {
         Role::Owner => "owner",
         Role::Reviewer => "reviewer",
@@ -113,7 +113,7 @@ fn clean_label(label: &str) -> Result<String, ApiError> {
 }
 
 /// The person behind a session or machine token; devices act for no one.
-fn person(principal: &Principal) -> Result<&str, ApiError> {
+pub(crate) fn person(principal: &Principal) -> Result<&str, ApiError> {
     match (principal.kind, principal.handle.as_deref()) {
         (TokenKind::Session | TokenKind::Machine, Some(handle)) => Ok(handle),
         _ => Err(ApiError::Forbidden),

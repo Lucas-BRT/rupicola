@@ -52,7 +52,7 @@ pub fn digest(secret: &str) -> String {
     format!("{:x}", Sha256::digest(secret.as_bytes()))
 }
 
-fn valid_handle(handle: &str) -> bool {
+pub(crate) fn valid_handle(handle: &str) -> bool {
     (3..=48).contains(&handle.len())
         && handle
             .bytes()
@@ -77,7 +77,7 @@ impl Passwords {
         })
     }
 
-    async fn hash(&self, password: String) -> Result<String, ApiError> {
+    pub(crate) async fn hash(&self, password: String) -> Result<String, ApiError> {
         let permit = self.permit()?;
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
@@ -126,7 +126,7 @@ pub(crate) fn hash(password: &str) -> anyhow::Result<String> {
 pub struct Lockout(Mutex<HashMap<String, (u32, i64)>>);
 
 impl Lockout {
-    async fn retry_after(&self, handle: &str) -> Option<u64> {
+    pub(crate) async fn retry_after(&self, handle: &str) -> Option<u64> {
         let mut entries = self.0.lock().await;
         let current = now_ms();
         entries.retain(|_, (_, since)| current - *since < LOCK_MS);
@@ -138,7 +138,7 @@ impl Lockout {
             })
     }
 
-    async fn fail(&self, handle: &str) {
+    pub(crate) async fn fail(&self, handle: &str) {
         let mut entries = self.0.lock().await;
         let entry = entries.entry(handle.to_owned()).or_insert((0, now_ms()));
         entry.0 = entry.0.saturating_add(1);
@@ -155,7 +155,7 @@ pub struct Principal {
     pub handle: Option<String>,
     pub admin: bool,
     pub project: Option<String>,
-    digest: String,
+    pub(crate) digest: String,
 }
 
 impl FromRequestParts<Shared> for Principal {
@@ -230,7 +230,7 @@ pub async fn sign_in(
     ))
 }
 
-async fn issue_session(state: &Shared, handle: &str) -> Result<SessionToken, ApiError> {
+pub(crate) async fn issue_session(state: &Shared, handle: &str) -> Result<SessionToken, ApiError> {
     let secret = token();
     let created_at = now_ms();
     let expires_at = created_at + SESSION_AGE_MS;

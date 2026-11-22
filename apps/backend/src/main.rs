@@ -4,6 +4,7 @@
 mod auth;
 mod blobs;
 mod captures;
+mod credentials;
 mod db;
 mod error;
 mod projects;
@@ -55,6 +56,8 @@ fn app(settings: &security::Security, state: state::Shared) -> Router {
     let credentials = Router::new()
         .route("/v1/sessions", routing::post(auth::sign_in))
         .route("/v1/setup", routing::post(auth::setup))
+        .route("/v1/register", routing::post(credentials::register))
+        .route("/v1/invites/redeem", routing::post(credentials::redeem))
         .route_layer(sign_in_limit);
     let api = Router::new()
         .route("/healthz", routing::get(health))
@@ -86,6 +89,30 @@ fn app(settings: &security::Security, state: state::Shared) -> Router {
             routing::post(captures::add_finding),
         )
         .route("/v1/artifacts/{id}", routing::get(captures::artifact))
+        .route(
+            "/v1/tokens",
+            routing::get(credentials::list_tokens).post(credentials::create_token),
+        )
+        .route(
+            "/v1/tokens/{id}",
+            routing::delete(credentials::delete_token),
+        )
+        .route(
+            "/v1/projects/{id}/devices",
+            routing::get(credentials::list_devices).post(credentials::create_device),
+        )
+        .route(
+            "/v1/projects/{id}/devices/{device}",
+            routing::delete(credentials::delete_device),
+        )
+        .route(
+            "/v1/projects/{id}/invites",
+            routing::get(credentials::list_invites).post(credentials::create_invite),
+        )
+        .route(
+            "/v1/projects/{id}/invites/{invite}",
+            routing::delete(credentials::delete_invite),
+        )
         .merge(credentials);
     let uploads = Router::new().route(
         "/v1/blobs/{sha256}",
