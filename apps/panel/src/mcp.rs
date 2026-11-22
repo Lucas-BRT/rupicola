@@ -825,6 +825,7 @@ mod tests {
             login_attempts: tokio::sync::Mutex::default(),
             uploads: None,
             mcp_write: true,
+            blobs: crate::blobs::Blobs::open(temp.path().join("blobs")).unwrap(),
         };
         let request = json!({"method":"tools/call","params":{"name":"problem_create",
             "arguments":{"project":"sample","key":"problem-1","record":{

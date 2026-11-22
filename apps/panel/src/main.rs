@@ -71,7 +71,10 @@ macro_rules! shell {
 }
 
 mod auth;
+mod blobs;
+mod capture_store;
 mod components;
+mod db;
 mod design_system;
 mod ingest;
 mod mcp;
@@ -142,6 +145,7 @@ struct Panel {
     mcp_write: bool,
     login_attempts: Mutex<BTreeMap<String, (u32, i64)>>,
     uploads: Option<PathBuf>,
+    blobs: blobs::Blobs,
 }
 
 struct Run {
@@ -210,6 +214,7 @@ async fn main() -> Result<(), BoxError> {
         )
         .await?;
 
+    db::migrate(&index).await?;
     auth::init(&index).await?;
     design_system::init(&index).await?;
     records_index::init(&index).await?;
@@ -299,6 +304,18 @@ async fn main() -> Result<(), BoxError> {
         }
         roots.push(path.clone());
     }
+    let data_dir = db_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(FilePath::new("."));
+    let blobs = blobs::Blobs::open(data_dir.join("blobs"))?;
+    let imported = capture_store::import_roots(&index, &blobs, &roots).await?;
+    if imported.captures > 0 {
+        println!(
+            "Imported {} capture runs into the database ({} declared files missing)",
+            imported.captures, imported.missing_files
+        );
+    }
     let panel = Arc::new(Panel {
         design: db_path
             .parent()
@@ -318,6 +335,7 @@ async fn main() -> Result<(), BoxError> {
         mcp_write: std::env::var("RUPICOLA_MCP_WRITE").as_deref() == Ok("1"),
         login_attempts: Mutex::new(BTreeMap::new()),
         uploads,
+        blobs,
     });
     let app = routes::router(panel);
     println!("Listening on {bind_ip}:{port} · {origin}");

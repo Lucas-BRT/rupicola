@@ -1,6 +1,6 @@
 //! Manifest schema shared by capture import and panel storage.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub struct Project {
@@ -25,13 +25,13 @@ pub struct Manifest {
     pub findings: Vec<Finding>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Finding {
     pub note: String,
     pub evidence: Option<String>,
 }
 
-#[derive(Deserialize, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
 pub struct Environment {
     #[serde(default)]
     pub color_scheme: String,

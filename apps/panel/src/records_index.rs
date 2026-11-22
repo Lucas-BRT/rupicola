@@ -253,20 +253,6 @@ pub async fn upsert_capture_with_artifacts(
     Ok(())
 }
 
-/// Checks whether `relative_path` is registered in `artifacts_v1` for `project_id`.
-pub async fn has_indexed_artifact(db: &Connection, project_id: &str, relative_path: &str) -> bool {
-    let Ok(mut rows) = db
-        .query(
-            "SELECT 1 FROM artifacts_v1 WHERE project_id = ?1 AND path = ?2 LIMIT 1",
-            turso::params![project_id, relative_path],
-        )
-        .await
-    else {
-        return false;
-    };
-    matches!(rows.next().await, Ok(Some(_)))
-}
-
 /// Scans `data_root/{problems,fixes,proposes}` on startup, indexing valid JSON
 /// records into SQLite and logging any malformed JSON instead of failing silently.
 ///
@@ -404,9 +390,5 @@ mod tests {
             created_at_ms: 1,
         };
         upsert_capture_with_artifacts(&conn, &cap).await.unwrap();
-        assert!(has_indexed_artifact(&conn, "proj1", "clips/walkthrough-annotated.gif").await);
-        assert!(
-            !has_indexed_artifact(&conn, "other-proj", "clips/walkthrough-annotated.gif").await
-        );
     }
 }

@@ -19,6 +19,7 @@ path_param!(problem);
 path_param!(fix);
 path_param!(asset);
 path_param!(root: usize);
+path_param!(artifact_id);
 path_param!(name);
 path_param!(*file);
 
@@ -67,6 +68,7 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(run)
         .route(inspect)
         .route(artifact)
+        .route(artifact_by_id)
         .route(publish)
         .route(global_mcp)
         .route(remote_mcp)
@@ -313,6 +315,23 @@ async fn artifact(cx: &Cx) -> Result<Response> {
             account(cx),
             panel(cx),
             (root, name, parts.join("/")),
+            request,
+        )
+        .await,
+    )
+}
+
+#[route([GET, HEAD] "/media/a/{artifact_id}")]
+async fn artifact_by_id(cx: &Cx) -> Result<Response> {
+    let mut request = Request::new(Body::empty());
+    *request.method_mut() = request::method(cx).clone();
+    *request.headers_mut() = request::headers(cx).clone();
+    respond(
+        cx,
+        media::by_id(
+            account(cx),
+            panel(cx),
+            path_param::<ArtifactId>(cx).into(),
             request,
         )
         .await,

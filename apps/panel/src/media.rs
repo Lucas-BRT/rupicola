@@ -1,8 +1,25 @@
 use super::{
     Account, Arc, Body, Component, FilePath, Manifest, PageResult, Panel, Request, Response,
-    ServeFile, StatusCode, auth, fs, read_manifest, records_index, run_dir,
+    ServeFile, StatusCode, auth, capture_store, db_error, fs, header, run_dir,
 };
+use capture_store::ArtifactRef;
 
+/// Serves an artifact by id: `/media/a/{id}`.
+pub async fn by_id(
+    account: Account,
+    panel: Arc<Panel>,
+    id: String,
+    request: Request,
+) -> PageResult<Response> {
+    let found = capture_store::artifact(&*panel.index.lock().await, &id)
+        .await
+        .map_err(db_error)?;
+    serve(&panel, &account, found, request).await
+}
+
+/// Serves an artifact by the run path recorded before captures moved into the
+/// database: `/media/{root}/{name}/{file}`. A run written after startup is imported
+/// on first request.
 pub async fn file(
     account: Account,
     panel: Arc<Panel>,
@@ -10,27 +27,46 @@ pub async fn file(
     request: Request,
 ) -> PageResult<Response> {
     let dir = run_dir(&panel, root, &name).ok_or(StatusCode::NOT_FOUND)?;
-    let manifest = read_manifest(&dir).ok_or(StatusCode::NOT_FOUND)?;
-    auth::role(&panel, &account, &manifest.project.id).await?;
-    let source = match resolve_artifact(dir.clone(), &manifest, &file) {
-        Ok(path) => path,
-        Err(StatusCode::NOT_FOUND)
-            if records_index::has_indexed_artifact(
-                &*panel.index.lock().await,
-                &manifest.project.id,
-                &file,
-            )
-            .await =>
-        {
-            resolve_checked_path(dir, &file)?
+    let root_key = capture_store::root_key(&panel.roots[root]).map_err(db_error)?;
+    let found = {
+        let db = panel.index.lock().await;
+        let mut found = capture_store::legacy_artifact(&db, &root_key, &name, &file)
+            .await
+            .map_err(db_error)?;
+        if found.is_none() {
+            capture_store::import_run(&db, &panel.blobs, &root_key, &dir, &name)
+                .await
+                .map_err(db_error)?;
+            found = capture_store::legacy_artifact(&db, &root_key, &name, &file)
+                .await
+                .map_err(db_error)?;
         }
-        Err(err) => return Err(err),
+        found
     };
-    Ok(ServeFile::new(source)
+    serve(&panel, &account, found, request).await
+}
+
+async fn serve(
+    panel: &Panel,
+    account: &Account,
+    found: Option<ArtifactRef>,
+    request: Request,
+) -> PageResult<Response> {
+    let artifact = found.ok_or(StatusCode::NOT_FOUND)?;
+    auth::role(panel, account, &artifact.project_id).await?;
+    let source = panel
+        .blobs
+        .path(&artifact.sha256)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let mut response = ServeFile::new(source)
         .try_call(request)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .map(Body::new))
+        .map(Body::new);
+    // Blobs have no extension, so the stored media type replaces the guessed one.
+    let mime = header::HeaderValue::from_str(&artifact.mime).map_err(db_error)?;
+    response.headers_mut().insert(header::CONTENT_TYPE, mime);
+    Ok(response)
 }
 
 pub fn resolve_artifact(
@@ -44,7 +80,10 @@ pub fn resolve_artifact(
     resolve_checked_path(dir, file)
 }
 
-fn resolve_checked_path(dir: std::path::PathBuf, file: &str) -> PageResult<std::path::PathBuf> {
+pub(crate) fn resolve_checked_path(
+    dir: std::path::PathBuf,
+    file: &str,
+) -> PageResult<std::path::PathBuf> {
     let path = FilePath::new(file);
     if !matches!(
         path.extension().and_then(|ext| ext.to_str()),
