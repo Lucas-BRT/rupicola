@@ -4,13 +4,13 @@ use crate::{EXIT_CLEAN, Result, api::Client, mcp_bridge, publish::Bundle};
 use anyhow::bail;
 use std::path::PathBuf;
 
-/// Where the hosted backend lives.
-const DEFAULT_SERVER_URL: &str = "https://rupicola.lucasbrt.dev";
+/// Environment variable naming the backend, so no address is baked into the binary.
+const SERVER_URL_ENV: &str = "RUPICOLA_SERVER_URL";
 
 #[derive(clap::Args)]
 pub struct McpBridgeArgs {
     /// Base URL of the Rupicola backend (a trailing /mcp is accepted).
-    #[arg(long, default_value = DEFAULT_SERVER_URL)]
+    #[arg(long, env = SERVER_URL_ENV)]
     server_url: String,
 }
 
@@ -28,7 +28,7 @@ pub struct PublishArgs {
     #[arg(long)]
     project: Option<String>,
     /// Base URL of the Rupicola backend.
-    #[arg(long, default_value = DEFAULT_SERVER_URL)]
+    #[arg(long, env = SERVER_URL_ENV)]
     server_url: String,
 }
 

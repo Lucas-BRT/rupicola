@@ -14,7 +14,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
-clap.workspace = true
+clap = { workspace = true, features = ["env"] }
 rupicola-api.workspace = true
 rupicola-core = { workspace = true, features = ["clap"] }
 rupicola-protocol.workspace = true
