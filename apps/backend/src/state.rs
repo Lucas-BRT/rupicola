@@ -29,8 +29,21 @@ impl AppState {
         setup_code: Option<&str>,
         open_setup: bool,
     ) -> anyhow::Result<Shared> {
+        Self::new(crate::db::open(path).await?, setup_code, open_setup)
+    }
+
+    /// Builds the state around an already migrated pool.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the password hasher cannot start.
+    pub fn new(
+        db: SqlitePool,
+        setup_code: Option<&str>,
+        open_setup: bool,
+    ) -> anyhow::Result<Shared> {
         Ok(Arc::new(Self {
-            db: crate::db::open(path).await?,
+            db,
             passwords: Passwords::new()?,
             lockout: Lockout::default(),
             setup_code: setup_code.map(crate::auth::digest),

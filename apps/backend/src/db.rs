@@ -34,18 +34,34 @@ pub async fn open(path: &Path) -> anyhow::Result<SqlitePool> {
         .connect_with(options)
         .await
         .with_context(|| format!("cannot open {}", path.display()))?;
-    MIGRATOR
-        .run(&pool)
-        .await
-        .context("database migration failed")?;
+    migrate(&pool).await?;
     Ok(pool)
 }
 
+/// An empty, migrated in-memory database for tests. An in-memory database lives
+/// only as long as its connection, so the pool holds exactly one that never expires.
 #[cfg(test)]
-pub(crate) async fn open_test() -> (tempfile::TempDir, SqlitePool) {
-    let dir = tempfile::tempdir().unwrap();
-    let pool = open(&dir.path().join("panel.db")).await.unwrap();
-    (dir, pool)
+pub(crate) async fn open_memory() -> SqlitePool {
+    let options = SqliteConnectOptions::new()
+        .in_memory(true)
+        .foreign_keys(true);
+    let pool = SqlitePoolOptions::new()
+        .min_connections(1)
+        .max_connections(1)
+        .idle_timeout(None)
+        .max_lifetime(None)
+        .connect_with(options)
+        .await
+        .expect("in-memory SQLite opens");
+    migrate(&pool).await.expect("migrations apply");
+    pool
+}
+
+async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
+    MIGRATOR
+        .run(pool)
+        .await
+        .context("database migration failed")
 }
 
 #[cfg(test)]
@@ -53,13 +69,11 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn reopening_applies_nothing_twice() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("panel.db");
-        open(&path).await.unwrap().close().await;
-        let pool = open(&path).await.unwrap();
+    async fn migrations_apply_once() {
+        let db = open_memory().await;
+        migrate(&db).await.unwrap();
         let applied: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
-            .fetch_one(&pool)
+            .fetch_one(&db)
             .await
             .unwrap();
         assert_eq!(applied, i64::try_from(MIGRATOR.iter().count()).unwrap());
@@ -67,7 +81,7 @@ mod tests {
 
     #[tokio::test]
     async fn foreign_keys_and_checks_are_enforced() {
-        let (_dir, db) = open_test().await;
+        let db = open_memory().await;
         let orphan = sqlx::query(
             "INSERT INTO members (project_id, handle, role) VALUES ('nope', 'nobody', 'reader')",
         )
@@ -99,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_device_token_needs_a_project_and_no_person() {
-        let (_dir, db) = open_test().await;
+        let db = open_memory().await;
         sqlx::raw_sql(
             "INSERT INTO accounts VALUES ('ana', 'hash', 0, 0);
              INSERT INTO projects VALUES ('demo', 'Demo', 0);",
