@@ -264,5 +264,7 @@ mod tests {
         .await;
 
         assert!(response.starts_with("HTTP/1.1 413"), "{response}");
+        let error: rupicola_api::ErrorBody = serde_json::from_str(body(&response)).unwrap();
+        assert_eq!(error.code, "payload-too-large");
     }
 }

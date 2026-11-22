@@ -79,6 +79,19 @@ impl KeyExtractor for ClientIp {
     }
 }
 
+/// The body limit answers 413 in plain text; give it the same JSON body as every
+/// other error.
+async fn json_payload_too_large(response: axum::response::Response) -> axum::response::Response {
+    let is_json = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"application/json"));
+    if response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE && !is_json {
+        return ApiError::PayloadTooLarge.into_response();
+    }
+    response
+}
+
 /// Wraps `router` with every protection. Must run inside a Tokio runtime: it starts
 /// the task that forgets idle rate-limit entries.
 ///
@@ -142,6 +155,7 @@ pub fn harden(router: Router, settings: &Security) -> Router {
                 .timeout(Duration::from_secs(settings.request_timeout)),
         )
         .layer(RequestBodyLimitLayer::new(settings.body_limit))
+        .layer(axum::middleware::map_response(json_payload_too_large))
         .layer(GovernorLayer::new(governor).error_handler(|error| {
             match error {
                 GovernorError::TooManyRequests { wait_time, .. } => ApiError::TooManyRequests {

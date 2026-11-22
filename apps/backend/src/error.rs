@@ -17,6 +17,8 @@ pub enum ApiError {
     Timeout,
     #[error("the server is busy; retry shortly")]
     Overloaded,
+    #[error("the request body is too large")]
+    PayloadTooLarge,
     /// Unexpected failure; details go to the log, never to the client.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -29,6 +31,7 @@ impl ApiError {
             Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Timeout => StatusCode::REQUEST_TIMEOUT,
             Self::Overloaded => StatusCode::SERVICE_UNAVAILABLE,
+            Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -39,6 +42,7 @@ impl ApiError {
             Self::TooManyRequests { .. } => "rate-limited",
             Self::Timeout => "timeout",
             Self::Overloaded => "overloaded",
+            Self::PayloadTooLarge => "payload-too-large",
             Self::Internal(_) => "internal",
         }
     }
