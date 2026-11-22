@@ -7,6 +7,11 @@ use std::{
 };
 use syn::visit::{self, Visit};
 
+/// Characters of the offending line quoted in a finding.
+const MAX_EXCERPT_CHARS: usize = 160;
+/// Largest source file scanned, in bytes.
+const MAX_SOURCE_BYTES: usize = 1_000_000;
+
 pub const RULES: &[(&str, &str)] = &[
     (
         "transition-all",
@@ -132,7 +137,7 @@ impl Inspector<'_> {
                 .unwrap_or("")
                 .trim()
                 .chars()
-                .take(160)
+                .take(MAX_EXCERPT_CHARS)
                 .collect(),
             message: RULES.iter().find(|(r, _)| *r == id).unwrap().1.to_owned(),
             status: "candidate: verify in context",
@@ -349,10 +354,10 @@ pub fn scan(root: &Path, explicit: Option<&str>, include_tests: bool) -> anyhow:
                 continue;
             }
         };
-        if text.len() > 1_000_000 {
+        if text.len() > MAX_SOURCE_BYTES {
             result.diagnostics.push(Diagnostic {
                 path,
-                message: "source exceeds the 1 MB scan limit".into(),
+                message: format!("source exceeds the {MAX_SOURCE_BYTES}-byte scan limit"),
             });
             continue;
         }

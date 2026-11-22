@@ -67,9 +67,12 @@ pub struct Entry {
     pub author: Option<String>,
 }
 
+/// Largest design record file read.
+const MAX_RECORD_BYTES: u64 = 128 * 1024;
+
 fn read<T: serde::de::DeserializeOwned>(file: &Path) -> io::Result<T> {
     let metadata = fs::symlink_metadata(file)?;
-    if !metadata.is_file() || metadata.len() > 128 * 1024 {
+    if !metadata.is_file() || metadata.len() > MAX_RECORD_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "design record must be a regular file of 128 KiB or less",

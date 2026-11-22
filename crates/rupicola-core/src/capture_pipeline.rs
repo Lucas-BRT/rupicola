@@ -5,6 +5,11 @@ use rupicola_protocol::{ToolkitKind, UiAction, UiSnapshot, WidgetBox};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// Width and height in pixels.
+pub type Dimensions = [u32; 2];
+/// A widget rectangle in pixels: x, y, width, height.
+pub type PixelBox = [u32; 4];
+
 /// Origin that initiated a capture run.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -54,7 +59,7 @@ pub enum CaptureBackendKind {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MiddleendEnv {
     pub runtime: String,
-    pub viewport: [u32; 2],
+    pub viewport: Dimensions,
     #[serde(default = "default_scale")]
     pub scale_factor: f32,
     #[serde(default = "default_theme")]
@@ -202,7 +207,7 @@ pub struct CapturedCheckpoint {
     pub id: String,
     pub label: String,
     pub image_path: PathBuf,
-    pub dimensions: [u32; 2],
+    pub dimensions: Dimensions,
     #[serde(default)]
     pub boxes: Vec<WidgetBoxJson>,
 }
@@ -214,7 +219,7 @@ pub struct WidgetBoxJson {
     pub role: String,
     #[serde(default)]
     pub label: Option<String>,
-    pub pixel_box: [u32; 4],
+    pub pixel_box: PixelBox,
 }
 
 impl WidgetBoxJson {
@@ -235,7 +240,7 @@ pub struct CapturedClip {
     pub id: String,
     pub video_path: PathBuf,
     pub duration_ms: u64,
-    pub dimensions: [u32; 2],
+    pub dimensions: Dimensions,
 }
 
 /// Backend-agnostic bundle returned by [`Orchestrator::run`].

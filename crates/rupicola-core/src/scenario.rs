@@ -167,6 +167,42 @@ struct ClipAnalysis {
     selected_indices: Vec<usize>,
 }
 
+/// Longest identifier (project id, step id, app id label).
+const MAX_IDENTIFIER_LEN: usize = 64;
+/// Longest scenario step timeout, in milliseconds.
+const MAX_TIMEOUT_MS: u32 = 30_000;
+/// Largest viewport side, device scale range and total device pixels (8.3 MP,
+/// about a 4K screen).
+const MAX_VIEWPORT_SIDE: u32 = 4096;
+const MIN_SCALE: f64 = 0.5;
+const MAX_SCALE: f64 = 3.0;
+const MAX_DEVICE_PIXELS: f64 = 8_300_000.0;
+/// Most steps in one scenario.
+const MAX_STEPS: usize = 64;
+/// A clip: frame count and spacing ranges, and its longest span.
+const CLIP_SAMPLES: std::ops::RangeInclusive<usize> = 2..=60;
+const CLIP_INTERVAL_MS: std::ops::RangeInclusive<u32> = 1..=1000;
+const MAX_CLIP_SPAN_MS: usize = 10_000;
+/// Decoded RGBA bytes one clip may hold in memory (256 MiB).
+const MAX_CLIP_DECODED_BYTES: f64 = 256.0 * 1024.0 * 1024.0;
+/// Longest COSMIC app id.
+const MAX_APP_ID_LEN: usize = 128;
+/// Size of the virtual display the COSMIC capture runs in.
+const COSMIC_DISPLAY_WIDTH: u32 = 1280;
+const COSMIC_DISPLAY_HEIGHT: u32 = 800;
+/// Checkpoints the COSMIC applet capture produces (closed and open).
+const COSMIC_CHECKPOINTS: usize = 2;
+/// Stalled and jumping frames kept in a clip's selection, at most.
+const KEPT_STALLS: usize = 3;
+const KEPT_JUMPS: usize = 3;
+/// Frame-rate range for clip previews.
+const MIN_PREVIEW_FPS: f64 = 1.0;
+const MAX_PREVIEW_FPS: f64 = 120.0;
+const MS_PER_SEC: f64 = 1000.0;
+/// Contact sheet columns and thumbnail width.
+const SHEET_COLUMNS: usize = 4;
+const SHEET_THUMB_WIDTH: u32 = 240;
+
 #[derive(Serialize)]
 struct Sample {
     target_ms: u64,
@@ -176,7 +212,7 @@ struct Sample {
 #[must_use]
 pub fn identifier(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 64
+        && value.len() <= MAX_IDENTIFIER_LEN
         && value.as_bytes()[0].is_ascii_alphanumeric()
         && value
             .bytes()
@@ -212,8 +248,11 @@ impl Scenario {
         {
             bail!("scenario URL must use HTTP or HTTPS");
         }
-        if self.timeout_ms.is_some_and(|n| !(1..=30_000).contains(&n)) {
-            bail!("timeout_ms must be in 1..=30000");
+        if self
+            .timeout_ms
+            .is_some_and(|n| !(1..=MAX_TIMEOUT_MS).contains(&n))
+        {
+            bail!("timeout_ms must be in 1..={MAX_TIMEOUT_MS}");
         }
         let Profile {
             width,
@@ -222,16 +261,20 @@ impl Scenario {
             ref locale,
             ..
         } = self.profile;
-        if !(1..=4096).contains(&width)
-            || !(1..=4096).contains(&height)
-            || !(0.5..=3.0).contains(&scale)
+        if !(1..=MAX_VIEWPORT_SIDE).contains(&width)
+            || !(1..=MAX_VIEWPORT_SIDE).contains(&height)
+            || !(MIN_SCALE..=MAX_SCALE).contains(&scale)
             || locale.trim().is_empty()
-            || (f64::from(width) * scale).ceil() * (f64::from(height) * scale).ceil() > 8_300_000.0
+            || (f64::from(width) * scale).ceil() * (f64::from(height) * scale).ceil()
+                > MAX_DEVICE_PIXELS
         {
-            bail!("invalid viewport, device scale or locale (maximum 8.3 million device pixels)");
+            bail!(
+                "invalid viewport, device scale or locale (sides up to {MAX_VIEWPORT_SIDE}, scale \
+                 {MIN_SCALE}–{MAX_SCALE}, at most {MAX_DEVICE_PIXELS} device pixels)"
+            );
         }
-        if self.steps.is_empty() || self.steps.len() > 64 {
-            bail!("provide between 1 and 64 steps");
+        if self.steps.is_empty() || self.steps.len() > MAX_STEPS {
+            bail!("provide between 1 and {MAX_STEPS} steps");
         }
         let mut ids = HashSet::new();
         let mut captures = 0;
@@ -244,20 +287,32 @@ impl Scenario {
                     interval_ms,
                     ..
                 } => {
-                    if !(2..=60).contains(samples)
-                        || !(1..=1000).contains(interval_ms)
+                    if !CLIP_SAMPLES.contains(samples)
+                        || !CLIP_INTERVAL_MS.contains(interval_ms)
                         || (*samples - 1) * usize::try_from(*interval_ms).unwrap_or(usize::MAX)
-                            > 10_000
+                            > MAX_CLIP_SPAN_MS
                     {
                         bail!(
-                            "clip {id} needs 2..=60 samples spaced 1..=1000 ms across at most 10 seconds"
+                            "clip {id} needs {}..={} samples spaced {}..={} ms across at most \
+                             {MAX_CLIP_SPAN_MS} ms",
+                            CLIP_SAMPLES.start(),
+                            CLIP_SAMPLES.end(),
+                            CLIP_INTERVAL_MS.start(),
+                            CLIP_INTERVAL_MS.end()
                         );
                     }
                     let pixels =
                         (f64::from(width) * scale).ceil() * (f64::from(height) * scale).ceil();
                     let frame_count = u32::try_from(*samples + 1)?;
-                    if pixels * f64::from(frame_count) * 4.0 > 268_435_456.0 {
-                        bail!("clip {id} exceeds 256 MiB decoded frame budget");
+                    #[expect(
+                        clippy::cast_precision_loss,
+                        reason = "the channel count is tiny and exact in f64"
+                    )]
+                    let channels = visual::RGBA_CHANNELS as f64;
+                    if pixels * f64::from(frame_count) * channels > MAX_CLIP_DECODED_BYTES {
+                        bail!(
+                            "clip {id} exceeds the {MAX_CLIP_DECODED_BYTES}-byte decoded frame budget"
+                        );
                     }
                     id
                 }
@@ -371,11 +426,14 @@ pub fn cosmic(options: CosmicCapture, output: &Path) -> Result<Manifest> {
     if !identifier(&options.project_id) || options.project_label.trim().is_empty() {
         bail!("provide a project label and simple project ID");
     }
-    if options.app_id.len() > 128 || !options.app_id.split('.').all(identifier) {
+    if options.app_id.len() > MAX_APP_ID_LEN || !options.app_id.split('.').all(identifier) {
         bail!("provide a valid app ID (dot-separated labels)");
     }
-    if options.x >= 1280 || options.y >= 800 {
-        bail!("click coordinates must be inside the 1280x800 virtual display");
+    if options.x >= COSMIC_DISPLAY_WIDTH || options.y >= COSMIC_DISPLAY_HEIGHT {
+        bail!(
+            "click coordinates must be inside the {COSMIC_DISPLAY_WIDTH}x{COSMIC_DISPLAY_HEIGHT} \
+             virtual display"
+        );
     }
     let output = new_run(output)?;
     let created_at_ms = now_ms()?;
@@ -393,7 +451,7 @@ pub fn cosmic(options: CosmicCapture, output: &Path) -> Result<Manifest> {
             });
         }
     }
-    if evidence.blocker.is_none() && evidence.checkpoints.len() != 2 {
+    if evidence.blocker.is_none() && evidence.checkpoints.len() != COSMIC_CHECKPOINTS {
         evidence.blocker = Some("one or more COSMIC checkpoints could not be read".into());
     }
     let manifest = Manifest {
@@ -409,8 +467,8 @@ pub fn cosmic(options: CosmicCapture, output: &Path) -> Result<Manifest> {
             renderer: "cosmic-comp-winit-xvfb",
             platform: std::env::consts::OS,
             profile: Profile {
-                width: 1280,
-                height: 800,
+                width: COSMIC_DISPLAY_WIDTH,
+                height: COSMIC_DISPLAY_HEIGHT,
                 scale: 1.0,
                 locale: "C".into(),
                 color_scheme: ColorScheme::System,
@@ -542,8 +600,8 @@ fn analyze_clip(
     selected.extend(report.first_change);
     selected.extend(report.settled_at);
     selected.push(last / 2);
-    selected.extend(report.stalls.iter().take(3).copied());
-    selected.extend(report.jumps.iter().take(3).copied());
+    selected.extend(report.stalls.iter().take(KEPT_STALLS).copied());
+    selected.extend(report.jumps.iter().take(KEPT_JUMPS).copied());
     selected.sort_unstable();
     selected.dedup();
 
@@ -555,7 +613,8 @@ fn analyze_clip(
         let video_path = directory.join("preview.mp4");
         let elapsed_ms = clip.frames[last].elapsed_ms.max(1);
         let options = capture::VideoOptions {
-            fps: (last as f64 * 1000.0 / elapsed_ms as f64).clamp(1.0, 120.0),
+            fps: (last as f64 * MS_PER_SEC / elapsed_ms as f64)
+                .clamp(MIN_PREVIEW_FPS, MAX_PREVIEW_FPS),
             ..capture::VideoOptions::default()
         };
         let path = output.join(&video_path);
@@ -598,7 +657,7 @@ fn analyze_clip(
                 clippy::cast_sign_loss,
                 reason = "frame offsets are nonnegative and rounded to whole milliseconds at 1–120 FPS"
             )]
-            let video_ms = video_fps.map(|fps| (index as f64 * 1000.0 / fps).round() as u64);
+            let video_ms = video_fps.map(|fps| (index as f64 * MS_PER_SEC / fps).round() as u64);
             frame.video_ms = video_ms;
             selected_frames.push(frame);
         }
@@ -608,7 +667,10 @@ fn analyze_clip(
         .iter()
         .map(|frame| output.join(&frame.path))
         .collect::<Vec<_>>();
-    visual::save(&output.join(&sheet_path), &visual::sheet(&files, 4, 240)?)?;
+    visual::save(
+        &output.join(&sheet_path),
+        &visual::sheet(&files, SHEET_COLUMNS, SHEET_THUMB_WIDTH)?,
+    )?;
     clip.sheet_path = Some(sheet_path);
     clip.frames = selected_frames;
     clip.analysis_path = Some(analysis_path);

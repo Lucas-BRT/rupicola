@@ -4,6 +4,7 @@ use crate::{
     Account, BoxError, PageResult, Panel, Response, StatusCode, auth, db_error, redirect, safe_name,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use rupicola_core::visual::Rgb;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -189,7 +190,7 @@ impl Document {
         ] {
             let a = color(front).ok_or("Invalid foreground color.")?;
             let b = color(back).ok_or("Invalid background color.")?;
-            if rupicola_core::visual::contrast(a, b) < 4.5 {
+            if a.contrast(b) < MIN_TEXT_CONTRAST {
                 return Err(error);
             }
         }
@@ -197,12 +198,15 @@ impl Document {
     }
 }
 
-fn color(text: &str) -> Option<[u8; 3]> {
-    (text.len() == 7
-        && text.starts_with('#')
-        && text.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit))
-    .then(|| rupicola_core::visual::parse_hex(text))
-    .flatten()
+/// WCAG 2.2 AA contrast for normal text.
+const MIN_TEXT_CONTRAST: f64 = 4.5;
+/// Design tokens store colors as `#rrggbb`: a hash and six hex digits.
+const TOKEN_COLOR_LEN: usize = 7;
+
+fn color(text: &str) -> Option<Rgb> {
+    (text.len() == TOKEN_COLOR_LEN && text.starts_with('#'))
+        .then(|| text.parse().ok())
+        .flatten()
 }
 
 fn escaped(text: &str) -> String {

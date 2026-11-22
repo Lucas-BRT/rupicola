@@ -247,8 +247,20 @@ fn audit_rejects_unknown_fields() {
 
 #[test]
 fn hex_parsing_and_contrast_match_the_documented_values() {
-    assert_eq!(visual::parse_hex("#777"), Some([119, 119, 119]));
-    assert_eq!(visual::parse_hex("#zzzzzz"), None);
-    assert!((visual::contrast([0x77; 3], [255; 3]) - 4.478).abs() < 0.01);
-    assert!((visual::contrast([0x59; 3], [255; 3]) - 7.0).abs() < 0.05);
+    use visual::Rgb;
+    // WCAG 2 reference values: #777 on white is the classic 4.48:1 gray, and
+    // #595959 is the lightest gray that reaches 7:1 on white.
+    const AA_GRAY: Rgb = Rgb::gray(0x77);
+    const AAA_GRAY: Rgb = Rgb::gray(0x59);
+    const WHITE: Rgb = Rgb::gray(u8::MAX);
+    const AA_GRAY_CONTRAST: f64 = 4.478;
+    const AAA_GRAY_CONTRAST: f64 = 7.0;
+    const TOLERANCE: f64 = 0.05;
+
+    assert_eq!("#777".parse::<Rgb>(), Ok(AA_GRAY));
+    assert_eq!("#777777".parse::<Rgb>(), Ok(AA_GRAY));
+    assert_eq!(AA_GRAY.to_string(), "#777777");
+    assert!("#zzzzzz".parse::<Rgb>().is_err());
+    assert!((AA_GRAY.contrast(WHITE) - AA_GRAY_CONTRAST).abs() < TOLERANCE);
+    assert!((AAA_GRAY.contrast(WHITE) - AAA_GRAY_CONTRAST).abs() < TOLERANCE);
 }

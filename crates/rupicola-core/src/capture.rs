@@ -4,7 +4,7 @@
 //! `libcosmic`, `slint` software renderer, `egui`) without opening a window,
 //! starting Xvfb, or touching the user's live display.
 
-use crate::visual::{self, Frames, Image};
+use crate::visual::{self, Frames, Image, RGBA_CHANNELS};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -12,6 +12,21 @@ use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
+
+const MS_PER_SEC: f64 = 1000.0;
+/// A fully opaque (and fully saturated) byte channel.
+const OPAQUE: u8 = u8::MAX;
+/// Frame rate and x264 quality (CRF) used unless the caller picks others; CRF
+/// 18 is visually lossless, and x264 accepts 0 through 51.
+const DEFAULT_VIDEO_FPS: f64 = 60.0;
+const DEFAULT_CRF: u8 = 18;
+const MAX_CRF: u8 = 51;
+/// The 95th percentile drops the slowest 1/20 of frames.
+const P95_TAIL_DIVISOR: usize = 20;
+/// H.264 with 4:2:0 chroma needs even dimensions, so odd ones are padded by one.
+const YUV420_ALIGNMENT: u32 = 2;
+/// A frame rate closer than this to a whole number is written as an integer.
+const WHOLE_FPS_EPSILON: f64 = 1e-9;
 
 /// Pixel layout produced by an offscreen renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,14 +68,17 @@ impl PixelFormat {
     ///
     /// Returns an error if the buffer length is not a multiple of four.
     pub fn to_rgba8(self, src: &[u8]) -> Result<Vec<u8>> {
-        if !src.len().is_multiple_of(4) {
-            bail!("pixel buffer length {} is not a multiple of 4", src.len());
+        if !src.len().is_multiple_of(RGBA_CHANNELS) {
+            bail!(
+                "pixel buffer length {} is not a multiple of {RGBA_CHANNELS}",
+                src.len()
+            );
         }
         match self {
             Self::Rgba8 => Ok(src.to_vec()),
             Self::PremultipliedRgba8 => {
                 let mut out = Vec::with_capacity(src.len());
-                for px in src.as_chunks::<4>().0 {
+                for px in src.as_chunks::<RGBA_CHANNELS>().0 {
                     let [r, g, b, a] = [px[0], px[1], px[2], px[3]];
                     out.extend_from_slice(&unpremultiply(r, g, b, a));
                 }
@@ -68,14 +86,14 @@ impl PixelFormat {
             }
             Self::Bgra8 => {
                 let mut out = Vec::with_capacity(src.len());
-                for px in src.as_chunks::<4>().0 {
+                for px in src.as_chunks::<RGBA_CHANNELS>().0 {
                     out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
                 }
                 Ok(out)
             }
             Self::PremultipliedBgra8 => {
                 let mut out = Vec::with_capacity(src.len());
-                for px in src.as_chunks::<4>().0 {
+                for px in src.as_chunks::<RGBA_CHANNELS>().0 {
                     let [b, g, r, a] = [px[0], px[1], px[2], px[3]];
                     out.extend_from_slice(&unpremultiply(r, g, b, a));
                 }
@@ -85,15 +103,17 @@ impl PixelFormat {
     }
 }
 
-fn unpremultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
+fn unpremultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; RGBA_CHANNELS] {
     if a == 0 {
-        [0, 0, 0, 0]
-    } else if a == 255 {
-        [r, g, b, 255]
+        [0; RGBA_CHANNELS]
+    } else if a == OPAQUE {
+        [r, g, b, OPAQUE]
     } else {
         let a16 = u16::from(a);
+        // Adding half the divisor rounds to the nearest value instead of down.
         let half = a16 / 2;
-        let conv = |c: u8| ((u16::from(c) * 255 + half) / a16).min(255) as u8;
+        let conv =
+            |c: u8| u8::try_from((u16::from(c) * u16::from(OPAQUE) + half) / a16).unwrap_or(OPAQUE);
         [conv(r), conv(g), conv(b), a]
     }
 }
@@ -136,10 +156,10 @@ impl CaptureConfig {
         reason = "timestamps are approximate milliseconds at a floating-point frame rate"
     )]
     pub fn timestamp_ms(&self, frame: usize) -> f64 {
-        frame as f64 * (1000.0 / self.fps)
+        frame as f64 * (MS_PER_SEC / self.fps)
     }
 
-    /// Expected byte length of one raw frame buffer (`width * height * 4`).
+    /// Expected byte length of one raw frame buffer (`width * height * RGBA_CHANNELS`).
     ///
     /// # Errors
     ///
@@ -147,7 +167,7 @@ impl CaptureConfig {
     pub fn buffer_len(&self) -> Result<usize> {
         (self.width as usize)
             .checked_mul(self.height as usize)
-            .and_then(|px| px.checked_mul(4))
+            .and_then(|px| px.checked_mul(RGBA_CHANNELS))
             .ok_or_else(|| anyhow!("capture dimensions overflow buffer size"))
     }
 }
@@ -208,7 +228,7 @@ impl RamCapture {
             let timestamp_ms = config.timestamp_ms(frame);
             let start = Instant::now();
             render_frame(frame, timestamp_ms, &mut scratch)?;
-            let render_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let render_ms = start.elapsed().as_secs_f64() * MS_PER_SEC;
 
             let rgba = config.pixel_format.to_rgba8(&scratch)?;
             images.push(Image {
@@ -274,14 +294,14 @@ impl RamCapture {
     reason = "the mean is a floating-point timing metric"
 )]
 fn summarize_timings(config: &CaptureConfig, frames: Vec<FrameTiming>) -> CaptureReport {
-    let budget_ms = 1000.0 / config.fps;
+    let budget_ms = MS_PER_SEC / config.fps;
     let total_render_ms: f64 = frames.iter().map(|t| t.render_ms).sum();
     let mean_render_ms = total_render_ms / frames.len() as f64;
     let max_render_ms = frames.iter().map(|t| t.render_ms).fold(0.0f64, f64::max);
     let mut sorted: Vec<f64> = frames.iter().map(|t| t.render_ms).collect();
     sorted.sort_by(f64::total_cmp);
     // ceil(0.95 * n) is n - floor(n / 20).
-    let p95_idx = (sorted.len() - sorted.len() / 20).saturating_sub(1);
+    let p95_idx = (sorted.len() - sorted.len() / P95_TAIL_DIVISOR).saturating_sub(1);
     let p95_render_ms = sorted[p95_idx];
     let over_budget_frames = frames
         .iter()
@@ -316,8 +336,8 @@ pub struct VideoOptions {
 impl Default for VideoOptions {
     fn default() -> Self {
         Self {
-            fps: 60.0,
-            crf: 18,
+            fps: DEFAULT_VIDEO_FPS,
+            crf: DEFAULT_CRF,
             preset: "fast".into(),
             ffmpeg_bin: "ffmpeg".into(),
         }
@@ -332,8 +352,8 @@ impl VideoOptions {
         if !self.fps.is_finite() || self.fps <= 0.0 {
             bail!("fps must be a positive finite number, got {}", self.fps);
         }
-        if self.crf > 51 {
-            bail!("crf must be in 0..=51, got {}", self.crf);
+        if self.crf > MAX_CRF {
+            bail!("crf must be in 0..={MAX_CRF}, got {}", self.crf);
         }
         if self.preset.trim().is_empty() {
             bail!("x264 preset cannot be empty");
@@ -443,7 +463,7 @@ pub fn encode_raw_stream<R: Read>(
     }
     let frame_bytes = (width as usize)
         .checked_mul(height as usize)
-        .and_then(|px| px.checked_mul(4))
+        .and_then(|px| px.checked_mul(RGBA_CHANNELS))
         .ok_or_else(|| anyhow!("video dimensions overflow frame buffer size"))?;
 
     if let Some(dir) = save_frames {
@@ -649,8 +669,8 @@ impl FfmpegPipe {
             out: self.out,
             width: self.width,
             height: self.height,
-            encoded_width: self.width + (self.width % 2),
-            encoded_height: self.height + (self.height % 2),
+            encoded_width: self.width + (self.width % YUV420_ALIGNMENT),
+            encoded_height: self.height + (self.height % YUV420_ALIGNMENT),
             fps: self.fps,
             frame_count,
             duration_secs: frame_count as f64 / self.fps,
@@ -661,7 +681,7 @@ impl FfmpegPipe {
 }
 
 fn format_fps(fps: f64) -> String {
-    if (fps.fract()).abs() < 1e-9 {
+    if (fps.fract()).abs() < WHOLE_FPS_EPSILON {
         format!("{:.0}", fps.trunc())
     } else {
         format!("{fps:.6}")

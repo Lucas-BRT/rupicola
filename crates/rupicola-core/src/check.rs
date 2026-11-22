@@ -4,6 +4,9 @@ use pulldown_cmark::{Event, Parser, Tag};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
+/// Longest skill description the Agent Skills format accepts.
+const MAX_SKILL_DESCRIPTION_CHARS: usize = 1024;
+
 #[derive(Debug, Serialize)]
 pub struct Check {
     pub schema_version: u8,
@@ -47,7 +50,7 @@ pub fn check(root: &Path) -> Result<Check> {
             .find_map(|s| s.strip_prefix("description:"))
         {
             let description = description.trim();
-            if description.chars().count() > 1024 {
+            if description.chars().count() > MAX_SKILL_DESCRIPTION_CHARS {
                 error(
                     skill_path.clone(),
                     "description exceeds 1024 characters".into(),

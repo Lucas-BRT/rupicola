@@ -57,6 +57,11 @@ pub enum SolutionDecision {
     ImplementInRepo,
 }
 
+/// Video length asked for when a reviewer requests video evidence, and the
+/// shortest accepted (shorter clips rarely show a whole interaction).
+const DEFAULT_REPROCESS_VIDEO_MS: u64 = 2000;
+const MIN_REPROCESS_VIDEO_MS: u64 = 1500;
+
 /// Builds a targeted Phase 1 [`CaptureRequest`] when a reviewer requests new evidence
 /// (for example upgrading a static screenshot to a video walkthrough).
 #[must_use]
@@ -68,7 +73,11 @@ pub fn build_reprocess_request(
     let mut next = base.clone();
     next.output_dir = output_dir;
     if require_video {
-        next.record_video_ms = Some(next.record_video_ms.unwrap_or(2000).max(1500));
+        next.record_video_ms = Some(
+            next.record_video_ms
+                .unwrap_or(DEFAULT_REPROCESS_VIDEO_MS)
+                .max(MIN_REPROCESS_VIDEO_MS),
+        );
     }
     next
 }
@@ -77,12 +86,14 @@ pub fn build_reprocess_request(
 mod tests {
     use super::*;
 
+    const VIEWPORT: [u32; 2] = [1280, 720];
+
     #[test]
     fn reprocess_request_enables_video_when_required() {
         let base = CaptureRequest {
             command: "http://127.0.0.1:4732".into(),
             args: vec![],
-            viewport: [1280, 720],
+            viewport: VIEWPORT,
             warmup_ms: 0,
             actions: vec![],
             record_video_ms: None,
@@ -91,6 +102,6 @@ mod tests {
         };
         let next = build_reprocess_request(&base, true, PathBuf::from("/tmp/new"));
         assert_eq!(next.output_dir, PathBuf::from("/tmp/new"));
-        assert_eq!(next.record_video_ms, Some(2000));
+        assert_eq!(next.record_video_ms, Some(DEFAULT_REPROCESS_VIDEO_MS));
     }
 }

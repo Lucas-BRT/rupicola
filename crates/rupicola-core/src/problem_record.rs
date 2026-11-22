@@ -204,10 +204,20 @@ pub struct Problem {
     pub updated_at_ms: u64,
 }
 
+/// A finding note longer than this becomes a title cut at
+/// [`TRUNCATED_TITLE_CHARS`] plus an ellipsis.
+const MAX_TITLE_CHARS: usize = 88;
+const TRUNCATED_TITLE_CHARS: usize = 85;
+/// Longest record id.
+const MAX_ID_LEN: usize = 80;
+/// Ids end in a three-digit counter that tells apart records created in the
+/// same millisecond by the same process.
+const ID_SEQUENCE_SPAN: u64 = 1000;
+
 #[must_use]
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
-        && id.len() <= 80
+        && id.len() <= MAX_ID_LEN
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
@@ -225,7 +235,7 @@ pub fn next_id() -> (String, u64) {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let ms = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed) % 1000;
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed) % ID_SEQUENCE_SPAN;
     (format!("{}-{}{:03}", ms, std::process::id(), seq), ms)
 }
 
@@ -532,8 +542,11 @@ pub fn infer_from_finding(
 
     let (severity, rule_code, rule_title, solution) = infer_rule(note);
 
-    let title = if body.len() > 88 {
-        format!("{}…", body.chars().take(85).collect::<String>())
+    let title = if body.len() > MAX_TITLE_CHARS {
+        format!(
+            "{}…",
+            body.chars().take(TRUNCATED_TITLE_CHARS).collect::<String>()
+        )
     } else if body.is_empty() {
         "Visual inspection finding".to_string()
     } else {

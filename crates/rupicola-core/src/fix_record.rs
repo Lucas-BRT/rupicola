@@ -114,10 +114,16 @@ pub struct FixRecord {
     pub updated_at_ms: u64,
 }
 
+/// Longest record id.
+const MAX_ID_LEN: usize = 80;
+/// Ids end in a three-digit counter that tells apart records created in the
+/// same millisecond by the same process.
+const ID_SEQUENCE_SPAN: u64 = 1000;
+
 #[must_use]
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
-        && id.len() <= 80
+        && id.len() <= MAX_ID_LEN
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
@@ -135,7 +141,7 @@ pub fn next_id() -> (String, u64) {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let ms = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed) % 1000;
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed) % ID_SEQUENCE_SPAN;
     (format!("{}-{}{:03}", ms, std::process::id(), seq), ms)
 }
 

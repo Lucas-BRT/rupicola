@@ -27,6 +27,11 @@ pub struct BucketConfig {
     pub keep_latest_runs: usize,
 }
 
+/// Capture runs kept locally after an offload unless configured otherwise.
+const DEFAULT_KEEP_LATEST_RUNS: usize = 2;
+const MS_PER_SEC: u64 = 1000;
+const PERCENT: u64 = 100;
+
 impl Default for BucketConfig {
     fn default() -> Self {
         Self {
@@ -38,7 +43,7 @@ impl Default for BucketConfig {
             public_base_url: String::new(),
             auto_policy: "manual".into(),
             delete_local_after_offload: true,
-            keep_latest_runs: 2,
+            keep_latest_runs: DEFAULT_KEEP_LATEST_RUNS,
         }
     }
 }
@@ -169,20 +174,50 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Constants of Howard Hinnant's `civil_from_days`, which counts in 400-year
+/// eras of the proleptic Gregorian calendar starting on 0000-03-01.
+const SECS_PER_DAY: i64 = 86_400;
+/// Days from 0000-03-01 to the Unix epoch, 1970-01-01.
+const DAYS_TO_UNIX_EPOCH: i64 = 719_468;
+const YEARS_PER_ERA: i64 = 400;
+const DAYS_PER_ERA: i64 = 146_097;
+const DAYS_PER_YEAR: i64 = 365;
+/// Leap-year cycle lengths in years.
+const LEAP_EVERY: i64 = 4;
+const CENTURY: i64 = 100;
+/// Day-of-era corrections: one day short of 4 years, of a century and of an era.
+const DAYS_IN_4_YEARS_LESS_ONE: i64 = 1460;
+const DAYS_IN_CENTURY_LESS_ONE: i64 = 36_524;
+const DAYS_IN_ERA_LESS_ONE: i64 = DAYS_PER_ERA - 1;
+/// March-based months: their lengths follow `(153 * month + 2) / 5`.
+const MONTH_SPAN: i64 = 153;
+const MONTH_STEPS: i64 = 5;
+const MONTH_ROUNDING: i64 = 2;
+/// Turning a March-based month (0 = March) back into a calendar month.
+const MONTHS_FROM_MARCH: i64 = 3;
+const MONTHS_AFTER_DECEMBER: i64 = 9;
+const FIRST_MONTH_OF_NEXT_YEAR: i64 = 10;
+const FEBRUARY: i64 = 2;
+
 fn epoch_ms_to_ymd(ms: u64) -> String {
-    let secs = i64::try_from(ms / 1000).expect("u64 milliseconds fit in i64 seconds");
-    let days = secs.div_euclid(86_400);
-    // Civil date from days since 1970-01-01 (Howard Hinnant algorithm)
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if m <= 2 { y + 1 } else { y };
+    let secs = i64::try_from(ms / MS_PER_SEC).expect("u64 milliseconds fit in i64 seconds");
+    let days = secs.div_euclid(SECS_PER_DAY);
+    let z = days + DAYS_TO_UNIX_EPOCH;
+    let era = if z >= 0 { z } else { z - DAYS_IN_ERA_LESS_ONE } / DAYS_PER_ERA;
+    let doe = z - era * DAYS_PER_ERA;
+    let yoe = (doe - doe / DAYS_IN_4_YEARS_LESS_ONE + doe / DAYS_IN_CENTURY_LESS_ONE
+        - doe / DAYS_IN_ERA_LESS_ONE)
+        / DAYS_PER_YEAR;
+    let y = yoe + era * YEARS_PER_ERA;
+    let doy = doe - (DAYS_PER_YEAR * yoe + yoe / LEAP_EVERY - yoe / CENTURY);
+    let mp = (MONTH_STEPS * doy + MONTH_ROUNDING) / MONTH_SPAN;
+    let d = doy - (MONTH_SPAN * mp + MONTH_ROUNDING) / MONTH_STEPS + 1;
+    let m = if mp < FIRST_MONTH_OF_NEXT_YEAR {
+        mp + MONTHS_FROM_MARCH
+    } else {
+        mp - MONTHS_AFTER_DECEMBER
+    };
+    let year = if m <= FEBRUARY { y + 1 } else { y };
     format!("{year:04}-{m:02}-{d:02}")
 }
 
@@ -496,10 +531,13 @@ pub fn analyze(data_dir: &Path, project_filter: Option<&str>) -> StorageReport {
         total_captures_files + proposals_files + problems_files + fixes_meta_files + design_files;
 
     let pct_of = |b: u64| -> u8 {
-        b.saturating_mul(100)
-            .checked_div(total_bytes)
-            .unwrap_or(0)
-            .min(100) as u8
+        u8::try_from(
+            b.saturating_mul(PERCENT)
+                .checked_div(total_bytes)
+                .unwrap_or(0)
+                .min(PERCENT),
+        )
+        .unwrap_or(u8::MAX)
     };
 
     let screenshots_bytes = total_captures_bytes.saturating_sub(total_raw_frames_bytes);
@@ -868,4 +906,22 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod date_tests {
+    use super::epoch_ms_to_ymd;
+
+    #[test]
+    fn converts_known_instants_to_civil_dates() {
+        for (ms, date) in [
+            (0, "1970-01-01"),
+            (951_782_400_000, "2000-02-29"),
+            (1_704_067_199_000, "2023-12-31"),
+            (1_704_067_200_000, "2024-01-01"),
+            (1_795_343_087_000, "2026-11-22"),
+        ] {
+            assert_eq!(epoch_ms_to_ymd(ms), date, "{ms}");
+        }
+    }
 }

@@ -217,10 +217,17 @@ pub struct Dispatch {
     pub structured_prompt: String,
 }
 
+/// Longest proposal id.
+const MAX_ID_LEN: usize = 80;
+/// Largest JSON file read for a proposal, the MCP session marker and a dispatch.
+const MAX_PROPOSAL_BYTES: u64 = 1024 * 1024;
+const MAX_SESSION_BYTES: u64 = 16 * 1024;
+const MAX_DISPATCH_BYTES: u64 = 256 * 1024;
+
 #[must_use]
 pub fn safe_id(id: &str) -> bool {
     !id.is_empty()
-        && id.len() <= 80
+        && id.len() <= MAX_ID_LEN
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
@@ -284,7 +291,7 @@ pub fn write_atomic(path: &Path, value: &impl serde::Serialize) -> io::Result<()
 ///
 /// Returns an error if the record cannot be read or decoded, exceeds the size limit, or its ID does not match the file name.
 pub fn read_proposal(file: &Path) -> io::Result<Proposal> {
-    let p: Proposal = read_json(file, 1024 * 1024)?;
+    let p: Proposal = read_json(file, MAX_PROPOSAL_BYTES)?;
     if file.file_stem().and_then(|s| s.to_str()) != Some(p.id.as_str()) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -336,7 +343,8 @@ pub fn entries(project_root: &Path) -> io::Result<Vec<Proposal>> {
 #[allow(dead_code)]
 #[must_use]
 pub fn mcp_session_active(data_dir: &Path) -> Option<McpSession> {
-    let session: McpSession = read_json(&data_dir.join(MCP_SESSION_FILE), 16 * 1024).ok()?;
+    let session: McpSession =
+        read_json(&data_dir.join(MCP_SESSION_FILE), MAX_SESSION_BYTES).ok()?;
     if session.pid == 0 {
         return None;
     }
@@ -365,7 +373,7 @@ pub fn dispatches(project_root: &Path) -> io::Result<Vec<Dispatch>> {
         if path.extension() != Some(std::ffi::OsStr::new("json")) {
             continue;
         }
-        if let Ok(d) = read_json::<Dispatch>(&path, 256 * 1024) {
+        if let Ok(d) = read_json::<Dispatch>(&path, MAX_DISPATCH_BYTES) {
             out.push(d);
         }
     }
