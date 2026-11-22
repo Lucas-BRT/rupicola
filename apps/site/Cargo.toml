@@ -1,17 +1,19 @@
 [package]
 name = "rupicola-site"
-version = "0.1.1"
-edition = "2024"
-rust-version = "1.99"
-publish = false
 description = "Lightweight landing page and documentation server for Rupicola"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
 
 [dependencies]
-clap = { version = "=4.6.7", features = ["derive"] }
-http = "=1.5.0"
-pulldown-cmark = "=0.13.6"
-tokio = { version = "=1.54.1", features = ["macros", "net", "rt-multi-thread"] }
-topcoat = { version = "=0.11.0", default-features = false, features = ["serve"] }
+clap.workspace = true
+http.workspace = true
+pulldown-cmark.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
+topcoat = { workspace = true, features = ["serve"] }
 
 [lints]
 workspace = true
