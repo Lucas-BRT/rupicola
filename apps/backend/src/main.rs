@@ -61,80 +61,89 @@ struct Args {
 }
 
 /// Every route, wrapped in the request hardening from [`security`].
+/// Path of the unversioned health probe used by containers and load balancers.
+const HEALTH_PATH: &str = "/healthz";
+
+/// Every route, wrapped in the request hardening from [`security`]. Versioned
+/// routes are mounted once under [`rupicola_api::PREFIX`], so a future version is
+/// a second `nest` rather than an edit of every path.
 fn app(settings: &security::Security, state: state::Shared) -> Router {
+    let routes = Router::new()
+        .route(HEALTH_PATH, routing::get(health))
+        .nest(rupicola_api::PREFIX, v1(settings))
+        .fallback(|| async { ApiError::NotFound })
+        .with_state(state);
+    security::harden(routes, settings)
+}
+
+/// Version 1 of the API, with paths relative to [`rupicola_api::PREFIX`].
+fn v1(settings: &security::Security) -> Router<state::Shared> {
     // Password guessing gets a much smaller budget than ordinary API use.
     let sign_in_limit =
         security::rate_limit(SIGN_IN_BURST, SIGN_IN_REFILL_MS, settings.behind_proxy);
     let credentials = Router::new()
-        .route("/v1/sessions", routing::post(auth::sign_in))
-        .route("/v1/setup", routing::post(auth::setup))
-        .route("/v1/register", routing::post(credentials::register))
-        .route("/v1/invites/redeem", routing::post(credentials::redeem))
+        .route("/sessions", routing::post(auth::sign_in))
+        .route("/setup", routing::post(auth::setup))
+        .route("/register", routing::post(credentials::register))
+        .route("/invites/redeem", routing::post(credentials::redeem))
         .route_layer(sign_in_limit);
     let api = Router::new()
-        .route("/healthz", routing::get(health))
-        .route("/v1/me", routing::get(auth::me))
-        .route("/v1/sessions/current", routing::delete(auth::sign_out))
+        .route("/me", routing::get(auth::me))
+        .route("/sessions/current", routing::delete(auth::sign_out))
         .route(
-            "/v1/projects",
+            "/projects",
             routing::get(projects::list).post(projects::create),
         )
         .route(
-            "/v1/projects/{id}",
+            "/projects/{id}",
             routing::get(projects::get)
                 .patch(projects::update)
                 .delete(projects::delete),
         )
-        .route("/v1/projects/{id}/members", routing::get(projects::members))
+        .route("/projects/{id}/members", routing::get(projects::members))
         .route(
-            "/v1/projects/{id}/members/{handle}",
+            "/projects/{id}/members/{handle}",
             routing::put(projects::put_member).delete(projects::delete_member),
         )
-        .route("/v1/projects/{id}/audit", routing::get(projects::audit_log))
+        .route("/projects/{id}/audit", routing::get(projects::audit_log))
         .route(
-            "/v1/projects/{id}/captures",
+            "/projects/{id}/captures",
             routing::get(captures::list).post(captures::create),
         )
-        .route("/v1/captures/{id}", routing::get(captures::get))
+        .route("/captures/{id}", routing::get(captures::get))
         .route(
-            "/v1/captures/{id}/findings",
+            "/captures/{id}/findings",
             routing::post(captures::add_finding),
         )
-        .route("/v1/artifacts/{id}", routing::get(captures::artifact))
+        .route("/artifacts/{id}", routing::get(captures::artifact))
         .route(
-            "/v1/tokens",
+            "/tokens",
             routing::get(credentials::list_tokens).post(credentials::create_token),
         )
+        .route("/tokens/{id}", routing::delete(credentials::delete_token))
         .route(
-            "/v1/tokens/{id}",
-            routing::delete(credentials::delete_token),
-        )
-        .route(
-            "/v1/projects/{id}/devices",
+            "/projects/{id}/devices",
             routing::get(credentials::list_devices).post(credentials::create_device),
         )
         .route(
-            "/v1/projects/{id}/devices/{device}",
+            "/projects/{id}/devices/{device}",
             routing::delete(credentials::delete_device),
         )
         .route(
-            "/v1/projects/{id}/invites",
+            "/projects/{id}/invites",
             routing::get(credentials::list_invites).post(credentials::create_invite),
         )
         .route(
-            "/v1/projects/{id}/invites/{invite}",
+            "/projects/{id}/invites/{invite}",
             routing::delete(credentials::delete_invite),
         )
         .merge(credentials);
     let uploads = Router::new().route(
-        "/v1/blobs/{sha256}",
+        "/blobs/{sha256}",
         routing::put(captures::put_blob).head(captures::head_blob),
     );
-    let routes = security::limit_body(api, settings.body_limit)
+    security::limit_body(api, settings.body_limit)
         .merge(security::limit_body(uploads, settings.blob_limit))
-        .fallback(|| async { ApiError::NotFound })
-        .with_state(state);
-    security::harden(routes, settings)
 }
 
 async fn health() -> Json<Health> {
@@ -148,7 +157,7 @@ async fn health() -> Json<Health> {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     if args.healthcheck {
-        let response = fetch(args.port, "/healthz").context("backend is not reachable")?;
+        let response = fetch(args.port, HEALTH_PATH).context("backend is not reachable")?;
         if status_code(&response) != Some(axum::http::StatusCode::OK) {
             bail!("healthcheck failed");
         }
@@ -341,7 +350,7 @@ mod tests {
         let response = request(
             port,
             format!(
-                "POST /healthz HTTP/1.1\r\nHost: test\r\nContent-Length: {OVERSIZED_BODY}\r\n\
+                "POST /v1/projects HTTP/1.1\r\nHost: test\r\nContent-Length: {OVERSIZED_BODY}\r\n\
                  Connection: close\r\n\r\n"
             ),
         )
