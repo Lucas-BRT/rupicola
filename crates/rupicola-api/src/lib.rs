@@ -5,6 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
+mod problems;
+pub use problems::*;
+
 /// Path prefix of every versioned API route.
 pub const PREFIX: &str = "/v1";
 

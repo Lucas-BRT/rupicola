@@ -7,6 +7,7 @@ mod captures;
 mod credentials;
 mod db;
 mod error;
+mod problems;
 mod projects;
 mod security;
 mod state;
@@ -116,6 +117,15 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
             routing::post(captures::add_finding),
         )
         .route("/artifacts/{id}", routing::get(captures::artifact))
+        .route(
+            "/projects/{id}/problems",
+            routing::get(problems::list).post(problems::create),
+        )
+        .route(
+            "/problems/{id}",
+            routing::get(problems::get).patch(problems::update),
+        )
+        .route("/problems/{id}/comments", routing::post(problems::comment))
         .route(
             "/tokens",
             routing::get(credentials::list_tokens).post(credentials::create_token),
