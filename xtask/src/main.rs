@@ -172,8 +172,11 @@ fn setup_config(no_isolate: bool) -> R<(Option<PathBuf>, Cleanup)> {
 
 type R<T> = Result<T, String>;
 
-#[allow(clippy::type_complexity)]
-fn matrix(m: &Matrix) -> R<(Vec<Task>, Vec<(String, String)>)> {
+/// A condition: its name and the git revision of the skill it installs (`none`
+/// for no skill).
+type Condition = (String, String);
+
+fn matrix(m: &Matrix) -> R<(Vec<Task>, Vec<Condition>)> {
     let tasks: Vec<Task> = load(&m.root)
         .map_err(|e| format!("{e:#}"))?
         .into_iter()
@@ -887,20 +890,60 @@ fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> R<()
     Ok(())
 }
 
+/// A prompt subset's (expected, rate) pairs for one condition, optionally for one
+/// category.
+trait Subset: Fn(&[&String], Option<&str>, &str) -> Vec<(bool, f64)> {}
+impl<F: Fn(&[&String], Option<&str>, &str) -> Vec<(bool, f64)>> Subset for F {}
+
+/// Prints one condition's precision, recall, F1 and false-positive rate, then its
+/// invocation rate per prompt category.
 #[expect(
     clippy::cast_precision_loss,
     reason = "evaluation rates and statistical estimates are computed in floating point"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the statistical report keeps its cohort selection and result calculations together"
-)]
-fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &str) -> R<()> {
-    type Rates = BTreeMap<String, Vec<f64>>;
-
-    if resamples == 0 {
-        return Err("provide at least one bootstrap resample".into());
+fn print_condition_summary(c: &str, subset: &dyn Subset, ids: &[&String]) {
+    let all = prf(&subset(ids, None, c));
+    println!(
+        "{c}: precision={:.3} recall={:.3} F1={:.3} false-positive-rate={:.3}",
+        all.0, all.1, all.2, all.3
+    );
+    for cat in ["explicit", "implicit", "negative"] {
+        let v = subset(ids, Some(cat), c);
+        let m = v.iter().map(|x| x.1).sum::<f64>() / v.len().max(1) as f64;
+        println!("   {cat:<9} n={:<3} invoked rate={m:.3}", v.len());
     }
+}
+
+/// Per-condition invocation rates, one value per repetition.
+type Rates = BTreeMap<String, Vec<f64>>;
+/// A prompt's category, whether the skill is expected to fire, and its rates.
+type PromptRates = (String, bool, Rates);
+
+/// Groups result rows by prompt id.
+fn group_prompts(rows: &[Value], key: &str) -> BTreeMap<String, PromptRates> {
+    let mut prompts: BTreeMap<String, PromptRates> = BTreeMap::new();
+    for r in rows {
+        let entry = prompts
+            .entry(r["prompt_id"].as_str().unwrap_or("").to_owned())
+            .or_insert_with(|| {
+                (
+                    r["category"].as_str().unwrap_or("").to_owned(),
+                    r["expect"] == true,
+                    BTreeMap::new(),
+                )
+            });
+        entry
+            .2
+            .entry(r["cond"].as_str().unwrap_or("").to_owned())
+            .or_default()
+            .push(f64::from(u8::from(hit(r, key))));
+    }
+    prompts
+}
+
+/// Reads every `trig__*.json` result in `out`, warning about and dropping runs
+/// whose setup did not match their condition.
+fn load_trigger_rows(out: &Path) -> R<Vec<Value>> {
     let mut rows: Vec<Value> = Vec::new();
     for entry in fs::read_dir(out)
         .map_err(|error| error.to_string())?
@@ -921,27 +964,21 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
         println!("WARNING: {bad} run(s) had a setup mismatch and are excluded.");
     }
     rows.retain(|r| r["config_error"] != true);
-    // prompt -> (category, expect, per-cond invocation rate over repetitions)
-    let mut prompts: BTreeMap<String, (String, bool, Rates)> = BTreeMap::new();
-    for r in &rows {
-        let entry = prompts
-            .entry(r["prompt_id"].as_str().unwrap_or("").to_owned())
-            .or_insert_with(|| {
-                (
-                    r["category"].as_str().unwrap_or("").to_owned(),
-                    r["expect"] == true,
-                    BTreeMap::new(),
-                )
-            });
-        entry
-            .2
-            .entry(r["cond"].as_str().unwrap_or("").to_owned())
-            .or_default()
-            .push(f64::from(u8::from(hit(r, key))));
+    Ok(rows)
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &str) -> R<()> {
+    if resamples == 0 {
+        return Err("provide at least one bootstrap resample".into());
     }
-    let rate = |p: &(String, bool, Rates), c: &str| {
-        p.2.get(c).map(|v| v.iter().sum::<f64>() / v.len() as f64)
-    };
+    let rows = load_trigger_rows(out)?;
+    let prompts = group_prompts(&rows, key);
+    let rate =
+        |p: &PromptRates, c: &str| p.2.get(c).map(|v| v.iter().sum::<f64>() / v.len() as f64);
     let ids: Vec<&String> = prompts
         .iter()
         .filter(|(_, p)| rate(p, base).is_some() && rate(p, cand).is_some())
@@ -959,16 +996,7 @@ fn trigger_metric(out: &Path, base: &str, cand: &str, resamples: usize, key: &st
             .collect()
     };
     for c in [base, cand] {
-        let all = prf(&subset(&ids, None, c));
-        println!(
-            "{c}: precision={:.3} recall={:.3} F1={:.3} false-positive-rate={:.3}",
-            all.0, all.1, all.2, all.3
-        );
-        for cat in ["explicit", "implicit", "negative"] {
-            let v = subset(&ids, Some(cat), c);
-            let m = v.iter().map(|x| x.1).sum::<f64>() / v.len().max(1) as f64;
-            println!("   {cat:<9} n={:<3} invoked rate={m:.3}", v.len());
-        }
+        print_condition_summary(c, &subset, &ids);
     }
     let metric = |ids: &[&String], f: fn((f64, f64, f64, f64)) -> f64, c: &str| {
         f(prf(&subset(ids, None, c)))
@@ -1090,18 +1118,8 @@ impl Rng {
     }
 }
 
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "evaluation rates and statistical estimates are computed in floating point"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the evaluation report shares paired samples between statistics and output formats"
-)]
-fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R<()> {
-    if resamples == 0 {
-        return Err("provide at least one bootstrap resample".into());
-    }
+/// Reads every result file in `out` (all `.json` except the manifest).
+fn load_result_rows(out: &Path) -> R<Vec<Value>> {
     let mut rows: Vec<Value> = Vec::new();
     for entry in fs::read_dir(out)
         .map_err(|error| error.to_string())?
@@ -1117,6 +1135,159 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
             );
         }
     }
+    Ok(rows)
+}
+
+/// Writes `rows.csv` for external mixed-effects modelling.
+fn write_rows_csv(out: &Path, rows: &[Value]) -> R<()> {
+    let mut s = String::from(
+        "task,cond,rep,kind,framework,pass,false_verified,skill_invoked,cost_usd,turns,input_tokens,output_tokens\n",
+    );
+    for r in rows {
+        let f = |k: &str| r[k].to_string().trim_matches('"').to_owned();
+        writeln!(
+            s,
+            "{},{},{},{},{},{},{},{},{},{},{},{}",
+            f("task"),
+            f("cond"),
+            f("rep"),
+            f("kind"),
+            f("framework"),
+            f("pass"),
+            f("false_verified"),
+            f("skill_invoked"),
+            f("cost_usd"),
+            f("turns"),
+            f("input_tokens"),
+            f("output_tokens")
+        )
+        .expect("writing to a String cannot fail");
+    }
+    fs::write(out.join("rows.csv"), s).map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
+/// 95% bootstrap interval of the mean of `diffs`, resampled `resamples` times.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+fn bootstrap_mean_ci(diffs: &[f64], resamples: usize) -> [f64; 2] {
+    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+    let mut boots: Vec<f64> = (0..resamples)
+        .map(|_| {
+            (0..diffs.len())
+                .map(|_| diffs[rng.index(diffs.len())])
+                .sum::<f64>()
+                / diffs.len() as f64
+        })
+        .collect();
+    boots.sort_by(f64::total_cmp);
+    confidence_bounds(&boots)
+}
+
+/// Mean of `v`, zero when empty.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+fn mean(v: &[f64]) -> f64 {
+    v.iter().sum::<f64>() / v.len().max(1) as f64
+}
+
+/// Two conditions compared task by task and run by run.
+struct Pairing {
+    /// Pairs where only the base condition passed, and where only the candidate did.
+    base_only: u64,
+    cand_only: u64,
+    /// (task, rep) cells that ran under both conditions.
+    pairs: u64,
+    /// Per-task pass samples for the base and the candidate.
+    per_task: BTreeMap<String, (Vec<f64>, Vec<f64>)>,
+}
+
+impl Pairing {
+    fn of(rows: &[Value], base: &str, cand: &str) -> Self {
+        // (task, rep) -> pass per condition
+        let mut cell: BTreeMap<(String, u64), (Option<bool>, Option<bool>)> = BTreeMap::new();
+        let mut per_task: BTreeMap<String, (Vec<f64>, Vec<f64>)> = BTreeMap::new();
+        for r in rows {
+            let (t, rep, pass) = (
+                r["task"].as_str().unwrap_or("").to_owned(),
+                r["rep"].as_u64().unwrap_or(0),
+                r["pass"].as_bool().unwrap_or(false),
+            );
+            let slot = cell.entry((t.clone(), rep)).or_default();
+            let entry = per_task.entry(t).or_default();
+            match r["cond"].as_str() {
+                Some(c) if c == base => {
+                    slot.0 = Some(pass);
+                    entry.0.push(f64::from(u8::from(pass)));
+                }
+                Some(c) if c == cand => {
+                    slot.1 = Some(pass);
+                    entry.1.push(f64::from(u8::from(pass)));
+                }
+                _ => {}
+            }
+        }
+        let (mut b, mut c, mut pairs) = (0u64, 0u64, 0u64);
+        for (x, y) in cell.values() {
+            if let (Some(x), Some(y)) = (x, y) {
+                pairs += 1;
+                b += u64::from(*x && !*y);
+                c += u64::from(!*x && *y);
+            }
+        }
+        Self {
+            base_only: b,
+            cand_only: c,
+            pairs,
+            per_task,
+        }
+    }
+}
+
+/// Prints a condition's pass rate, pass^k, false-verified rate and mean cost.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+fn print_condition_line(cond: &str, rows: &[Value]) {
+    let rate = |key: &str| {
+        let v: Vec<f64> = rows
+            .iter()
+            .filter(|r| r["cond"] == cond)
+            .map(|r| f64::from(u8::from(r[key] == true)))
+            .collect();
+        mean(&v)
+    };
+    let cost = mean(
+        &rows
+            .iter()
+            .filter(|r| r["cond"] == cond)
+            .filter_map(|r| r["cost_usd"].as_f64())
+            .collect::<Vec<_>>(),
+    );
+    let mut by: BTreeMap<&str, bool> = BTreeMap::new();
+    for r in rows.iter().filter(|r| r["cond"] == cond) {
+        let all_passed = by.entry(r["task"].as_str().unwrap_or("")).or_insert(true);
+        *all_passed &= r["pass"] == true;
+    }
+    let pass_k = by.values().filter(|x| **x).count() as f64 / by.len().max(1) as f64;
+    println!(
+        "{cond}: pass={:.3} pass^k={pass_k:.3} false_verified={:.3} cost={cost:.3}",
+        rate("pass"),
+        rate("false_verified"),
+    );
+}
+
+fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R<()> {
+    if resamples == 0 {
+        return Err("provide at least one bootstrap resample".into());
+    }
+    let rows = load_result_rows(out)?;
     let mut models: Vec<String> = rows
         .iter()
         .filter_map(|r| r["model"].as_str().map(str::to_owned))
@@ -1129,63 +1300,14 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
         ));
     }
     if csv {
-        let mut s = String::from(
-            "task,cond,rep,kind,framework,pass,false_verified,skill_invoked,cost_usd,turns,input_tokens,output_tokens\n",
-        );
-        for r in &rows {
-            let f = |k: &str| r[k].to_string().trim_matches('"').to_owned();
-            writeln!(
-                s,
-                "{},{},{},{},{},{},{},{},{},{},{},{}",
-                f("task"),
-                f("cond"),
-                f("rep"),
-                f("kind"),
-                f("framework"),
-                f("pass"),
-                f("false_verified"),
-                f("skill_invoked"),
-                f("cost_usd"),
-                f("turns"),
-                f("input_tokens"),
-                f("output_tokens")
-            )
-            .expect("writing to a String cannot fail");
-        }
-        fs::write(out.join("rows.csv"), s).map_err(|error| error.to_string())?;
+        write_rows_csv(out, &rows)?;
     }
-    // (task, rep) -> pass per condition
-    let mut cell: BTreeMap<(String, u64), (Option<bool>, Option<bool>)> = BTreeMap::new();
-    let mut per_task: BTreeMap<String, (Vec<f64>, Vec<f64>)> = BTreeMap::new();
-    for r in &rows {
-        let (t, rep, pass) = (
-            r["task"].as_str().unwrap_or("").to_owned(),
-            r["rep"].as_u64().unwrap_or(0),
-            r["pass"].as_bool().unwrap_or(false),
-        );
-        let slot = cell.entry((t.clone(), rep)).or_default();
-        let entry = per_task.entry(t).or_default();
-        match r["cond"].as_str() {
-            Some(c) if c == base => {
-                slot.0 = Some(pass);
-                entry.0.push(f64::from(u8::from(pass)));
-            }
-            Some(c) if c == cand => {
-                slot.1 = Some(pass);
-                entry.1.push(f64::from(u8::from(pass)));
-            }
-            _ => {}
-        }
-    }
-    let (mut b, mut c, mut pairs) = (0u64, 0u64, 0u64);
-    for (x, y) in cell.values() {
-        if let (Some(x), Some(y)) = (x, y) {
-            pairs += 1;
-            b += u64::from(*x && !*y);
-            c += u64::from(!*x && *y);
-        }
-    }
-    let mean = |v: &Vec<f64>| v.iter().sum::<f64>() / v.len().max(1) as f64;
+    let Pairing {
+        base_only: b,
+        cand_only: c,
+        pairs,
+        per_task,
+    } = Pairing::of(&rows, base, cand);
     let diffs: Vec<f64> = per_task
         .values()
         .filter(|(x, y)| !x.is_empty() && !y.is_empty())
@@ -1194,61 +1316,14 @@ fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R
     if diffs.is_empty() {
         return Err("no task has both conditions".into());
     }
-    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
-    let mut boots: Vec<f64> = (0..resamples)
-        .map(|_| {
-            (0..diffs.len())
-                .map(|_| diffs[rng.index(diffs.len())])
-                .sum::<f64>()
-                / diffs.len() as f64
-        })
-        .collect();
-    boots.sort_by(f64::total_cmp);
-    let [low, high] = confidence_bounds(&boots);
-    let rate = |cond: &str, key: &str| {
-        let v: Vec<f64> = rows
-            .iter()
-            .filter(|r| r["cond"] == cond)
-            .map(|r| f64::from(u8::from(r[key] == true)))
-            .collect();
-        mean(&v)
-    };
-    let cost = |cond: &str| {
-        mean(
-            &rows
-                .iter()
-                .filter(|r| r["cond"] == cond)
-                .filter_map(|r| r["cost_usd"].as_f64())
-                .collect(),
-        )
-    };
-    let pass_k = |cond: &str| {
-        let mut by: BTreeMap<&str, bool> = BTreeMap::new();
-        for r in rows.iter().filter(|r| r["cond"] == cond) {
-            let a = by.entry(r["task"].as_str().unwrap_or("")).or_insert(true);
-            *a &= r["pass"] == true;
-        }
-        by.values().filter(|x| **x).count() as f64 / by.len().max(1) as f64
-    };
+    let [low, high] = bootstrap_mean_ci(&diffs, resamples);
     println!(
         "model: {}  paired (task,rep) cells: {pairs}  tasks: {}",
         models.first().map_or("?", String::as_str),
         diffs.len()
     );
-    println!(
-        "{base}: pass={:.3} pass^k={:.3} false_verified={:.3} cost={:.3}",
-        rate(base, "pass"),
-        pass_k(base),
-        rate(base, "false_verified"),
-        cost(base)
-    );
-    println!(
-        "{cand}: pass={:.3} pass^k={:.3} false_verified={:.3} cost={:.3}",
-        rate(cand, "pass"),
-        pass_k(cand),
-        rate(cand, "false_verified"),
-        cost(cand)
-    );
+    print_condition_line(base, &rows);
+    print_condition_line(cand, &rows);
     println!(
         "delta pass ({cand}-{base}) = {:+.3}  95% cluster-bootstrap CI [{:+.3}, {:+.3}] ({resamples} resamples over tasks)",
         mean(&diffs),
