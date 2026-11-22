@@ -31,9 +31,7 @@ pub fn sync_legacy_findings(panel: &Panel, project_id: &str, runs: &[&Run]) -> V
     let mut existing = problem_record::entries(&data, project_id).unwrap_or_default();
     if existing.is_empty() {
         for run in runs {
-            let Some(manifest) = pages::read_run(panel, &run.key) else {
-                continue;
-            };
+            let manifest = &run.manifest;
             if manifest.project.id != project_id {
                 continue;
             }

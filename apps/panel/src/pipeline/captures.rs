@@ -304,17 +304,18 @@ pub async fn analyze_run_action(
     if auth::role(&panel, &account, &project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    match analyze_run(&panel, &project_id, &form.run_key) {
+    match analyze_run(&panel, &project_id, &form.run_key).await {
         Ok(()) | Err(StatusCode::NOT_FOUND) => {}
         Err(error) => return Err(error),
     }
     Ok(redirect(&format!("/projects/{project_id}/problems")))
 }
 
-pub(crate) fn analyze_run(panel: &Panel, project_id: &str, run_key: &str) -> PageResult<()> {
+pub(crate) async fn analyze_run(panel: &Panel, project_id: &str, run_key: &str) -> PageResult<()> {
     let data = data_root(panel);
     let existing = problem_record::entries(&data, project_id).unwrap_or_default();
-    let manifest = pages::read_run(panel, run_key)
+    let manifest = crate::read_run(panel, run_key)
+        .await
         .filter(|manifest| manifest.project.id == project_id)
         .ok_or(StatusCode::NOT_FOUND)?;
     if manifest.findings.is_empty() {

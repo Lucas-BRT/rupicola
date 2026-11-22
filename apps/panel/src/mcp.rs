@@ -309,7 +309,8 @@ async fn project_read(
                 .map_err(|_| StatusCode::NOT_FOUND)?,
         ).map_err(db_error)?,
         "evidence_get" => {
-            let manifest = crate::pages::read_run(panel, argument.unwrap_or_default())
+            let manifest = crate::read_run(panel, argument.unwrap_or_default())
+                .await
                 .filter(|manifest| manifest.project.id == project)
                 .ok_or(StatusCode::NOT_FOUND)?;
             json!({"project": manifest.project.id, "scenario": manifest.scenario,
@@ -666,7 +667,7 @@ async fn dispatch(
                 } else if publish::DESIGN_TOOLS.contains(&name) {
                     publish::design(panel, actor, name, args).await
                 } else {
-                    publish::update(panel, actor, name, args)
+                    publish::update(panel, actor, name, args).await
                 };
                 return match result {
                     Ok(result) => Ok(payload(&result)),
@@ -760,24 +761,18 @@ async fn dispatch(
                         .collect::<Vec<_>>(),
                 ),
                 Some("evidence_list") => {
-                    let db = panel.index.lock().await;
-                    let mut rows = db
-                        .query(
-                            "SELECT key, scenario, status FROM runs_v1 WHERE project_id = ?
-                         ORDER BY created_at_ms DESC, key LIMIT 100",
-                            [target_project],
-                        )
-                        .await
-                        .map_err(db_error)?;
-                    let mut runs = Vec::new();
-                    while let Some(row) = rows.next().await.map_err(db_error)? {
-                        runs.push(json!({
-                            "run": row.get::<String>(0).map_err(db_error)?,
-                            "scenario": row.get::<String>(1).map_err(db_error)?,
-                            "status": row.get::<String>(2).map_err(db_error)?,
-                        }));
-                    }
-                    Ok(json!(runs))
+                    let runs = crate::read_index(panel).await.map_err(db_error)?;
+                    Ok(json!(
+                        runs.iter()
+                            .filter(|run| run.project_id == target_project)
+                            .take(100)
+                            .map(|run| json!({
+                                "run": run.key,
+                                "scenario": run.scenario,
+                                "status": run.status,
+                            }))
+                            .collect::<Vec<_>>()
+                    ))
                 }
                 _ => return Ok(error(-32602, "Unknown tool")),
             }
@@ -826,6 +821,7 @@ mod tests {
             uploads: None,
             mcp_write: true,
             blobs: crate::blobs::Blobs::open(temp.path().join("blobs")).unwrap(),
+            root_keys: vec![],
         };
         let request = json!({"method":"tools/call","params":{"name":"problem_create",
             "arguments":{"project":"sample","key":"problem-1","record":{

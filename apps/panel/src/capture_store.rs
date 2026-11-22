@@ -4,7 +4,7 @@ use crate::{
     BoxError,
     blobs::{self, Blobs, Stored},
 };
-use rupicola_core::capture_manifest::Manifest;
+use rupicola_core::capture_manifest::{self, Manifest};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use turso::{Connection, Value, transaction::TransactionBehavior};
@@ -60,11 +60,11 @@ pub async fn insert(db: &Connection, capture: &NewCapture) -> Result<(), BoxErro
             legacy_name,
         ],
     )];
-    for artifact in &capture.artifacts {
+    for (position, artifact) in capture.artifacts.iter().enumerate() {
         batch.push((
-            "INSERT INTO artifacts (id, capture_id, project_id, role, owner_id, path, sha256, bytes,
-               mime, target_ms, video_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO artifacts (id, capture_id, project_id, role, owner_id, position, path,
+               sha256, bytes, mime, target_ms, video_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO NOTHING",
             vec![
                 Value::Text(digest(&[&capture.id, &artifact.path])),
@@ -72,6 +72,7 @@ pub async fn insert(db: &Connection, capture: &NewCapture) -> Result<(), BoxErro
                 Value::Text(run.project.id.clone()),
                 Value::Text(artifact.role.to_owned()),
                 Value::Text(artifact.owner_id.clone()),
+                Value::Integer(i64::try_from(position)?),
                 Value::Text(artifact.path.clone()),
                 Value::Text(artifact.stored.sha256.clone()),
                 Value::Integer(i64::try_from(artifact.stored.bytes)?),
@@ -140,6 +141,201 @@ pub async fn legacy_artifact(
     first_artifact(rows).await
 }
 
+struct Loaded {
+    manifest: Manifest,
+    legacy_root: Option<String>,
+    legacy_name: Option<String>,
+}
+
+/// Loads captures matching `filter` (a `WHERE` clause over `captures`) with their
+/// artifacts, newest first, rebuilt into the manifest shape the views use.
+async fn load(db: &Connection, filter: &str, params: Vec<Value>) -> Result<Vec<Loaded>, BoxError> {
+    let mut rows = db
+        .query(
+            format!(
+                "SELECT id, project_id, project_label, scenario, revision, status, blocker,
+                   inspection, environment_json, findings_json, created_at_ms, legacy_root,
+                   legacy_name
+                 FROM captures WHERE {filter} ORDER BY created_at_ms DESC, legacy_name"
+            ),
+            params.clone(),
+        )
+        .await?;
+    let mut ids = Vec::new();
+    let mut loaded = Vec::new();
+    while let Some(row) = rows.next().await? {
+        ids.push(row.get::<String>(0)?);
+        loaded.push(Loaded {
+            manifest: Manifest {
+                version: 1,
+                project: capture_manifest::Project {
+                    id: row.get(1)?,
+                    label: row.get(2)?,
+                },
+                scenario: row.get(3)?,
+                revision: row.get(4)?,
+                status: row.get(5)?,
+                blocker: row.get(6)?,
+                inspection: row.get(7)?,
+                environment: serde_json::from_str(&row.get::<String>(8)?)?,
+                findings: serde_json::from_str(&row.get::<String>(9)?)?,
+                created_at_ms: row.get(10)?,
+                checkpoints: Vec::new(),
+                clips: Vec::new(),
+            },
+            legacy_root: row.get(11)?,
+            legacy_name: row.get(12)?,
+        });
+    }
+    let mut rows = db
+        .query(
+            format!(
+                "SELECT capture_id, role, owner_id, path, target_ms, video_ms FROM artifacts
+                 WHERE capture_id IN (SELECT id FROM captures WHERE {filter})
+                 ORDER BY capture_id, position"
+            ),
+            params,
+        )
+        .await?;
+    while let Some(row) = rows.next().await? {
+        let capture_id: String = row.get(0)?;
+        let Some(index) = ids.iter().position(|id| *id == capture_id) else {
+            continue;
+        };
+        let role: String = row.get(1)?;
+        let owner: String = row.get(2)?;
+        let path: String = row.get(3)?;
+        let manifest = &mut loaded[index].manifest;
+        if role == "checkpoint" {
+            manifest
+                .checkpoints
+                .push(capture_manifest::Checkpoint { id: owner, path });
+            continue;
+        }
+        let position =
+            if let Some(position) = manifest.clips.iter().position(|clip| clip.id == owner) {
+                position
+            } else {
+                manifest.clips.push(capture_manifest::Clip {
+                    id: owner,
+                    frames: Vec::new(),
+                    analysis_path: None,
+                    video_path: None,
+                    sheet_path: None,
+                });
+                manifest.clips.len() - 1
+            };
+        let clip = &mut manifest.clips[position];
+        match role.as_str() {
+            "clip-video" => clip.video_path = Some(path),
+            "clip-sheet" => clip.sheet_path = Some(path),
+            "clip-analysis" => clip.analysis_path = Some(path),
+            _ => clip.frames.push(capture_manifest::Frame {
+                path,
+                target_ms: row.get::<Option<f64>>(4)?.unwrap_or_default(),
+                video_ms: row.get(5)?,
+            }),
+        }
+    }
+    Ok(loaded)
+}
+
+/// Lists every capture that belongs to one of the configured roots, newest first,
+/// keyed `"{root index}/{run}"` as the run URLs expect.
+///
+/// # Errors
+///
+/// Returns an error if the query or decoding fails.
+pub async fn runs(db: &Connection, root_keys: &[String]) -> Result<Vec<crate::Run>, BoxError> {
+    let mut runs = Vec::new();
+    for item in load(db, "legacy_root IS NOT NULL", Vec::new()).await? {
+        let (Some(root), Some(name)) = (item.legacy_root, item.legacy_name) else {
+            continue;
+        };
+        let Some(index) = root_keys.iter().position(|key| *key == root) else {
+            continue;
+        };
+        let manifest = item.manifest;
+        runs.push(crate::Run {
+            key: format!("{index}/{name}"),
+            project_id: manifest.project.id.clone(),
+            project: manifest.project.label.clone(),
+            scenario: manifest.scenario.clone(),
+            status: manifest.status.clone(),
+            inspection: manifest.inspection.clone(),
+            created_at_ms: manifest.created_at_ms,
+            manifest,
+        });
+    }
+    Ok(runs)
+}
+
+/// Loads one capture by the root and run directory it was imported from.
+///
+/// # Errors
+///
+/// Returns an error if the query or decoding fails.
+pub async fn manifest(
+    db: &Connection,
+    root_key: &str,
+    name: &str,
+) -> Result<Option<Manifest>, BoxError> {
+    Ok(load(
+        db,
+        "legacy_root = ?1 AND legacy_name = ?2",
+        vec![
+            Value::Text(root_key.to_owned()),
+            Value::Text(name.to_owned()),
+        ],
+    )
+    .await?
+    .pop()
+    .map(|item| item.manifest))
+}
+
+pub enum Appended {
+    Done,
+    Missing,
+    TooLarge,
+}
+
+/// Appends a review finding to a capture and marks it reviewed.
+///
+/// # Errors
+///
+/// Returns an error if the query, decoding or update fails.
+pub async fn add_finding(
+    db: &Connection,
+    root_key: &str,
+    name: &str,
+    finding: capture_manifest::Finding,
+) -> Result<Appended, BoxError> {
+    let mut rows = db
+        .query(
+            "SELECT findings_json FROM captures WHERE legacy_root = ?1 AND legacy_name = ?2",
+            turso::params![root_key, name],
+        )
+        .await?;
+    let Some(row) = rows.next().await? else {
+        return Ok(Appended::Missing);
+    };
+    let mut findings: Vec<capture_manifest::Finding> =
+        serde_json::from_str(&row.get::<String>(0)?)?;
+    drop(rows);
+    findings.push(finding);
+    let json = serde_json::to_string(&findings)?;
+    if json.len() > 1024 * 1024 {
+        return Ok(Appended::TooLarge);
+    }
+    db.execute(
+        "UPDATE captures SET findings_json = ?1, inspection = 'reviewed'
+         WHERE legacy_root = ?2 AND legacy_name = ?3",
+        turso::params![json, root_key, name],
+    )
+    .await?;
+    Ok(Appended::Done)
+}
+
 async fn first_artifact(mut rows: turso::Rows) -> Result<Option<ArtifactRef>, BoxError> {
     let Some(row) = rows.next().await? else {
         return Ok(None);
@@ -176,7 +372,7 @@ pub async fn import_roots(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error.into()),
         };
-        let root_key = root_key(root)?;
+        let root_key = root_key(root);
         for entry in entries {
             let entry = entry?;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
@@ -194,13 +390,15 @@ pub async fn import_roots(
     Ok(report)
 }
 
-/// Key that identifies a capture root across restarts: its canonical path.
-///
-/// # Errors
-///
-/// Returns an error if the root cannot be resolved.
-pub fn root_key(root: &Path) -> std::io::Result<String> {
-    Ok(std::fs::canonicalize(root)?.to_string_lossy().into_owned())
+/// Key that identifies a capture root across restarts: its canonical path, or its
+/// absolute path while the directory does not exist yet.
+#[must_use]
+pub fn root_key(root: &Path) -> String {
+    std::fs::canonicalize(root)
+        .or_else(|_| std::path::absolute(root))
+        .unwrap_or_else(|_| root.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Imports one run directory if it holds a valid manifest and is not imported yet.

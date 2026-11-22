@@ -1,4 +1,4 @@
-use crate::{PageResult, Panel, StatusCode, db_error, pipeline, read_manifest, safe_name};
+use crate::{PageResult, Panel, StatusCode, db_error, pipeline, safe_name};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -46,6 +46,10 @@ pub(super) async fn preview(panel: &Panel, args: &Value) -> PageResult<Value> {
         ("invites", "SELECT count(*) FROM invites WHERE project=?"),
         ("audit_events", "SELECT count(*) FROM audit WHERE project=?"),
         (
+            "captures",
+            "SELECT count(*) FROM captures WHERE project_id=?",
+        ),
+        (
             "design_versions",
             "SELECT count(*) FROM design_versions_v1 WHERE project=?",
         ),
@@ -89,9 +93,13 @@ pub(super) async fn preview(panel: &Panel, args: &Value) -> PageResult<Value> {
     drop(db);
 
     let data = pipeline::data_root(panel);
-    let roots = panel.roots.clone();
     let design = panel.design.clone();
-    let inventory = tokio::task::spawn_blocking(move || files(&projects, &data, &design, &roots))
+    let captures = [0, 1].map(|index| {
+        database["captures"][["source", "target"][index]]
+            .as_i64()
+            .unwrap_or_default()
+    });
+    let inventory = tokio::task::spawn_blocking(move || files(&projects, &data, &design, captures))
         .await
         .map_err(db_error)?
         .map_err(db_error)?;
@@ -129,13 +137,12 @@ pub(super) async fn apply(panel: &Panel, actor: &str, args: &Value) -> PageResul
     if !can_merge_database(&db, source, target, projects.revoke_source_access).await? {
         return Err(StatusCode::CONFLICT);
     }
-    let journal = pending.unwrap_or_else(|| CaptureJournal {
+    let journal = pending.unwrap_or_else(|| MergeJournal {
         source: source.to_owned(),
         target: target.to_owned(),
-        runs: BTreeSet::new(),
         revoke_source_access: projects.revoke_source_access,
     });
-    migrate_captures(panel, &path, journal, &label)?;
+    write_json(&path, &journal).map_err(db_error)?;
     move_records(&projects, &data, &panel.design, &label)?;
     commit_database_merge(&db, source, target, actor, projects.revoke_source_access).await?;
     fs::remove_file(path).map_err(db_error)?;
@@ -174,8 +181,12 @@ async fn commit_database_merge(
 ) -> PageResult<()> {
     db.transactional_batch(
         [
-            ("UPDATE runs_v1 SET project_id=?1, project=(SELECT label FROM projects WHERE id=?1) WHERE project_id=?2",
+            ("UPDATE captures SET project_id=?1, project_label=(SELECT label FROM projects WHERE id=?1) WHERE project_id=?2",
                 Vec::from(turso::params![target, source])),
+            (
+                "UPDATE artifacts SET project_id=? WHERE project_id=?",
+                Vec::from(turso::params![target, source]),
+            ),
             (
                 "UPDATE design_versions_v1 SET project=? WHERE project=?",
                 Vec::from(turso::params![target, source]),
@@ -225,11 +236,11 @@ async fn commit_database_merge(
     Ok(())
 }
 
+/// Marks a merge in progress so an interrupted record move can resume.
 #[derive(Deserialize, Serialize)]
-struct CaptureJournal {
+struct MergeJournal {
     source: String,
     target: String,
-    runs: BTreeSet<(usize, String)>,
     #[serde(default)]
     revoke_source_access: bool,
 }
@@ -245,27 +256,7 @@ fn write_json(path: &Path, value: &impl Serialize) -> io::Result<()> {
     fs::File::open(parent)?.sync_all()
 }
 
-fn move_manifest(directory: &Path, source: &str, target: &str, label: &str) -> PageResult<()> {
-    let _lock = crate::pages::lock_capture_manifest(directory)?;
-    let manifest = read_manifest(directory).ok_or(StatusCode::CONFLICT)?;
-    if manifest.project.id == target {
-        return Ok(());
-    }
-    if manifest.project.id != source {
-        return Err(StatusCode::CONFLICT);
-    }
-    let path = directory.join("manifest.json");
-    let mut raw: Value =
-        serde_json::from_slice(&fs::read(&path).map_err(db_error)?).map_err(db_error)?;
-    if raw["project"]["id"] != source {
-        return Err(StatusCode::CONFLICT);
-    }
-    raw["project"]["id"] = json!(target);
-    raw["project"]["label"] = json!(label);
-    write_json(&path, &raw).map_err(db_error)
-}
-
-fn read_journal(path: &Path) -> PageResult<Option<CaptureJournal>> {
+fn read_journal(path: &Path) -> PageResult<Option<MergeJournal>> {
     match fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(db_error),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -283,38 +274,6 @@ async fn project_label(db: &turso::Connection, project: &str) -> PageResult<Opti
         .map_err(db_error)?
         .map(|row| row.get(0).map_err(db_error))
         .transpose()
-}
-
-fn migrate_captures(
-    panel: &Panel,
-    path: &Path,
-    mut journal: CaptureJournal,
-    label: &str,
-) -> PageResult<()> {
-    for (root, directory) in panel.roots.iter().enumerate() {
-        let entries = match fs::read_dir(directory) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(db_error(error)),
-        };
-        for entry in entries {
-            let entry = entry.map_err(db_error)?;
-            let name = entry.file_name();
-            if let Some(name) = name.to_str().filter(|name| safe_name(name))
-                && crate::run_dir(panel, root, name)
-                    .and_then(|dir| read_manifest(&dir))
-                    .is_some_and(|manifest| manifest.project.id == journal.source)
-            {
-                journal.runs.insert((root, name.to_owned()));
-            }
-        }
-    }
-    write_json(path, &journal).map_err(db_error)?;
-    for (root, name) in &journal.runs {
-        let directory = crate::run_dir(panel, *root, name).ok_or(StatusCode::CONFLICT)?;
-        move_manifest(&directory, &journal.source, &journal.target, label)?;
-    }
-    Ok(())
 }
 
 fn record_roots(data: &Path, design: &Path) -> [(&'static str, PathBuf); 4] {
@@ -486,7 +445,7 @@ fn rewrite_record(
     serde_json::to_vec(&value).map_err(db_error)
 }
 
-fn files(projects: &Projects, data: &Path, design: &Path, roots: &[PathBuf]) -> io::Result<Value> {
+fn files(projects: &Projects, data: &Path, design: &Path, captures: [i64; 2]) -> io::Result<Value> {
     let mut sections = serde_json::Map::new();
     for (name, root) in record_roots(data, design) {
         let source = inventory(&root.join(&projects.source))?;
@@ -500,26 +459,6 @@ fn files(projects: &Projects, data: &Path, design: &Path, roots: &[PathBuf]) -> 
                 "collision_examples":collisions.take(25).collect::<Vec<_>>(),
             }),
         );
-    }
-    let mut captures = [0; 2];
-    for root in roots {
-        let entries = match fs::read_dir(root) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error),
-        };
-        for entry in entries {
-            let entry = entry?;
-            if entry.file_type()?.is_dir()
-                && let Some(manifest) = read_manifest(&entry.path())
-            {
-                if manifest.project.id == projects.source {
-                    captures[0] += 1;
-                } else if manifest.project.id == projects.target {
-                    captures[1] += 1;
-                }
-            }
-        }
     }
     Ok(
         json!({"source":projects.source,"target":projects.target,"sections":sections,
@@ -619,24 +558,53 @@ Keep context"
         assert!(!source.join("p1.json").exists());
     }
 
-    #[test]
-    fn capture_merge_preserves_paths_and_unknown_metadata_on_retry() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("manifest.json");
-        let capture = json!({"version":1,"project":{"id":"old","label":"Old"},
-            "scenario":"demo","created_at_ms":0,"status":"ok","inspection":"pending",
-            "environment":{"renderer":"test"},"checkpoints":[{"id":"main","path":"main.png"}],
-            "clips":[],"extra":{"keep":true}});
-        write_json(&path, &capture).unwrap();
-        fs::write(dir.path().join("main.png"), b"evidence").unwrap();
-        for _ in 0..2 {
-            move_manifest(dir.path(), "old", "new", "New").unwrap();
+    #[tokio::test]
+    async fn capture_merge_moves_captures_and_artifacts_to_the_target() {
+        let (dir, db) = crate::db::test_db().await;
+        crate::db::migrate(&db).await.unwrap();
+        crate::auth::init(&db).await.unwrap();
+        crate::design_system::init(&db).await.unwrap();
+        db.execute_batch("INSERT INTO projects VALUES ('old','Old'), ('new','New');")
+            .await
+            .unwrap();
+        let blobs = crate::blobs::Blobs::open(dir.path().join("blobs")).unwrap();
+        let shot = dir.path().join("main.png");
+        fs::write(&shot, b"evidence").unwrap();
+        let manifest: rupicola_core::capture_manifest::Manifest = serde_json::from_value(json!({
+            "version":1,"project":{"id":"old","label":"Old"},"scenario":"demo",
+            "revision":null,"created_at_ms":0,"status":"complete","blocker":null,
+            "inspection":"pending","environment":{"renderer":"test"},
+            "checkpoints":[{"id":"main","path":"main.png"}],"clips":[]}))
+        .unwrap();
+        crate::capture_store::insert(
+            &db,
+            &crate::capture_store::NewCapture {
+                id: "c1".into(),
+                manifest,
+                legacy: None,
+                artifacts: vec![crate::capture_store::NewArtifact {
+                    role: "checkpoint",
+                    owner_id: "main".into(),
+                    path: "main.png".into(),
+                    stored: blobs.put_file(&shot).unwrap(),
+                    target_ms: None,
+                    video_ms: None,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        commit_database_merge(&db, "old", "new", "owner", true)
+            .await
+            .unwrap();
+        for sql in [
+            "SELECT project_id || '/' || project_label FROM captures",
+            "SELECT project_id FROM artifacts",
+        ] {
+            let mut rows = db.query(sql, ()).await.unwrap();
+            let value: String = rows.next().await.unwrap().unwrap().get(0).unwrap();
+            assert!(value == "new/New" || value == "new", "{sql} -> {value}");
         }
-        let result: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-        assert_eq!(result["project"], json!({"id":"new","label":"New"}));
-        assert_eq!(result["extra"], capture["extra"]);
-        assert_eq!(result["checkpoints"], capture["checkpoints"]);
-        assert_eq!(fs::read(dir.path().join("main.png")).unwrap(), b"evidence");
     }
 
     #[tokio::test]
@@ -649,9 +617,9 @@ Keep context"
             .unwrap();
         crate::auth::init(&db).await.unwrap();
         crate::design_system::init(&db).await.unwrap();
+        crate::db::migrate(&db).await.unwrap();
         db.execute_batch(
-            "CREATE TABLE runs_v1(project_id TEXT, project TEXT);
-            INSERT INTO projects VALUES ('old','Old'), ('new','New');
+            "INSERT INTO projects VALUES ('old','Old'), ('new','New');
             INSERT INTO members VALUES ('old','reader','reader');
             INSERT INTO audit(project,actor,event,occurred) VALUES ('old','owner','Original',0);",
         )
@@ -699,7 +667,8 @@ Keep context"
             .unwrap();
         crate::auth::init(&db).await.unwrap();
         crate::design_system::init(&db).await.unwrap();
-        db.execute_batch("CREATE TABLE runs_v1(project_id TEXT, project TEXT);
+        crate::db::migrate(&db).await.unwrap();
+        db.execute_batch("
             INSERT INTO projects VALUES ('old','Old'), ('new','New');
             INSERT INTO members VALUES ('old','reader','reader'), ('new','reader','reviewer');
             INSERT INTO devices VALUES ('old-token','old','source',0,NULL), ('new-token','new','target',0,NULL);
@@ -749,7 +718,7 @@ Keep context"
             target: "new".into(),
             revoke_source_access: false,
         };
-        let result = files(&projects, temp.path(), &temp.path().join("design"), &[]).unwrap();
+        let result = files(&projects, temp.path(), &temp.path().join("design"), [0, 0]).unwrap();
         assert_eq!(result["sections"]["problems"]["source_entries"], 2);
         assert_eq!(result["sections"]["problems"]["target_entries"], 1);
         assert_eq!(result["sections"]["problems"]["collision_count"], 1);

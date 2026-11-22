@@ -1,13 +1,11 @@
 use super::{
     Account, Arc, BTreeMap, Checkpoint, Connection, Cx, Deserialize, Html, IntoResponse, Manifest,
     PageResult, Panel, PathBuf, Response, Run, StatusCode, TransactionBehavior, Value, auth,
-    db_error, design_record, design_system, fix_record, fs, media, pipeline, problem_record,
-    proposal_record, proposes, read_index, read_manifest, redirect, run_dir, safe_name, storage,
-    view,
+    capture_store, db_error, design_record, design_system, fix_record, fs, media, pipeline,
+    problem_record, proposal_record, proposes, read_index, redirect, safe_name, storage, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
-use std::io::Write;
 
 async fn visible_runs(panel: &Panel, account: &Account) -> PageResult<Vec<Run>> {
     let mut runs = read_index(panel).await.map_err(db_error)?;
@@ -193,8 +191,7 @@ pub async fn dashboard(
         .iter()
         .filter(|run| run.status == "complete")
         .find_map(|run| {
-            let manifest = read_run(&panel, &run.key)?;
-            let checkpoint = pick_hero_checkpoint(&manifest.checkpoints)?;
+            let checkpoint = pick_hero_checkpoint(&run.manifest.checkpoints)?;
             Some((
                 format!("/run/{}", run.key),
                 format!("/media/{}/{}", run.key, checkpoint.path),
@@ -382,11 +379,6 @@ pub async fn project_section(
     Box::pin(project_view(panel, account, id, section, filter)).await
 }
 
-pub fn read_run(panel: &Panel, key: &str) -> Option<Manifest> {
-    let (root, name) = key.split_once('/')?;
-    read_manifest(&run_dir(panel, root.parse().ok()?, name)?)
-}
-
 #[expect(
     clippy::too_many_lines,
     reason = "the project view keeps section routing and the shared project layout together"
@@ -480,9 +472,7 @@ async fn project_view(
 
     let mut all_assets = Vec::new();
     for run in &related {
-        let Some(manifest) = read_run(&panel, &run.key) else {
-            continue;
-        };
+        let manifest = &run.manifest;
         if manifest.project.id != id {
             continue;
         }
@@ -567,8 +557,7 @@ async fn project_view(
             .iter()
             .filter(|run| run.status == "complete")
             .find_map(|run| {
-                let manifest = read_run(&panel, &run.key)?;
-                let checkpoint = pick_hero_checkpoint(&manifest.checkpoints)?;
+                let checkpoint = pick_hero_checkpoint(&run.manifest.checkpoints)?;
                 Some((
                     format!("/run/{}", run.key),
                     format!("/media/{}/{}", run.key, checkpoint.path),
@@ -1314,13 +1303,6 @@ pub struct Review {
     note: String,
     evidence: Option<String>,
 }
-pub(crate) struct ReviewLock(PathBuf);
-impl Drop for ReviewLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.0);
-    }
-}
-
 pub async fn review(
     panel: Arc<Panel>,
     account: Account,
@@ -1328,35 +1310,29 @@ pub async fn review(
     form: Review,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
-    let dir = run_dir(&panel, root, &name).ok_or(StatusCode::NOT_FOUND)?;
-    let manifest = read_manifest(&dir).ok_or(StatusCode::NOT_FOUND)?;
+    let key = format!("{root}/{name}");
+    let manifest = crate::read_run(&panel, &key)
+        .await
+        .ok_or(StatusCode::NOT_FOUND)?;
     if auth::role(&panel, &account, &manifest.project.id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
     append_capture_review(
-        &dir,
+        &panel,
+        &key,
         &manifest,
         &account.handle,
         &form.note,
         form.evidence.as_deref(),
-    )?;
-    Ok(redirect(&format!("/run/{root}/{name}#review")))
+    )
+    .await?;
+    Ok(redirect(&format!("/run/{key}#review")))
 }
 
-pub(crate) fn lock_capture_manifest(dir: &std::path::Path) -> PageResult<ReviewLock> {
-    let lock = dir.join(".review.lock");
-    fs::create_dir(&lock).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AlreadyExists {
-            StatusCode::CONFLICT
-        } else {
-            db_error(error)
-        }
-    })?;
-    Ok(ReviewLock(lock))
-}
-
-pub(crate) fn append_capture_review(
-    dir: &std::path::Path,
+/// Records a review note on the capture keyed `"{root}/{run}"`.
+pub(crate) async fn append_capture_review(
+    panel: &Panel,
+    key: &str,
     manifest: &Manifest,
     actor: &str,
     note: &str,
@@ -1372,41 +1348,26 @@ pub(crate) fn append_capture_review(
     {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let _lock = lock_capture_manifest(dir)?;
-    let current = read_manifest(dir).ok_or(StatusCode::NOT_FOUND)?;
-    if manifest.project.id != current.project.id {
-        return Err(StatusCode::CONFLICT);
+    let (root, name) = key.split_once('/').ok_or(StatusCode::NOT_FOUND)?;
+    let root_key = root
+        .parse::<usize>()
+        .ok()
+        .and_then(|root| panel.root_keys.get(root))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let finding = rupicola_core::capture_manifest::Finding {
+        note: note.to_owned(),
+        evidence: evidence.map(str::to_owned),
+        author: Some(actor.to_owned()),
+    };
+    let db = panel.index.lock().await;
+    match capture_store::add_finding(&db, root_key, name, finding)
+        .await
+        .map_err(db_error)?
+    {
+        capture_store::Appended::Done => Ok(()),
+        capture_store::Appended::Missing => Err(StatusCode::NOT_FOUND),
+        capture_store::Appended::TooLarge => Err(StatusCode::PAYLOAD_TOO_LARGE),
     }
-    let path = dir.join("manifest.json");
-    let mut json: serde_json::Value =
-        serde_json::from_slice(&fs::read(&path).map_err(db_error)?).map_err(db_error)?;
-    if json.get("findings").is_none() {
-        json["findings"] = serde_json::json!([]);
-    }
-    json["findings"]
-        .as_array_mut()
-        .ok_or(StatusCode::CONFLICT)?
-        .push(serde_json::json!({"note": note, "evidence": evidence, "author": actor}));
-    json["inspection"] = serde_json::json!("reviewed");
-    let bytes = serde_json::to_vec_pretty(&json).map_err(db_error)?;
-    if bytes.len() > 1024 * 1024 {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
-    }
-    let temp = dir.join(format!(".review-{}.tmp", auth::token()));
-    let result = (|| {
-        let mut file = fs::File::options()
-            .create_new(true)
-            .write(true)
-            .open(&temp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&temp, &path)
-    })();
-    if let Err(error) = result {
-        let _ = fs::remove_file(&temp);
-        return Err(db_error(error));
-    }
-    Ok(())
 }
 
 #[derive(Deserialize)]

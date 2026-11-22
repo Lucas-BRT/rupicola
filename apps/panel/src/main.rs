@@ -146,6 +146,8 @@ struct Panel {
     login_attempts: Mutex<BTreeMap<String, (u32, i64)>>,
     uploads: Option<PathBuf>,
     blobs: blobs::Blobs,
+    /// [`capture_store::root_key`] of each entry in `roots`, in the same order.
+    root_keys: Vec<String>,
 }
 
 struct Run {
@@ -156,6 +158,7 @@ struct Run {
     status: String,
     inspection: String,
     created_at_ms: i64,
+    manifest: Manifest,
 }
 
 #[tokio::main]
@@ -203,17 +206,6 @@ async fn main() -> Result<(), BoxError> {
         .build()
         .await?;
     let index = database.connect()?;
-    index
-        .execute(
-            "CREATE TABLE IF NOT EXISTS runs_v1 (
-              key TEXT PRIMARY KEY, project_id TEXT NOT NULL, project TEXT NOT NULL,
-              scenario TEXT NOT NULL, status TEXT NOT NULL, inspection TEXT NOT NULL,
-              created_at_ms INTEGER NOT NULL
-            )",
-            (),
-        )
-        .await?;
-
     db::migrate(&index).await?;
     auth::init(&index).await?;
     design_system::init(&index).await?;
@@ -316,7 +308,12 @@ async fn main() -> Result<(), BoxError> {
             imported.captures, imported.missing_files
         );
     }
+    let root_keys = roots
+        .iter()
+        .map(|root| capture_store::root_key(root))
+        .collect();
     let panel = Arc::new(Panel {
+        root_keys,
         design: db_path
             .parent()
             .unwrap_or(std::path::Path::new("."))
@@ -388,62 +385,41 @@ fn read_manifest(dir: &FilePath) -> Option<Manifest> {
     (run.version == 1).then_some(run)
 }
 
+/// Lists every capture, newest first. Run directories written into a capture root
+/// since the last call are imported first.
 async fn read_index(panel: &Panel) -> Result<Vec<Run>, BoxError> {
     let index = panel.index.lock().await;
-    let mut changes = vec![("DELETE FROM runs_v1", Vec::<Value>::new())];
-    for (root_index, root) in panel.roots.iter().enumerate() {
-        let entries = match fs::read_dir(root) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e.into()),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let name = entry.file_name();
-            let Some(dir) = name
-                .to_str()
-                .and_then(|name| run_dir(panel, root_index, name))
-            else {
-                continue;
-            };
-            let Some(run) = read_manifest(&dir) else {
-                continue;
-            };
-            changes.push((
-                "INSERT INTO runs_v1 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                vec![
-                    Value::Text(format!("{root_index}/{}", name.to_string_lossy())),
-                    Value::Text(run.project.id),
-                    Value::Text(run.project.label),
-                    Value::Text(run.scenario),
-                    Value::Text(run.status),
-                    Value::Text(run.inspection),
-                    Value::Integer(run.created_at_ms),
-                ],
-            ));
+    capture_store::import_roots(&index, &panel.blobs, &panel.roots).await?;
+    capture_store::runs(&index, &panel.root_keys).await
+}
+
+/// Loads one capture by its `"{root}/{run}"` key, importing its directory first if
+/// it was written after the last import.
+async fn read_run(panel: &Panel, key: &str) -> Option<Manifest> {
+    let (root, name) = key.split_once('/')?;
+    let root: usize = root.parse().ok()?;
+    let root_key = panel.root_keys.get(root)?;
+    let index = panel.index.lock().await;
+    let found = capture_store::manifest(&index, root_key, name).await;
+    match found {
+        Ok(Some(manifest)) => return Some(manifest),
+        Ok(None) => {}
+        Err(error) => {
+            db_error(error);
+            return None;
         }
     }
-    index
-        .transactional_batch(changes, TransactionBehavior::Immediate)
-        .await?;
-    let mut rows = index.query(
-        "SELECT key, project_id, project, scenario, status, inspection, created_at_ms FROM runs_v1
-         ORDER BY created_at_ms DESC, key",
-        (),
-    ).await?;
-    let mut runs = Vec::new();
-    while let Some(row) = rows.next().await? {
-        runs.push(Run {
-            key: row.get(0)?,
-            project_id: row.get(1)?,
-            project: row.get(2)?,
-            scenario: row.get(3)?,
-            status: row.get(4)?,
-            inspection: row.get(5)?,
-            created_at_ms: row.get(6)?,
-        });
+    let dir = run_dir(panel, root, name)?;
+    if let Err(error) = capture_store::import_run(&index, &panel.blobs, root_key, &dir, name).await
+    {
+        db_error(error);
+        return None;
     }
-    Ok(runs)
+    capture_store::manifest(&index, root_key, name)
+        .await
+        .map_err(db_error)
+        .ok()
+        .flatten()
 }
 
 #[derive(Deserialize)]
@@ -461,11 +437,9 @@ async fn detail(
     panel: Arc<Panel>,
     (root, name): (usize, String),
 ) -> PageResult<Html<String>> {
-    let run = run_dir(&panel, root, &name)
-        .and_then(|dir| read_manifest(&dir))
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let role = auth::role(&panel, &account, &run.project.id).await?;
     let key = format!("{root}/{name}");
+    let run = read_run(&panel, &key).await.ok_or(StatusCode::NOT_FOUND)?;
+    let role = auth::role(&panel, &account, &run.project.id).await?;
     let url = |path: &str| format!("/media/{root}/{name}/{path}");
     let candidates: Vec<_> = read_index(&panel)
         .await
@@ -480,16 +454,12 @@ async fn detail(
         .collect();
     let requested = comparison.before;
     let before = requested.as_deref().and_then(|key| {
-        let (root, name) = key.split_once('/')?;
-        let manifest = read_manifest(&run_dir(&panel, root.parse().ok()?, name)?)?;
-        (manifest.project.id == run.project.id
-            && manifest.scenario == run.scenario
-            && manifest.status == "complete")
-            .then_some((
-                key.to_owned(),
-                manifest.checkpoints,
-                manifest.environment != run.environment,
-            ))
+        let candidate = candidates.iter().find(|candidate| candidate.key == key)?;
+        Some((
+            candidate.key.clone(),
+            &candidate.manifest.checkpoints,
+            candidate.manifest.environment != run.environment,
+        ))
     });
     let environments_differ = before.as_ref().is_some_and(|(_, _, differs)| *differs);
     let before_images: BTreeMap<_, _> = before

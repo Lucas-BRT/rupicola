@@ -148,7 +148,12 @@ fn update_input<'a, T: Deserialize<'a>>(args: &'a Value) -> PageResult<Update<T>
     Ok(data)
 }
 
-pub(super) fn update(panel: &Panel, actor: &str, tool: &str, args: &Value) -> PageResult<Value> {
+pub(super) async fn update(
+    panel: &Panel,
+    actor: &str,
+    tool: &str,
+    args: &Value,
+) -> PageResult<Value> {
     let Some((_, _, required, optional)) = UPDATES.iter().find(|(name, _, _, _)| *name == tool)
     else {
         return Err(StatusCode::BAD_REQUEST);
@@ -185,7 +190,7 @@ pub(super) fn update(panel: &Panel, actor: &str, tool: &str, args: &Value) -> Pa
             if !safe_name(&data.project) || data.project.len() > 100 || data.id.len() > 256 {
                 return Err(StatusCode::BAD_REQUEST);
             }
-            pipeline::analyze_run(panel, &data.project, &data.id)?;
+            pipeline::analyze_run(panel, &data.project, &data.id).await?;
             Ok(json!({"run":data.id}))
         }
         "capture_review" => {
@@ -199,22 +204,27 @@ pub(super) fn update(panel: &Panel, actor: &str, tool: &str, args: &Value) -> Pa
             if !safe_name(&data.project) || data.project.len() > 100 || data.id.len() > 256 {
                 return Err(StatusCode::BAD_REQUEST);
             }
-            let (root, name) = data.id.split_once('/').ok_or(StatusCode::BAD_REQUEST)?;
-            let root = root.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
-            let dir = run_dir(panel, root, name).ok_or(StatusCode::NOT_FOUND)?;
-            let manifest = read_manifest(&dir)
+            let manifest = crate::read_run(panel, &data.id)
+                .await
                 .filter(|m| m.project.id == data.project)
                 .ok_or(StatusCode::NOT_FOUND)?;
-            if let Some(path) = data.record.evidence.as_deref() {
-                media::resolve_artifact(dir.clone(), &manifest, path)?;
+            if data
+                .record
+                .evidence
+                .as_deref()
+                .is_some_and(|path| !media::declared(&manifest, path))
+            {
+                return Err(StatusCode::NOT_FOUND);
             }
             crate::pages::append_capture_review(
-                &dir,
+                panel,
+                &data.id,
                 &manifest,
                 actor,
                 &data.record.note,
                 data.record.evidence.as_deref(),
-            )?;
+            )
+            .await?;
             Ok(json!({"run":data.id}))
         }
         "propose_enrich" => {

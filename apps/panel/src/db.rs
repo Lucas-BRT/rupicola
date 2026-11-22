@@ -32,6 +32,7 @@ const MIGRATIONS: &[(i64, &[&str])] = &[(
             project_id TEXT NOT NULL,
             role TEXT NOT NULL,
             owner_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
             path TEXT NOT NULL,
             sha256 TEXT NOT NULL,
             bytes INTEGER NOT NULL,

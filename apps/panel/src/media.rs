@@ -27,17 +27,17 @@ pub async fn file(
     request: Request,
 ) -> PageResult<Response> {
     let dir = run_dir(&panel, root, &name).ok_or(StatusCode::NOT_FOUND)?;
-    let root_key = capture_store::root_key(&panel.roots[root]).map_err(db_error)?;
+    let root_key = &panel.root_keys[root];
     let found = {
         let db = panel.index.lock().await;
-        let mut found = capture_store::legacy_artifact(&db, &root_key, &name, &file)
+        let mut found = capture_store::legacy_artifact(&db, root_key, &name, &file)
             .await
             .map_err(db_error)?;
         if found.is_none() {
-            capture_store::import_run(&db, &panel.blobs, &root_key, &dir, &name)
+            capture_store::import_run(&db, &panel.blobs, root_key, &dir, &name)
                 .await
                 .map_err(db_error)?;
-            found = capture_store::legacy_artifact(&db, &root_key, &name, &file)
+            found = capture_store::legacy_artifact(&db, root_key, &name, &file)
                 .await
                 .map_err(db_error)?;
         }
