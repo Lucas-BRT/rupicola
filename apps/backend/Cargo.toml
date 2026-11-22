@@ -9,6 +9,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+base64.workspace = true
+serde.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
 axum.workspace = true
@@ -37,9 +39,6 @@ tower_governor.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
-
-[dev-dependencies]
-serde.workspace = true
 
 [lints]
 workspace = true

@@ -504,6 +504,26 @@ pub async fn add_finding(
     Ok((StatusCode::CREATED, Json(finding)))
 }
 
+/// Digest, media type and size of an artifact, for readers of its project.
+pub async fn artifact_blob(
+    state: &Shared,
+    principal: &Principal,
+    id: &str,
+) -> Result<(String, String, i64), ApiError> {
+    let found: Option<(String, String, String, i64)> = sqlx::query_as(
+        "SELECT c.project_id, a.sha256, a.mime, a.bytes FROM artifacts a
+         JOIN captures c ON c.id = a.capture_id WHERE a.id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?;
+    let (project, sha256, mime, bytes) = found.ok_or(ApiError::NotFound)?;
+    access(state, principal, &project)
+        .await?
+        .require(Role::Reader)?;
+    Ok((sha256, mime, bytes))
+}
+
 /// `GET /v1/artifacts/{id}`: the file's bytes, for readers of its project.
 pub async fn artifact(
     State(state): State<Shared>,

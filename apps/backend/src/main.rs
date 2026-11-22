@@ -8,6 +8,7 @@ mod credentials;
 mod db;
 mod error;
 mod fixes;
+mod mcp;
 mod problems;
 mod projects;
 mod security;
@@ -65,6 +66,8 @@ struct Args {
 /// Every route, wrapped in the request hardening from [`security`].
 /// Path of the unversioned health probe used by containers and load balancers.
 const HEALTH_PATH: &str = "/healthz";
+/// Path of the unversioned MCP endpoint, which MCP clients are configured with.
+const MCP_PATH: &str = "/mcp";
 
 /// Every route, wrapped in the request hardening from [`security`]. Versioned
 /// routes are mounted once under [`rupicola_api::PREFIX`], so a future version is
@@ -73,6 +76,10 @@ fn app(settings: &security::Security, state: state::Shared) -> Router {
     let routes = Router::new()
         .route(HEALTH_PATH, routing::get(health))
         .nest(rupicola_api::PREFIX, v1(settings))
+        .merge(security::limit_body(
+            Router::new().route(MCP_PATH, routing::post(mcp::serve)),
+            settings.body_limit,
+        ))
         .fallback(|| async { ApiError::NotFound })
         .with_state(state);
     security::harden(routes, settings)

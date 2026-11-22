@@ -109,6 +109,49 @@ impl Blobs {
         }
     }
 
+    /// Up to `length` bytes of the blob starting at `offset`; shorter (or empty) at the end.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::NotFound`] when the blob is missing.
+    pub fn read_range(
+        &self,
+        sha256: &str,
+        offset: u64,
+        length: usize,
+    ) -> Result<Vec<u8>, ApiError> {
+        if !valid_digest(sha256) {
+            return Err(ApiError::NotFound);
+        }
+        match self {
+            Self::Disk(root) => {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut file = fs::File::open(disk_path(root, sha256)).map_err(|error| {
+                    if error.kind() == io::ErrorKind::NotFound {
+                        ApiError::NotFound
+                    } else {
+                        ApiError::from(anyhow::Error::from(error))
+                    }
+                })?;
+                file.seek(SeekFrom::Start(offset))
+                    .map_err(anyhow::Error::from)?;
+                let mut data = Vec::new();
+                file.take(length as u64)
+                    .read_to_end(&mut data)
+                    .map_err(anyhow::Error::from)?;
+                Ok(data)
+            }
+            #[cfg(test)]
+            Self::Memory(map) => {
+                let map = map.lock().expect("blob map poisoned");
+                let data = map.get(sha256).ok_or(ApiError::NotFound)?;
+                let start = usize::try_from(offset).map_or(data.len(), |o| o.min(data.len()));
+                let end = start.saturating_add(length).min(data.len());
+                Ok(data[start..end].to_vec())
+            }
+        }
+    }
+
     /// Answers `request` with the blob's bytes as `mime`. On disk this supports
     /// range requests (video seeking) and conditional requests.
     ///
