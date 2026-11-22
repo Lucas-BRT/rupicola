@@ -132,7 +132,7 @@ pub(crate) fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
 /// Extracts a skill version into `dest`.
 pub(crate) fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
     fs::create_dir_all(dest).map_err(|error| error.to_string())?;
-    let skip = "--exclude=evals --exclude=xtask --exclude=target --exclude=.git";
+    let skip = "--exclude=evals --exclude=tools/eval-runner --exclude=target --exclude=.git";
     // `worktree` takes the current files, tracked or not, so uncommitted edits can be measured.
     let (rev, desc_file) = match rev.split_once('+') {
         Some((r, f)) => (r, Some(f)),

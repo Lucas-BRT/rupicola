@@ -6,9 +6,9 @@ members = [
     "apps/cli",
     "apps/panel",
     "apps/site",
-    "xtask",
+    "tools/eval-runner",
 ]
-default-members = ["crates/rupicola-core", "crates/rupicola-api", "apps/backend", "apps/cli", "xtask"]
+default-members = ["crates/rupicola-core", "crates/rupicola-api", "apps/backend", "apps/cli", "tools/eval-runner"]
 exclude = ["evals", "examples"]
 resolver = "2"
 

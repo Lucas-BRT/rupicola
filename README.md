@@ -239,13 +239,13 @@ cargo build --release --locked
 
 `evals/tasks/<id>/task.toml` defines a measurable task: prompt, framework, kind (`build`, `review`, `improve`, `plan`, `trigger`), `dev`/`holdout` split, constraints, deterministic verifiers and, for reviews, seeded defects with fixtures. `check` validates the schema offline; it does not run a model or the verifiers. Copy [evals/PREREG.md](evals/PREREG.md) and commit it before each measured run. The 10 tasks present are pilot definitions only; no baseline result or statistical conclusion exists yet.
 
-The `xtask` crate (not shipped in releases) runs and analyzes them:
+The `eval-runner` tool (`tools/eval-runner`, not shipped in releases) runs and analyzes them:
 
 ```console
-cargo run -p xtask -- plan --cond c0=none --cond c1=<git rev> --k 4
-cargo run -p xtask -- run --cond c0=none --cond c1=<git rev> --model <exact-id> --max-usd 20            # dry run
-cargo run -p xtask -- run --cond c0=none --cond c1=<git rev> --model <exact-id> --max-usd 20 --execute  # spawns `claude -p`
-cargo run -p xtask -- analyze evals/results/run --base c0 --cand c1 --csv
+cargo run -p eval-runner -- plan --cond c0=none --cond c1=<git rev> --k 4
+cargo run -p eval-runner -- run --cond c0=none --cond c1=<git rev> --model <exact-id> --max-usd 20            # dry run
+cargo run -p eval-runner -- run --cond c0=none --cond c1=<git rev> --model <exact-id> --max-usd 20 --execute  # spawns `claude -p`
+cargo run -p eval-runner -- analyze evals/results/run --base c0 --cand c1 --csv
 ```
 
 `run` is a dry run unless `--execute` is given, is resumable (finished runs are skipped), stops at `--max-usd`, and runs the agent with a clean `CLAUDE_CONFIG_DIR` holding only the credential, so user-level skills, hooks, plugins and MCP servers do not leak into any condition (`--no-isolate` disables this). Every run audits the skills the harness reported against the condition; a mismatch counts as a failure. Each run uses a throwaway directory with the skill extracted from the given revision; the agent is allowed Bash there, so prefer a container. `trigger` measures only whether the skill is invoked, over the prompts in `evals/triggers.toml` (30 explicit, 40 implicit, 22 negative; tune on `dev`, judge on `holdout`), and `trigger-analyze` reports precision, recall, F1 and false-positive rate with prompt-cluster bootstrap CIs. The cross-stack update keeps existing prompt IDs and changes eight expected labels. Use the same corpus revision for paired runs. A condition can be `none`, a git revision or `worktree` (current files, to test uncommitted edits). `analyze` reports paired pass rate, a task-cluster bootstrap CI, an exact McNemar test, pass^k and cost; it does not fit mixed-effects models (use `--csv`) and does not yet score review recall or free-text constraints. Skill invocation and false "verified" claims are text heuristics over the trajectory.
