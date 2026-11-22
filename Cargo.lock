@@ -2211,11 +2211,16 @@ dependencies = [
 name = "rupicola-backend"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "axum",
  "clap",
  "rupicola-api",
  "serde_json",
+ "thiserror",
  "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3263,6 +3268,7 @@ dependencies = [
  "tokio-util",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

@@ -1,16 +1,20 @@
 //! Rupicola backend: the API server every client (web panel, CLI, desktop GUI) talks to.
 //! It is the only process that touches the database and the media store.
 
+mod error;
+
+use anyhow::{Context, bail};
 use axum::{Json, Router, routing};
 use clap::Parser;
+use error::ApiError;
 use rupicola_api::{Health, HealthStatus};
 use std::{
     io::{Read, Write},
     net::{Ipv4Addr, SocketAddr, TcpStream},
     time::Duration,
 };
-
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::EnvFilter;
 
 const DEFAULT_PORT: u16 = 4730;
 
@@ -29,7 +33,10 @@ struct Args {
 }
 
 fn router() -> Router {
-    Router::new().route("/healthz", routing::get(health))
+    Router::new()
+        .route("/healthz", routing::get(health))
+        .fallback(|| async { ApiError::NotFound })
+        .layer(TraceLayer::new_for_http())
 }
 
 async fn health() -> Json<Health> {
@@ -40,29 +47,38 @@ async fn health() -> Json<Health> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), BoxError> {
+async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let port = args
         .port
         .or_else(|| variable("PORT"))
         .unwrap_or(DEFAULT_PORT);
     if args.healthcheck {
-        let response = fetch(port, "/healthz")?;
-        return if response.starts_with("HTTP/1.1 200") {
-            Ok(())
-        } else {
-            Err("healthcheck failed".into())
-        };
+        let response = fetch(port, "/healthz").context("backend is not reachable")?;
+        if !response.starts_with("HTTP/1.1 200") {
+            bail!("healthcheck failed");
+        }
+        return Ok(());
     }
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,tower_http=debug")),
+        )
+        .init();
     let bind = args
         .bind
         .or_else(|| variable("HOST"))
         .unwrap_or(Ipv4Addr::LOCALHOST);
-    let listener = tokio::net::TcpListener::bind((bind, port)).await?;
-    println!("rupicola-backend listening on {}", listener.local_addr()?);
+    let listener = tokio::net::TcpListener::bind((bind, port))
+        .await
+        .with_context(|| format!("cannot listen on {bind}:{port}"))?;
+    tracing::info!(address = %listener.local_addr()?, "rupicola-backend listening");
     axum::serve(listener, router())
         .with_graceful_shutdown(shutdown())
-        .await?;
+        .await
+        .context("server stopped with an error")?;
+    tracing::info!("rupicola-backend stopped");
     Ok(())
 }
 
@@ -143,5 +159,8 @@ mod tests {
             .unwrap();
 
         assert!(response.starts_with("HTTP/1.1 404"), "{response}");
+        let body = response.split_once("\r\n\r\n").unwrap().1;
+        let error: rupicola_api::ErrorBody = serde_json::from_str(body).unwrap();
+        assert_eq!(error.code, "not-found");
     }
 }

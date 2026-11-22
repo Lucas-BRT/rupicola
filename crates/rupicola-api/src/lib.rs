@@ -22,6 +22,15 @@ pub enum HealthStatus {
     Ok,
 }
 
+/// Body of every non-2xx API response.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct ErrorBody {
+    /// Stable, machine-readable error code, such as `not-found`.
+    pub code: String,
+    /// Human-readable explanation.
+    pub message: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
