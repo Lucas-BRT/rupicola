@@ -91,6 +91,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          target: panel
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
@@ -108,7 +109,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.site
+          target: site
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta-site.outputs.tags }}

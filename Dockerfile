@@ -1,10 +1,14 @@
 # syntax=docker/dockerfile:1
 #
+# One Dockerfile, two images (select with `--target`):
+#   * `site`  — lean landing & documentation container (no ffmpeg, no browser);
+#   * `panel` — panel + CLI with ffmpeg and the Design review browser (default, last stage).
+#
 # Multi-stage and cache-friendly:
 #   * cargo-chef is installed in its own stage with a pinned version and rebuilds only when that pin changes;
 #   * cargo-chef cooks workspace dependencies from recipe.json, so editing source code never recompiles them;
-#   * the panel and CLI build with the `website` profile (fat LTO, 1 codegen unit, stripped);
-#   * runtime runs as non-root uid 10001 with a self-contained --healthcheck probe.
+#   * one builder compiles the panel, CLI and site with the `website` profile, so both images share its cache;
+#   * runtimes run as non-root uid 10001 with a self-contained --healthcheck probe.
 
 FROM rust:1.99.1-bookworm AS base
 WORKDIR /app
@@ -19,14 +23,31 @@ FROM tool-chef AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-# ---- panel + cli build -------------------------------------------------------------------------------------
+# ---- panel + cli + site build ------------------------------------------------------------------------------
 FROM tool-chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    cargo chef cook --profile website --locked -p rupicola -p rupicola-panel --recipe-path recipe.json
+    cargo chef cook --profile website --locked -p rupicola -p rupicola-panel -p rupicola-site --recipe-path recipe.json
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    cargo build --profile website --locked -p rupicola -p rupicola-panel
+    cargo build --profile website --locked -p rupicola -p rupicola-panel -p rupicola-site
+
+# ---- site runtime ------------------------------------------------------------------------------------------
+FROM debian:bookworm-20261104-slim AS site
+RUN useradd --system --no-create-home --uid 10001 rupicola
+
+WORKDIR /app
+COPY --from=builder /app/target/website/rupicola-site ./rupicola-site
+
+USER 10001:10001
+ENV HOST=0.0.0.0 \
+    PORT=4732 \
+    RUPICOLA_PANEL_URL=https://rupicola.lucasbrt.dev/dashboard
+
+EXPOSE 4732
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD ["./rupicola-site", "--healthcheck"]
+CMD ["./rupicola-site"]
 
 # ---- browser used by the Design review gate ----------------------------------------------------------------
 FROM node:24.22.0-bookworm-slim AS design-browser
@@ -49,7 +70,7 @@ RUN node /opt/rupicola-validator/node_modules/playwright-core/cli.js install-dep
     && chown -R 10001:10001 /data \
     && chmod 0700 /data
 
-FROM runtime-base AS runtime
+FROM runtime-base AS panel
 WORKDIR /app
 COPY --from=builder /app/target/website/rupicola-panel ./rupicola-panel
 COPY --from=builder /app/target/website/rupicola ./rupicola

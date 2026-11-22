@@ -201,7 +201,7 @@ The panel Docker image includes the browser runner. For a native panel, install 
 
 ## Docker & Open-Internet Deployment (Dokploy / Traefik)
 
-The repository ships a multi-stage, `cargo-chef`-cached `Dockerfile`, an open-internet hardened `compose.yml` for Dokploy/Traefik, and a `compose.local.yml` for local testing:
+The repository ships one multi-stage, `cargo-chef`-cached `Dockerfile` with two targets (`panel` and `site`), an open-internet hardened `compose.yml` for Dokploy/Traefik, and a `compose.local.yml` for local testing:
 
 ```sh
 # Local container test on http://127.0.0.1:4731

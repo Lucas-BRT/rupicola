@@ -2,7 +2,9 @@
 # Production / open-internet deployments use `compose.yml` behind Dokploy / Traefik with HTTPS.
 services:
   web:
-    build: .
+    build:
+      context: .
+      target: panel
     init: true
     restart: unless-stopped
     ports:
