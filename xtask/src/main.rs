@@ -395,32 +395,40 @@ fn analyze_trajectory(path: &Path) -> Value {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "evaluation rates and statistical estimates are computed in floating point"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the evaluation workflow keeps fixture setup, execution, and scoring in order"
-)]
-fn execute_one(
-    task: &Task,
-    task_dir: &Path,
-    cond: &(String, String),
-    repo: &Path,
-    skill_rev: Option<&str>,
-    config_dir: Option<&Path>,
-    rep: usize,
-    model: &str,
-    out: &Path,
+/// Flags shared by the `run` and `trigger` commands.
+struct RunOptions<'a> {
+    execute: bool,
+    model: &'a str,
+    out: &'a Path,
+    max_usd: f64,
+    run_usd: f64,
+    timeout_secs: u64,
+    no_isolate: bool,
+}
+
+/// What every agent run shares: the repository, agent configuration, model, output
+/// directory and budgets.
+struct RunEnv<'a> {
+    repo: &'a Path,
+    config_dir: Option<&'a Path>,
+    model: &'a str,
+    out: &'a Path,
     run_usd: f64,
     timeout: Duration,
-) -> R<Value> {
-    let id = run_id(&task.id, &cond.0, rep);
+}
+
+/// Creates the run's isolated working tree: the task fixture as a fresh git
+/// repository, plus the skill when the condition has it. Returns the root to
+/// delete afterwards and the working directory inside it.
+fn prepare_workspace(
+    task_dir: &Path,
+    id: &str,
+    repo: &Path,
+    skill_rev: Option<&str>,
+) -> R<(PathBuf, PathBuf)> {
     // Each run gets its own root so files the agent writes next to the working directory
     // (`../x`) cannot reach another run; the whole root is deleted afterwards.
-    let root = std::env::temp_dir().join("rupicola-eval").join(&id);
+    let root = std::env::temp_dir().join("rupicola-eval").join(id);
     let _ = fs::remove_dir_all(&root);
     let work = root.join("w");
     fs::create_dir_all(&work).map_err(|error| error.to_string())?;
@@ -437,20 +445,25 @@ fn execute_one(
     if let Some(rev) = skill_rev {
         install_skill(repo, rev, &work.join(".claude/skills/rupicola"))?;
     }
-    let traj = out.join(format!("{id}.jsonl"));
+    Ok((root, work))
+}
+
+/// Runs the agent on `prompt` in `work`, streaming its trajectory to `traj`.
+/// Returns whether it was killed for exceeding the time limit.
+fn run_agent(prompt: &str, work: &Path, traj: &Path, env: &RunEnv) -> R<bool> {
     let mut cmd = Command::new("claude");
-    if let Some(dir) = config_dir {
+    if let Some(dir) = env.config_dir {
         cmd.env("CLAUDE_CONFIG_DIR", dir);
     }
     let mut child = cmd
         .args([
             "-p",
-            &task.prompt,
+            prompt,
             "--output-format",
             "stream-json",
             "--verbose",
             "--model",
-            model,
+            env.model,
         ])
         .args([
             "--permission-mode",
@@ -458,27 +471,57 @@ fn execute_one(
             "--allowedTools",
             "Bash Edit Write Read Glob Grep Skill",
         ])
-        .args(["--max-budget-usd", &run_usd.to_string()])
-        .current_dir(&work)
+        .args(["--max-budget-usd", &env.run_usd.to_string()])
+        .current_dir(work)
         .stdin(Stdio::null())
-        .stdout(File::create(&traj).map_err(|error| error.to_string())?)
+        .stdout(File::create(traj).map_err(|error| error.to_string())?)
         .stderr(Stdio::null())
         .spawn()
         .map_err(|x| format!("cannot start `claude`: {x}"))?;
     let start = Instant::now();
-    let mut timed_out = false;
     loop {
         match child.try_wait().map_err(|error| error.to_string())? {
-            Some(_) => break,
-            None if start.elapsed() > timeout => {
+            Some(_) => return Ok(false),
+            None if start.elapsed() > env.timeout => {
                 let _ = child.kill();
                 let _ = child.wait();
-                timed_out = true;
-                break;
+                return Ok(true);
             }
             None => std::thread::sleep(AGENT_POLL),
         }
     }
+}
+
+/// Seeded defects whose keywords appear in the agent's final report.
+fn defects_found<'t>(task: &'t Task, record: &Value) -> Vec<&'t str> {
+    let report = record["final_text"].as_str().unwrap_or("").to_lowercase();
+    task.seeded_defect
+        .iter()
+        .filter(|d| {
+            d.keywords
+                .iter()
+                .any(|k| report.contains(&k.to_lowercase()))
+        })
+        .map(|d| d.id.as_str())
+        .collect()
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "evaluation rates and statistical estimates are computed in floating point"
+)]
+fn execute_one(
+    task: &Task,
+    task_dir: &Path,
+    cond: &(String, String),
+    rep: usize,
+    env: &RunEnv,
+) -> R<Value> {
+    let skill_rev = (cond.1 != "none").then_some(cond.1.as_str());
+    let id = run_id(&task.id, &cond.0, rep);
+    let (root, work) = prepare_workspace(task_dir, &id, env.repo, skill_rev)?;
+    let traj = env.out.join(format!("{id}.jsonl"));
+    let timed_out = run_agent(&task.prompt, &work, &traj, env)?;
     let mut record = analyze_trajectory(&traj);
     let mut verifiers = Vec::new();
     for v in &task.verifier {
@@ -490,17 +533,7 @@ fn execute_one(
         .as_array()
         .is_some_and(|a| a.iter().any(|x| x == "rupicola"));
     let config_error = loaded != skill_rev.is_some();
-    let report = record["final_text"].as_str().unwrap_or("").to_lowercase();
-    let found: Vec<&str> = task
-        .seeded_defect
-        .iter()
-        .filter(|d| {
-            d.keywords
-                .iter()
-                .any(|k| report.contains(&k.to_lowercase()))
-        })
-        .map(|d| d.id.as_str())
-        .collect();
+    let found = defects_found(task, &record);
     let recall = (!task.seeded_defect.is_empty())
         .then(|| found.len() as f64 / task.seeded_defect.len() as f64);
     let pass = if config_error {
@@ -520,7 +553,7 @@ fn execute_one(
     o.insert("task".into(), json!(task.id));
     o.insert("cond".into(), json!(cond.0));
     o.insert("rep".into(), json!(rep));
-    o.insert("model".into(), json!(model));
+    o.insert("model".into(), json!(env.model));
     o.insert("kind".into(), json!(task.kind));
     o.insert("framework".into(), json!(task.framework));
     o.insert("pass".into(), json!(pass));
@@ -544,21 +577,20 @@ fn execute_one(
     Ok(record)
 }
 
-#[allow(clippy::too_many_arguments)]
 #[expect(
     clippy::cast_precision_loss,
     reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
 )]
-fn run(
-    m: &Matrix,
-    execute: bool,
-    model: &str,
-    out: &Path,
-    max_usd: f64,
-    run_usd: f64,
-    timeout: u64,
-    no_isolate: bool,
-) -> R<()> {
+fn run(m: &Matrix, opts: &RunOptions) -> R<()> {
+    let RunOptions {
+        execute,
+        model,
+        out,
+        max_usd,
+        run_usd,
+        timeout_secs: timeout,
+        no_isolate,
+    } = *opts;
     let (tasks, conds) = matrix(m)?;
     let list = order(&tasks, &conds, m.k);
     if !execute {
@@ -575,6 +607,14 @@ fn run(
     let (config, _cleanup) = setup_config(no_isolate)?;
     fs::create_dir_all(out).map_err(|error| error.to_string())?;
     fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&json!({"model": model, "conditions": m.conds, "split": m.split, "k": m.k, "run_usd": run_usd, "max_usd": max_usd})).unwrap()).map_err(|error| error.to_string())?;
+    let env = RunEnv {
+        repo: &m.root,
+        config_dir: config.as_deref(),
+        model,
+        out,
+        run_usd,
+        timeout: Duration::from_secs(timeout),
+    };
     let mut spent = 0.0;
     for (n, (t, c, rep)) in list.into_iter().enumerate() {
         let (task, cond) = (&tasks[t], &conds[c]);
@@ -592,19 +632,7 @@ fn run(
             ));
         }
         let task_dir = m.root.join("evals/tasks").join(&task.id);
-        let rec = execute_one(
-            task,
-            &task_dir,
-            cond,
-            &m.root,
-            (cond.1 != "none").then_some(cond.1.as_str()),
-            config.as_deref(),
-            rep,
-            model,
-            out,
-            run_usd,
-            Duration::from_secs(timeout),
-        )?;
+        let rec = execute_one(task, &task_dir, cond, rep, &env)?;
         spent += rec["cost_usd"].as_f64().unwrap_or(0.0);
         if rec["config_error"] == true {
             eprintln!(
@@ -624,27 +652,119 @@ fn run(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+/// One `trigger` command: the matrix, the shared flags and the agent setup.
+struct TriggerRun<'a> {
+    m: &'a Matrix,
+    opts: &'a RunOptions<'a>,
+    config: Option<&'a Path>,
+    max_turns: u32,
+    keep: bool,
+}
+
+impl TriggerRun<'_> {
+    /// Runs one prompt under one condition in a stub project and returns its record.
+    fn once(
+        &self,
+        t: &rupicola_core::evals::Trigger,
+        name: &str,
+        rev: &str,
+        rep: usize,
+    ) -> R<Value> {
+        let id = format!("trig__{}__{name}__{rep}", t.id);
+        let root = std::env::temp_dir().join("rupicola-eval").join(&id);
+        let _ = fs::remove_dir_all(&root);
+        let work = root.join("w");
+        fs::create_dir_all(&work).map_err(|error| error.to_string())?;
+        // A stub project, so "my app" prompts do not become a hunt for missing code.
+        fs::create_dir_all(work.join("src")).map_err(|error| error.to_string())?;
+        fs::write(
+            work.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .map_err(|error| error.to_string())?;
+        fs::write(work.join("src/main.rs"), "fn main() {}\n").map_err(|error| error.to_string())?;
+        let with_skill = rev != "none";
+        if with_skill {
+            install_skill(&self.m.root, rev, &work.join(".claude/skills/rupicola"))?;
+        }
+        let traj = self.opts.out.join(format!("{id}.jsonl"));
+        self.run_agent(&t.prompt, &work, &traj)?;
+        let mut rec = analyze_trajectory(&traj);
+        let loaded = rec["skills_loaded"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|x| x == "rupicola"));
+        let o = rec.as_object_mut().unwrap();
+        o.remove("final_text");
+        o.insert("prompt_id".into(), json!(t.id));
+        o.insert("category".into(), json!(t.category));
+        o.insert("expect".into(), json!(t.expect));
+        o.insert("cond".into(), json!(name));
+        o.insert("rep".into(), json!(rep));
+        o.insert("model".into(), json!(self.opts.model));
+        o.insert("config_error".into(), json!(loaded != with_skill));
+        let _ = fs::remove_dir_all(&root);
+        if !self.keep {
+            let _ = fs::remove_file(&traj);
+        }
+        Ok(rec)
+    }
+
+    /// Runs the agent read-only on `prompt`, streaming its trajectory to `traj`,
+    /// and kills it when the time limit passes.
+    fn run_agent(&self, prompt: &str, work: &Path, traj: &Path) -> R<()> {
+        let mut cmd = Command::new("claude");
+        if let Some(dir) = self.config {
+            cmd.env("CLAUDE_CONFIG_DIR", dir);
+        }
+        let mut child = cmd
+            .args([
+                "-p",
+                prompt,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--model",
+                self.opts.model,
+                "--max-turns",
+                &self.max_turns.to_string(),
+            ])
+            .args([
+                "--permission-mode",
+                "plan",
+                "--allowedTools",
+                "Read Glob Grep Skill",
+            ])
+            .args(["--max-budget-usd", &self.opts.run_usd.to_string()])
+            .current_dir(work)
+            .stdin(Stdio::null())
+            .stdout(File::create(traj).map_err(|error| error.to_string())?)
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|x| format!("cannot start `claude`: {x}"))?;
+        let start = Instant::now();
+        loop {
+            if child
+                .try_wait()
+                .map_err(|error| error.to_string())?
+                .is_some()
+            {
+                return Ok(());
+            }
+            if start.elapsed() > Duration::from_secs(self.opts.timeout_secs) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(());
+            }
+            std::thread::sleep(RUN_POLL);
+        }
+    }
+}
+
 #[expect(
     clippy::cast_precision_loss,
     reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the evaluation loop keeps per-run setup, execution, and cost accounting together"
-)]
-fn trigger_run(
-    m: &Matrix,
-    max_turns: u32,
-    keep: bool,
-    execute: bool,
-    model: &str,
-    out: &Path,
-    max_usd: f64,
-    run_usd: f64,
-    timeout: u64,
-    no_isolate: bool,
-) -> R<()> {
+fn trigger_run(m: &Matrix, opts: &RunOptions, max_turns: u32, keep: bool) -> R<()> {
     let prompts: Vec<_> = rupicola_core::evals::load_triggers(&m.root)
         .map_err(|e| format!("{e:#}"))?
         .into_iter()
@@ -652,32 +772,39 @@ fn trigger_run(
         .collect();
     let conds = parse_conds(&m.conds)?;
     let total = prompts.len() * conds.len() * m.k;
-    if !execute {
+    if !opts.execute {
         println!(
             "dry run: {total} runs ({} prompts x {} conditions x k={}); worst-case cost {:.2} USD; pass --execute to start",
             prompts.len(),
             conds.len(),
             m.k,
-            total as f64 * run_usd
+            total as f64 * opts.run_usd
         );
         return Ok(());
     }
-    let (config, _cleanup) = setup_config(no_isolate)?;
-    fs::create_dir_all(out).map_err(|error| error.to_string())?;
+    let (config, _cleanup) = setup_config(opts.no_isolate)?;
+    fs::create_dir_all(opts.out).map_err(|error| error.to_string())?;
     fs::write(
-        out.join("manifest.json"),
+        opts.out.join("manifest.json"),
         serde_json::to_string_pretty(
-            &json!({"model": model, "conditions": m.conds, "split": m.split, "k": m.k}),
+            &json!({"model": opts.model, "conditions": m.conds, "split": m.split, "k": m.k}),
         )
         .unwrap(),
     )
     .map_err(|error| error.to_string())?;
+    let run = TriggerRun {
+        m,
+        opts,
+        config: config.as_deref(),
+        max_turns,
+        keep,
+    };
     let mut spent = 0.0;
     for rep in 0..m.k {
         for t in &prompts {
             for (name, rev) in &conds {
                 let id = format!("trig__{}__{name}__{rep}", t.id);
-                let file = out.join(format!("{id}.json"));
+                let file = opts.out.join(format!("{id}.json"));
                 if let Ok(old) = fs::read_to_string(&file) {
                     spent += serde_json::from_str::<Value>(&old)
                         .ok()
@@ -685,92 +812,13 @@ fn trigger_run(
                         .unwrap_or(0.0);
                     continue;
                 }
-                if spent >= max_usd {
+                if spent >= opts.max_usd {
                     return Err(format!(
                         "stopped: reported cost {spent:.2} reached --max-usd; rerun to resume"
                     ));
                 }
-                let root = std::env::temp_dir().join("rupicola-eval").join(&id);
-                let _ = fs::remove_dir_all(&root);
-                let work = root.join("w");
-                fs::create_dir_all(&work).map_err(|error| error.to_string())?;
-                // A stub project, so "my app" prompts do not become a hunt for missing code.
-                fs::create_dir_all(work.join("src")).map_err(|error| error.to_string())?;
-                fs::write(
-                    work.join("Cargo.toml"),
-                    "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-                )
-                .map_err(|error| error.to_string())?;
-                fs::write(work.join("src/main.rs"), "fn main() {}\n")
-                    .map_err(|error| error.to_string())?;
-                let with_skill = rev != "none";
-                if with_skill {
-                    install_skill(&m.root, rev, &work.join(".claude/skills/rupicola"))?;
-                }
-                let traj = out.join(format!("{id}.jsonl"));
-                let mut cmd = Command::new("claude");
-                if let Some(dir) = &config {
-                    cmd.env("CLAUDE_CONFIG_DIR", dir);
-                }
-                let mut child = cmd
-                    .args([
-                        "-p",
-                        &t.prompt,
-                        "--output-format",
-                        "stream-json",
-                        "--verbose",
-                        "--model",
-                        model,
-                        "--max-turns",
-                        &max_turns.to_string(),
-                    ])
-                    .args([
-                        "--permission-mode",
-                        "plan",
-                        "--allowedTools",
-                        "Read Glob Grep Skill",
-                    ])
-                    .args(["--max-budget-usd", &run_usd.to_string()])
-                    .current_dir(&work)
-                    .stdin(Stdio::null())
-                    .stdout(File::create(&traj).map_err(|error| error.to_string())?)
-                    .stderr(Stdio::null())
-                    .spawn()
-                    .map_err(|x| format!("cannot start `claude`: {x}"))?;
-                let start = Instant::now();
-                loop {
-                    if child
-                        .try_wait()
-                        .map_err(|error| error.to_string())?
-                        .is_some()
-                    {
-                        break;
-                    }
-                    if start.elapsed() > Duration::from_secs(timeout) {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        break;
-                    }
-                    std::thread::sleep(RUN_POLL);
-                }
-                let mut rec = analyze_trajectory(&traj);
-                let loaded = rec["skills_loaded"]
-                    .as_array()
-                    .is_some_and(|a| a.iter().any(|x| x == "rupicola"));
-                let o = rec.as_object_mut().unwrap();
-                o.remove("final_text");
-                o.insert("prompt_id".into(), json!(t.id));
-                o.insert("category".into(), json!(t.category));
-                o.insert("expect".into(), json!(t.expect));
-                o.insert("cond".into(), json!(name));
-                o.insert("rep".into(), json!(rep));
-                o.insert("model".into(), json!(model));
-                o.insert("config_error".into(), json!(loaded != with_skill));
+                let rec = run.once(t, name, rev, rep)?;
                 spent += rec["cost_usd"].as_f64().unwrap_or(0.0);
-                let _ = fs::remove_dir_all(&root);
-                if !keep {
-                    let _ = fs::remove_file(&traj);
-                }
                 println!(
                     "{id} invoked={} expect={} cost={:.4}",
                     rec["skill_invoked"],
@@ -1235,13 +1283,15 @@ fn main() {
             no_isolate,
         } => run(
             &m,
-            execute,
-            &model,
-            &out,
-            max_usd,
-            run_usd,
-            timeout_secs,
-            no_isolate,
+            &RunOptions {
+                execute,
+                model: &model,
+                out: &out,
+                max_usd,
+                run_usd,
+                timeout_secs,
+                no_isolate,
+            },
         ),
         Cmd::Trigger {
             m,
@@ -1256,15 +1306,17 @@ fn main() {
             keep,
         } => trigger_run(
             &m,
+            &RunOptions {
+                execute,
+                model: &model,
+                out: &out,
+                max_usd,
+                run_usd,
+                timeout_secs,
+                no_isolate,
+            },
             max_turns,
             keep,
-            execute,
-            &model,
-            &out,
-            max_usd,
-            run_usd,
-            timeout_secs,
-            no_isolate,
         ),
         Cmd::TriggerAnalyze {
             out,
