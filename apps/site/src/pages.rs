@@ -105,14 +105,8 @@ fn code_block(label: &str, code: &str) -> String {
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the homepage template keeps related markup together"
-)]
-pub fn render_home(panel_url: &str) -> String {
-    let install_cmd = "curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash";
-    let esc_cmd = escape_html(install_cmd);
-
+/// The six-stage strip under the hero: capture to storage.
+fn stage_strip() -> String {
     let stages = [
         (
             "01",
@@ -157,7 +151,11 @@ pub fn render_home(panel_url: &str) -> String {
 </div>"#
         );
     }
+    strip
+}
 
+/// One tag per UI framework the skill covers.
+fn framework_tags() -> String {
     let frameworks = [
         "Topcoat",
         "Leptos",
@@ -178,6 +176,15 @@ pub fn render_home(panel_url: &str) -> String {
         .map(|f| format!(r#"<span class="tag">{f}</span>"#))
         .collect::<Vec<_>>()
         .join("\n          ");
+    tags
+}
+
+pub fn render_home(panel_url: &str) -> String {
+    let install_cmd = "curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash";
+    let esc_cmd = escape_html(install_cmd);
+
+    let strip = stage_strip();
+    let tags = framework_tags();
 
     let body = format!(
         r#"<section class="hero">
