@@ -1,3 +1,4 @@
+mod api;
 mod commands;
 use commands::Command;
 mod design;
@@ -6,6 +7,7 @@ mod mcp_bridge;
 mod pipeline;
 mod probe;
 mod propose;
+mod publish;
 mod service;
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};

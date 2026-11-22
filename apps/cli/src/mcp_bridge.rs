@@ -1,11 +1,10 @@
-use crate::service;
+use crate::{api::Client, service};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use std::{
     env, fs,
     io::{self, BufRead, Read, Write},
     path::PathBuf,
-    process::{Command, Stdio},
 };
 
 /// Length of an auth token: 32 random bytes written as hex.
@@ -78,65 +77,8 @@ pub fn set_token(token: Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn endpoint_url(server_url: &str, project: Option<&str>) -> String {
-    let base = server_url.trim_end_matches('/');
-    let base = if base.ends_with("/mcp") || base.contains("/mcp/") {
-        base.to_owned()
-    } else {
-        format!("{base}/mcp")
-    };
-    match project {
-        Some(project) if !base.contains("/mcp/") => format!("{base}/{project}"),
-        _ => base,
-    }
-}
-
-fn forward(url: &str, token: &str, payload: &str) -> Result<(u16, String)> {
-    let mut child = Command::new("curl")
-        .args([
-            "-sS",
-            "--max-time",
-            "30",
-            "-w",
-            "\n%{http_code}",
-            "-X",
-            "POST",
-            url,
-            "-H",
-            &format!("Authorization: Bearer {token}"),
-            "-H",
-            "Content-Type: application/json",
-            "--data-binary",
-            "@-",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("Spawn curl")?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(payload.as_bytes())
-            .context("Write request to curl")?;
-    }
-    let output = child.wait_with_output().context("Wait for curl")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("curl failed: {}", stderr.trim());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let Some((body, code_str)) = stdout.trim_end_matches(['\r', '\n']).rsplit_once('\n') else {
-        let code: u16 = stdout.trim().parse().unwrap_or(0);
-        return Ok((code, String::new()));
-    };
-    let code: u16 = code_str.trim().parse().unwrap_or(0);
-    Ok((code, body.to_owned()))
-}
-
-pub fn serve(server_url: &str, project: Option<&str>) -> Result<()> {
-    let token = resolve_token()?;
-    let url = endpoint_url(server_url, project);
+pub fn serve(server_url: &str) -> Result<()> {
+    let client = Client::connect(server_url)?;
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
 
@@ -149,7 +91,7 @@ pub fn serve(server_url: &str, project: Option<&str>) -> Result<()> {
         let req_id = serde_json::from_str::<Value>(trimmed)
             .ok()
             .and_then(|v| v.get("id").cloned());
-        match forward(&url, &token, trimmed) {
+        match client.mcp(trimmed) {
             Ok((HTTP_OK, body)) if !body.trim().is_empty() => {
                 writeln!(stdout, "{}", body.trim())?;
                 stdout.flush()?;

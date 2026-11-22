@@ -4,20 +4,24 @@ mod analysis;
 mod capture;
 mod images;
 mod panel;
+mod remote;
 
 use crate::{AuthAction, EXIT_CLEAN, Result, design, mcp, mcp_bridge, pipeline, propose, service};
 use analysis::{AuditArgs, CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs};
 use capture::{CaptureArgs, CaptureCosmicArgs, CaptureReviewArgs, MatrixArgs, ProbeArgs};
 use clap::Subcommand;
 use images::{DiffArgs, FramesArgs, PaletteArgs, SheetArgs, VideoArgs};
-use panel::{McpBridgeArgs, ServeArgs, SetupArgs};
+use panel::{ServeArgs, SetupArgs};
+use remote::{McpBridgeArgs, PublishArgs};
 
 #[derive(Subcommand)]
 pub enum Command {
     /// Serve Rupicola tools over MCP stdio.
     Mcp,
-    /// Bridge MCP stdio to a remote Rupicola panel using the stored bearer token.
+    /// Bridge MCP stdio to a Rupicola backend using the stored bearer token.
     McpBridge(McpBridgeArgs),
+    /// Upload a capture directory to a Rupicola backend.
+    Publish(PublishArgs),
     /// Manage credentials for remote Rupicola panels.
     Auth {
         #[command(subcommand)]
@@ -95,6 +99,7 @@ impl Command {
         match self {
             Self::Mcp => Ok(mcp::serve().map(|()| EXIT_CLEAN)?),
             Self::McpBridge(args) => args.run(),
+            Self::Publish(args) => args.run(),
             Self::Auth {
                 action: AuthAction::SetToken { token },
             } => mcp_bridge::set_token(token).map(|()| EXIT_CLEAN),

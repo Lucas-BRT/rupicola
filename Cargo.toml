@@ -41,6 +41,7 @@ sha2 = "=0.10.9"
 sqlx = { version = "=0.9.1", default-features = false, features = ["macros", "migrate", "runtime-tokio", "sqlite-bundled"] }
 subtle = "=2.6.1"
 syn = { version = "=2.0.119", features = ["full", "visit"] }
+ureq = "=3.5.2"
 tempfile = "=3.27.0"
 thiserror = "=2.0.21"
 tokio = "=1.54.1"

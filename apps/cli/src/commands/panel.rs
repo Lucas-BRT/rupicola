@@ -1,27 +1,7 @@
 //! Commands that talk to the panel or run its service.
 
-use crate::{EXIT_CLEAN, Result, anyhow, mcp_bridge, service};
+use crate::{EXIT_CLEAN, Result, anyhow, service};
 use std::ffi::OsString;
-
-#[derive(clap::Args)]
-pub struct McpBridgeArgs {
-    /// Base URL of the remote Rupicola panel or its /mcp endpoint.
-    #[arg(long, default_value = "https://rupicola.lucasbrt.dev/mcp")]
-    server_url: String,
-    /// Optional project ID to scope the remote MCP session.
-    #[arg(long)]
-    project: Option<String>,
-}
-
-impl McpBridgeArgs {
-    pub(super) fn run(self) -> Result<u8> {
-        let McpBridgeArgs {
-            server_url,
-            project,
-        } = self;
-        mcp_bridge::serve(&server_url, project.as_deref()).map(|()| EXIT_CLEAN)
-    }
-}
 
 #[derive(clap::Args)]
 pub struct SetupArgs {
