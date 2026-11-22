@@ -1,11 +1,13 @@
 //! Commands that talk to a Rupicola backend.
 
-use crate::{EXIT_CLEAN, Result, api::Client, mcp_bridge, publish::Bundle};
+use crate::{
+    EXIT_CLEAN, Result, block_on,
+    mcp_bridge::{self, Remote, SERVER_URL_ENV},
+    publish::Bundle,
+};
 use anyhow::bail;
+use rupicola_client::Api;
 use std::path::PathBuf;
-
-/// Environment variable naming the backend, so no address is baked into the binary.
-const SERVER_URL_ENV: &str = "RUPICOLA_SERVER_URL";
 
 #[derive(clap::Args)]
 pub struct McpBridgeArgs {
@@ -16,7 +18,8 @@ pub struct McpBridgeArgs {
 
 impl McpBridgeArgs {
     pub(super) fn run(self) -> Result<u8> {
-        mcp_bridge::serve(&self.server_url).map(|()| EXIT_CLEAN)
+        block_on(mcp_bridge::serve(&self.server_url))??;
+        Ok(EXIT_CLEAN)
     }
 }
 
@@ -34,14 +37,19 @@ pub struct PublishArgs {
 
 impl PublishArgs {
     pub(super) fn run(self) -> Result<u8> {
-        let bundle = Bundle::open(&self.dir)?;
-        let project = self.project.as_deref().unwrap_or_else(|| bundle.project());
-        if project.is_empty() {
-            bail!("the manifest names no project; pass --project");
-        }
-        let client = Client::connect(&self.server_url)?;
-        let capture = client.publish_capture(project, &bundle.describe(&client)?)?;
-        println!("Published capture {} to project {project}", capture.id);
-        Ok(EXIT_CLEAN)
+        block_on(async {
+            let bundle = Bundle::open(&self.dir).await?;
+            let project = self.project.as_deref().unwrap_or_else(|| bundle.project());
+            if project.is_empty() {
+                bail!("the manifest names no project; pass --project");
+            }
+            let remote = Remote::connect(&self.server_url)?;
+            let capture = remote
+                .api
+                .publish_capture(&remote.token, project, &bundle.describe(&remote).await?)
+                .await?;
+            println!("Published capture {} to project {project}", capture.id);
+            Ok(EXIT_CLEAN)
+        })?
     }
 }

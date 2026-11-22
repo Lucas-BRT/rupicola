@@ -2,8 +2,8 @@
 
 use crate::{
     DEFAULT_MATRIX_MAX_RUNS, DEFAULT_MATRIX_TIMEOUT_SECS, DEFAULT_MAX_PAGES, EXIT_CLEAN,
-    EXIT_ERROR, EXIT_FINDINGS, Result, anyhow, bail, json, print_capture, probe, scenario, service,
-    visual,
+    EXIT_ERROR, EXIT_FINDINGS, Result, anyhow, bail, block_on, json, print_capture, probe,
+    publish::Destination, scenario, service, visual,
 };
 use std::path::PathBuf;
 
@@ -25,6 +25,8 @@ pub struct CaptureArgs {
     video: bool,
     #[arg(long)]
     json: bool,
+    #[command(flatten)]
+    destination: Destination,
 }
 
 impl CaptureArgs {
@@ -36,23 +38,24 @@ impl CaptureArgs {
             threshold,
             video,
             json: output_json,
+            destination,
         } = self;
         let mut scenario = scenario::Scenario::load(&path)?;
-        let out = if let Some(out) = out {
-            out
-        } else {
+        if out.is_none() {
             let (id, label) = service::detect_project()?;
             scenario.set_project(id, label);
-            service::output()?
-        };
+        }
+        let run = destination.run_dir(out)?;
         let manifest = scenario::web(
             scenario,
-            &out,
+            run.dir(),
             playwright_module.as_deref(),
             threshold,
             video,
         )?;
-        print_capture(&manifest, &out, output_json)
+        let code = print_capture(&manifest, run.dir(), output_json)?;
+        block_on(destination.publish(run.dir(), output_json))??;
+        Ok(code)
     }
 }
 
@@ -83,6 +86,8 @@ pub struct CaptureCosmicArgs {
     out: Option<PathBuf>,
     #[arg(long)]
     json: bool,
+    #[command(flatten)]
+    destination: Destination,
 }
 
 impl CaptureCosmicArgs {
@@ -99,17 +104,19 @@ impl CaptureCosmicArgs {
             click,
             out,
             json: output_json,
+            destination,
         } = self;
         let (out, project_id, project_label) = if let Some(out) = out {
             (
-                out,
+                Some(out),
                 project_id.ok_or_else(|| anyhow!("--project-id is required with --out"))?,
                 project_label.ok_or_else(|| anyhow!("--project-label is required with --out"))?,
             )
         } else {
             let (id, label) = service::detect_project()?;
-            (service::output()?, id, label)
+            (None, id, label)
         };
+        let run = destination.run_dir(out)?;
         let options = scenario::CosmicCapture {
             applet,
             desktop_entry,
@@ -122,8 +129,10 @@ impl CaptureCosmicArgs {
             x: click[0],
             y: click[1],
         };
-        let manifest = scenario::cosmic(options, &out)?;
-        print_capture(&manifest, &out, output_json)
+        let manifest = scenario::cosmic(options, run.dir())?;
+        let code = print_capture(&manifest, run.dir(), output_json)?;
+        block_on(destination.publish(run.dir(), output_json))??;
+        Ok(code)
     }
 }
 
@@ -180,6 +189,8 @@ pub struct ProbeArgs {
     dry_run: bool,
     #[arg(long)]
     json: bool,
+    #[command(flatten)]
+    destination: Destination,
 }
 
 impl ProbeArgs {
@@ -196,7 +207,9 @@ impl ProbeArgs {
             video,
             dry_run,
             json,
+            destination,
         } = self;
+        let run = destination.run_dir(out)?;
         let summary = probe::run(probe::Config {
             url,
             mode,
@@ -204,11 +217,14 @@ impl ProbeArgs {
             viewports,
             themes,
             max_pages,
-            out,
+            out: Some(run.dir().to_path_buf()),
             playwright_module,
             video,
             dry_run,
         })?;
+        if !dry_run {
+            block_on(destination.publish(&summary.output_dir, json))??;
+        }
         if json {
             println!("{}", serde_json::to_string_pretty(&summary)?);
         } else {

@@ -1,11 +1,41 @@
-use crate::{api::Client, service};
+use crate::service;
 use anyhow::{Context, Result, bail};
+use rupicola_client::{Api, HttpApi, McpReply};
 use serde_json::{Value, json};
 use std::{
     env, fs,
-    io::{self, BufRead, Read, Write},
+    io::{self, Read, Write},
     path::PathBuf,
 };
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+/// Environment variable naming the backend, so no address is baked into the binary.
+pub const SERVER_URL_ENV: &str = "RUPICOLA_SERVER_URL";
+/// Path of the MCP endpoint, which clients may be configured with instead of the base URL.
+const MCP_SUFFIX: &str = "/mcp";
+
+/// A backend and the stored token that acts for this machine.
+pub struct Remote {
+    pub api: HttpApi,
+    pub token: String,
+}
+
+impl Remote {
+    /// A connection to `server_url` (the base URL, or its `/mcp` endpoint), using the token
+    /// from [`resolve_token`].
+    ///
+    /// # Errors
+    ///
+    /// Fails when no token is stored or the HTTP client cannot be built.
+    pub fn connect(server_url: &str) -> Result<Self> {
+        let base = server_url.trim_end_matches('/');
+        let base = base.strip_suffix(MCP_SUFFIX).unwrap_or(base);
+        Ok(Self {
+            api: HttpApi::new(base)?,
+            token: resolve_token()?,
+        })
+    }
+}
 
 /// Length of an auth token: 32 random bytes written as hex.
 const TOKEN_HEX_LEN: usize = 64;
@@ -77,13 +107,12 @@ pub fn set_token(token: Option<String>) -> Result<()> {
     Ok(())
 }
 
-pub fn serve(server_url: &str) -> Result<()> {
-    let client = Client::connect(server_url)?;
-    let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
+pub async fn serve(server_url: &str) -> Result<()> {
+    let remote = Remote::connect(server_url)?;
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut stdout = tokio::io::stdout();
 
-    for line in stdin.lock().lines() {
-        let line = line?;
+    while let Some(line) = lines.next_line().await? {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -91,31 +120,31 @@ pub fn serve(server_url: &str) -> Result<()> {
         let req_id = serde_json::from_str::<Value>(trimmed)
             .ok()
             .and_then(|v| v.get("id").cloned());
-        match client.mcp(trimmed) {
-            Ok((HTTP_OK, body)) if !body.trim().is_empty() => {
-                writeln!(stdout, "{}", body.trim())?;
-                stdout.flush()?;
-            }
-            Ok((HTTP_ACCEPTED | HTTP_NO_CONTENT, _)) => {}
-            Ok((code, body)) => {
-                if let Some(id) = req_id {
-                    let msg = if body.trim().is_empty() {
-                        format!("Remote MCP returned HTTP {code}")
-                    } else {
-                        format!("Remote MCP returned HTTP {code}: {}", body.trim())
-                    };
-                    let err = json!({"jsonrpc": "2.0", "id": id, "error": {"code": crate::mcp::JSONRPC_HTTP_ERROR, "message": msg}});
-                    writeln!(stdout, "{err}")?;
-                    stdout.flush()?;
-                }
-            }
-            Err(err_msg) => {
-                if let Some(id) = req_id {
-                    let err = json!({"jsonrpc": "2.0", "id": id, "error": {"code": crate::mcp::JSONRPC_TRANSPORT_ERROR, "message": format!("{err_msg:#}")}});
-                    writeln!(stdout, "{err}")?;
-                    stdout.flush()?;
-                }
-            }
+        let answer = match remote.api.mcp(&remote.token, trimmed).await {
+            Ok(McpReply {
+                status: HTTP_OK,
+                body,
+            }) if !body.trim().is_empty() => Some(body.trim().to_owned()),
+            Ok(McpReply {
+                status: HTTP_ACCEPTED | HTTP_NO_CONTENT,
+                ..
+            }) => None,
+            Ok(McpReply { status, body }) => req_id.map(|id| {
+                let msg = if body.trim().is_empty() {
+                    format!("Remote MCP returned HTTP {status}")
+                } else {
+                    format!("Remote MCP returned HTTP {status}: {}", body.trim())
+                };
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": crate::mcp::JSONRPC_HTTP_ERROR, "message": msg}}).to_string()
+            }),
+            Err(error) => req_id.map(|id| {
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": crate::mcp::JSONRPC_TRANSPORT_ERROR, "message": error.to_string()}}).to_string()
+            }),
+        };
+        if let Some(answer) = answer {
+            stdout.write_all(answer.as_bytes()).await?;
+            stdout.write_all(b"\n").await?;
+            stdout.flush().await?;
         }
     }
     Ok(())

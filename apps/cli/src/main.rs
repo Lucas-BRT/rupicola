@@ -1,4 +1,3 @@
-mod api;
 mod commands;
 use commands::Command;
 mod design;
@@ -48,6 +47,14 @@ const MAIN_STACK_BYTES: usize = 8 * 1024 * 1024;
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+/// Runs `future` to completion on a runtime built for the call; the CLI is short-lived and
+/// only its network commands need one.
+fn block_on<F: std::future::Future>(future: F) -> Result<F::Output> {
+    Ok(tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(future))
 }
 fn json(value: &impl serde::Serialize) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
