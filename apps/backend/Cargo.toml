@@ -1,0 +1,21 @@
+[package]
+name = "rupicola-backend"
+description = "Rupicola API server: the only process that touches the database and media store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+clap.workspace = true
+rupicola-api.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

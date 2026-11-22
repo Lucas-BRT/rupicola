@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1
 #
-# One Dockerfile, two images (select with `--target`):
-#   * `site`  — lean landing & documentation container (no ffmpeg, no browser);
-#   * `panel` — panel + CLI with ffmpeg and the Design review browser (default, last stage).
+# One Dockerfile, three images (select with `--target`):
+#   * `site`    — lean landing & documentation container (no ffmpeg, no browser);
+#   * `backend` — API server, the only process that touches the database and media store;
+#   * `panel`   — panel + CLI with ffmpeg and the Design review browser (default, last stage).
 #
 # Multi-stage and cache-friendly:
 #   * cargo-chef is installed in its own stage with a pinned version and rebuilds only when that pin changes;
 #   * cargo-chef cooks workspace dependencies from recipe.json, so editing source code never recompiles them;
-#   * one builder compiles the panel, CLI and site with the `website` profile, so both images share its cache;
+#   * one builder compiles the backend, panel, CLI and site with the `website` profile, so both images share its cache;
 #   * runtimes run as non-root uid 10001 with a self-contained --healthcheck probe.
 
 FROM rust:1.99.1-bookworm AS base
@@ -27,10 +28,26 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM tool-chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    cargo chef cook --profile website --locked -p rupicola -p rupicola-panel -p rupicola-site --recipe-path recipe.json
+    cargo chef cook --profile website --locked -p rupicola -p rupicola-backend -p rupicola-panel -p rupicola-site --recipe-path recipe.json
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    cargo build --profile website --locked -p rupicola -p rupicola-panel -p rupicola-site
+    cargo build --profile website --locked -p rupicola -p rupicola-backend -p rupicola-panel -p rupicola-site
+
+# ---- backend runtime ---------------------------------------------------------------------------------------
+FROM debian:bookworm-20261104-slim AS backend
+RUN useradd --system --no-create-home --uid 10001 rupicola
+
+WORKDIR /app
+COPY --from=builder /app/target/website/rupicola-backend ./rupicola-backend
+
+USER 10001:10001
+ENV HOST=0.0.0.0 \
+    PORT=4730
+
+EXPOSE 4730
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD ["./rupicola-backend", "--healthcheck"]
+CMD ["./rupicola-backend"]
 
 # ---- site runtime ------------------------------------------------------------------------------------------
 FROM debian:bookworm-20261104-slim AS site

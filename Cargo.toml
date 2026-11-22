@@ -1,12 +1,14 @@
 [workspace]
 members = [
     "crates/rupicola-core",
+    "crates/rupicola-api",
+    "apps/backend",
     "apps/cli",
     "apps/panel",
     "apps/site",
     "xtask",
 ]
-default-members = ["crates/rupicola-core", "apps/cli", "xtask"]
+default-members = ["crates/rupicola-core", "crates/rupicola-api", "apps/backend", "apps/cli", "xtask"]
 exclude = ["evals", "examples"]
 resolver = "2"
 
@@ -20,10 +22,12 @@ repository = "https://github.com/Lucas-BRT/rupicola"
 # Every version is pinned here once; members inherit with `workspace = true` and add their own features.
 [workspace.dependencies]
 rupicola-core = { path = "crates/rupicola-core" }
+rupicola-api = { path = "crates/rupicola-api" }
 rupicola-protocol = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", tag = "v0.2.0" }
 rupicola-capture = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", tag = "v0.2.0" }
 anyhow = "=1.0.104"
 argon2 = { version = "=0.5.3", features = ["std"] }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 base64 = "=0.22.1"
 clap = { version = "=4.6.9", features = ["derive"] }
 http = "=1.5.0"

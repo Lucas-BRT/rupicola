@@ -1,6 +1,29 @@
 # Local run: `docker compose -f compose.local.yml up --build` serves http://127.0.0.1:4731/.
 # Production / open-internet deployments use `compose.yml` behind Dokploy / Traefik with HTTPS.
 services:
+  backend:
+    build:
+      context: .
+      target: backend
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${RUPICOLA_BIND_IP:-127.0.0.1}:${RUPICOLA_BACKEND_PORT:-4730}:4730"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "4730"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    healthcheck:
+      test: ["CMD", "./rupicola-backend", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
   web:
     build:
       context: .
