@@ -93,9 +93,15 @@ pub(crate) const fn role_text(role: Role) -> &'static str {
     }
 }
 
+/// Longest project id and label.
+const MAX_ID_LEN: usize = 100;
+const MAX_LABEL_CHARS: usize = 100;
+/// Audit events returned by one request.
+const AUDIT_PAGE: i64 = 200;
+
 /// Project ids are client-chosen slugs, so they double as safe path segments.
 fn valid_id(id: &str) -> bool {
-    (1..=100).contains(&id.len())
+    (1..=MAX_ID_LEN).contains(&id.len())
         && id
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
@@ -103,12 +109,12 @@ fn valid_id(id: &str) -> bool {
 
 fn clean_label(label: &str) -> Result<String, ApiError> {
     let label = label.trim();
-    if (1..=100).contains(&label.chars().count()) {
+    if (1..=MAX_LABEL_CHARS).contains(&label.chars().count()) {
         Ok(label.to_owned())
     } else {
-        Err(ApiError::Invalid(
-            "the project label must have 1–100 characters",
-        ))
+        Err(ApiError::invalid(format!(
+            "the project label must have 1–{MAX_LABEL_CHARS} characters"
+        )))
     }
 }
 
@@ -189,9 +195,9 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<Project>), ApiError> {
     let handle = person(&principal)?;
     if !valid_id(&form.id) {
-        return Err(ApiError::Invalid(
-            "the project id must have 1–100 letters, digits, - or _",
-        ));
+        return Err(ApiError::invalid(format!(
+            "the project id must have 1–{MAX_ID_LEN} letters, digits, - or _"
+        )));
     }
     let label = clean_label(&form.label)?;
     let created_at = now_ms();
@@ -427,7 +433,7 @@ async fn ensure_another_owner(
     Ok(())
 }
 
-/// `GET /v1/projects/{id}/audit`: the latest 200 events, newest first.
+/// `GET /v1/projects/{id}/audit`: the latest [`AUDIT_PAGE`] events, newest first.
 pub async fn audit_log(
     State(state): State<Shared>,
     principal: Principal,
@@ -438,9 +444,10 @@ pub async fn audit_log(
         .require(Role::Owner)?;
     let rows: Vec<(String, String, String, i64)> = sqlx::query_as(
         "SELECT id, actor, event, occurred_at FROM audit_events
-         WHERE project_id = ?1 ORDER BY occurred_at DESC, id DESC LIMIT 200",
+         WHERE project_id = ?1 ORDER BY occurred_at DESC, id DESC LIMIT ?2",
     )
     .bind(&id)
+    .bind(AUDIT_PAGE)
     .fetch_all(&state.db)
     .await?;
     Ok(Json(
@@ -458,6 +465,7 @@ pub async fn audit_log(
 #[cfg(test)]
 mod tests {
     use crate::testkit::*;
+    use axum::http::StatusCode;
     use rupicola_api::{AuditEvent, Member, Project, Role};
 
     /// Ana (no special rights) owns project `demo`; Bruno has an account only.
@@ -475,7 +483,7 @@ mod tests {
             Some(r#"{"id":"demo","label":" Demo "}"#),
         )
         .await;
-        assert_eq!(status(&created), 201, "{created}");
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
         (port, ana, bruno)
     }
 
@@ -492,7 +500,7 @@ mod tests {
 
         // To an outsider the project does not exist: 404, not 403.
         let hidden = call(port, "GET", "/v1/projects/demo", Some(&bruno), None).await;
-        assert_eq!(status(&hidden), 404, "{hidden}");
+        assert_eq!(status(&hidden), StatusCode::NOT_FOUND, "{hidden}");
         let theirs: Vec<Project> =
             json(&call(port, "GET", "/v1/projects", Some(&bruno), None).await);
         assert_eq!(theirs, []);
@@ -505,7 +513,7 @@ mod tests {
             Some(r#"{"id":"demo","label":"Mine"}"#),
         )
         .await;
-        assert_eq!(status(&duplicate), 409, "{duplicate}");
+        assert_eq!(status(&duplicate), StatusCode::CONFLICT, "{duplicate}");
         let bad = call(
             port,
             "POST",
@@ -514,7 +522,7 @@ mod tests {
             Some(r#"{"id":"../x","label":"X"}"#),
         )
         .await;
-        assert_eq!(status(&bad), 422, "{bad}");
+        assert_eq!(status(&bad), StatusCode::UNPROCESSABLE_ENTITY, "{bad}");
     }
 
     #[tokio::test]
@@ -528,7 +536,7 @@ mod tests {
             Some(r#"{"role":"reader"}"#),
         )
         .await;
-        assert_eq!(status(&added), 200, "{added}");
+        assert_eq!(status(&added), StatusCode::OK, "{added}");
 
         let seen: Project = json(&call(port, "GET", "/v1/projects/demo", Some(&bruno), None).await);
         assert_eq!(seen.role, Some(Role::Reader));
@@ -540,7 +548,7 @@ mod tests {
             Some(r#"{"label":"Taken"}"#),
         )
         .await;
-        assert_eq!(status(&rename), 403, "{rename}");
+        assert_eq!(status(&rename), StatusCode::FORBIDDEN, "{rename}");
         let promote = call(
             port,
             "PUT",
@@ -549,7 +557,7 @@ mod tests {
             Some(r#"{"role":"owner"}"#),
         )
         .await;
-        assert_eq!(status(&promote), 403, "{promote}");
+        assert_eq!(status(&promote), StatusCode::FORBIDDEN, "{promote}");
 
         let members: Vec<Member> =
             json(&call(port, "GET", "/v1/projects/demo/members", Some(&bruno), None).await);
@@ -574,7 +582,7 @@ mod tests {
             Some(r#"{"role":"reader"}"#),
         )
         .await;
-        assert_eq!(status(&ghost), 404, "{ghost}");
+        assert_eq!(status(&ghost), StatusCode::NOT_FOUND, "{ghost}");
     }
 
     #[tokio::test]
@@ -588,7 +596,7 @@ mod tests {
             Some(r#"{"role":"reader"}"#),
         )
         .await;
-        assert_eq!(status(&demote), 409, "{demote}");
+        assert_eq!(status(&demote), StatusCode::CONFLICT, "{demote}");
         let leave = call(
             port,
             "DELETE",
@@ -597,7 +605,7 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status(&leave), 409, "{leave}");
+        assert_eq!(status(&leave), StatusCode::CONFLICT, "{leave}");
 
         call(
             port,
@@ -615,7 +623,7 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status(&leave), 204, "{leave}");
+        assert_eq!(status(&leave), StatusCode::NO_CONTENT, "{leave}");
     }
 
     #[tokio::test]
@@ -643,9 +651,9 @@ mod tests {
         assert!(events.iter().all(|event| event.actor == "ana"));
 
         let deleted = call(port, "DELETE", "/v1/projects/demo", Some(&ana), None).await;
-        assert_eq!(status(&deleted), 204, "{deleted}");
+        assert_eq!(status(&deleted), StatusCode::NO_CONTENT, "{deleted}");
         let gone = call(port, "GET", "/v1/projects/demo", Some(&ana), None).await;
-        assert_eq!(status(&gone), 404, "{gone}");
+        assert_eq!(status(&gone), StatusCode::NOT_FOUND, "{gone}");
     }
 
     #[tokio::test]

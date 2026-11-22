@@ -26,6 +26,15 @@ use std::collections::HashSet;
 
 /// Files in one capture.
 const MAX_ARTIFACTS: usize = 256;
+/// Longest file path inside a capture, and deepest nesting (slashes).
+const MAX_PATH_LEN: usize = 180;
+const MAX_PATH_DEPTH: usize = 4;
+/// Longest checkpoint or clip id.
+const MAX_NAME_LEN: usize = 128;
+/// Longest scenario name.
+const MAX_SCENARIO_CHARS: usize = 512;
+/// Longest review note.
+const MAX_NOTE_CHARS: usize = 8000;
 
 /// `PUT /v1/blobs/{sha256}`: stores a file under its digest. Any signed-in caller
 /// may upload; blobs nobody references are pruned later.
@@ -60,8 +69,8 @@ pub async fn head_blob(
 
 /// Paths inside a capture: short, relative, plain names with a media extension.
 fn valid_path(path: &str) -> bool {
-    path.len() <= 180
-        && path.matches('/').count() <= 4
+    path.len() <= MAX_PATH_LEN
+        && path.matches('/').count() <= MAX_PATH_DEPTH
         && matches!(
             std::path::Path::new(path)
                 .extension()
@@ -78,7 +87,7 @@ fn valid_path(path: &str) -> bool {
 }
 
 fn valid_name(name: &str) -> bool {
-    (1..=128).contains(&name.len())
+    (1..=MAX_NAME_LEN).contains(&name.len())
 }
 
 struct Planned<'a> {
@@ -135,9 +144,10 @@ fn plan(form: &NewCapture) -> Result<Vec<Planned<'_>>, ApiError> {
                 || !paths.insert(item.file.path.as_str())
         })
     {
-        return Err(ApiError::Invalid(
-            "a capture needs at most 256 files with unique, plain relative paths and valid SHA-256 digests",
-        ));
+        return Err(ApiError::invalid(format!(
+            "a capture needs at most {MAX_ARTIFACTS} files with unique, plain relative paths \
+                 and valid SHA-256 digests"
+        )));
     }
     Ok(planned)
 }
@@ -153,8 +163,10 @@ pub async fn create(
         Access::Device => {}
         person @ Access::Person(_) => person.require(Role::Reviewer)?,
     }
-    if !(1..=512).contains(&form.scenario.chars().count()) {
-        return Err(ApiError::Invalid("the scenario must have 1–512 characters"));
+    if !(1..=MAX_SCENARIO_CHARS).contains(&form.scenario.chars().count()) {
+        return Err(ApiError::invalid(format!(
+            "the scenario must have 1–{MAX_SCENARIO_CHARS} characters"
+        )));
     }
     let planned = plan(&form)?;
     let mut sizes = Vec::with_capacity(planned.len());
@@ -163,7 +175,7 @@ pub async fn create(
             .blobs
             .size(&item.file.sha256)
             .map_err(anyhow::Error::from)?
-            .ok_or(ApiError::Invalid(
+            .ok_or(ApiError::invalid(
                 "upload every file with PUT /v1/blobs/{sha256} first",
             ))?;
         sizes.push(size);
@@ -427,8 +439,10 @@ pub async fn add_finding(
 ) -> Result<(StatusCode, Json<Finding>), ApiError> {
     capture_access(&state, &principal, &id, Role::Reviewer).await?;
     let note = form.note.trim();
-    if !(1..=8000).contains(&note.chars().count()) {
-        return Err(ApiError::Invalid("the note must have 1–8000 characters"));
+    if !(1..=MAX_NOTE_CHARS).contains(&note.chars().count()) {
+        return Err(ApiError::invalid(format!(
+            "the note must have 1–{MAX_NOTE_CHARS} characters"
+        )));
     }
     if let Some(evidence) = &form.evidence_artifact_id {
         let belongs: Option<i64> =
@@ -438,7 +452,7 @@ pub async fn add_finding(
                 .fetch_optional(&state.db)
                 .await?;
         if belongs.is_none() {
-            return Err(ApiError::Invalid(
+            return Err(ApiError::invalid(
                 "the evidence must be a file of this capture",
             ));
         }
@@ -495,6 +509,7 @@ pub async fn artifact(
 #[cfg(test)]
 mod tests {
     use crate::testkit::*;
+    use axum::http::StatusCode;
     use rupicola_api::{Capture, CaptureSummary, Finding, Inspection};
     use sha2::{Digest, Sha256};
 
@@ -514,7 +529,10 @@ mod tests {
             ),
         )
         .await;
-        assert!(matches!(status(&response), 200 | 201), "{response}");
+        assert!(
+            matches!(status(&response), StatusCode::OK | StatusCode::CREATED),
+            "{response}"
+        );
         sha
     }
 
@@ -548,11 +566,16 @@ mod tests {
         (port, [ana, bruno, carla])
     }
 
+    const VIEWPORT_WIDTH: u32 = 1280;
+    const VIEWPORT_HEIGHT: u32 = 720;
+    const FRAME_TARGET_MS: f64 = 100.0;
+
     fn capture_json(home: &str, frame: &str) -> String {
         format!(
-            r#"{{"scenario":"home","status":"complete","environment":{{"width":1280,"height":720,"color_scheme":"dark"}},
+            r#"{{"scenario":"home","status":"complete",
+                "environment":{{"width":{VIEWPORT_WIDTH},"height":{VIEWPORT_HEIGHT},"color_scheme":"dark"}},
                 "checkpoints":[{{"id":"home","path":"checkpoints/home.png","sha256":"{home}"}}],
-                "clips":[{{"id":"open","frames":[{{"path":"clips/open/1.png","sha256":"{frame}","target_ms":100}}]}}]}}"#
+                "clips":[{{"id":"open","frames":[{{"path":"clips/open/1.png","sha256":"{frame}","target_ms":{FRAME_TARGET_MS}}}]}}]}}"#
         )
     }
 
@@ -565,21 +588,25 @@ mod tests {
             format!("PUT /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: 9\r\nConnection: close\r\n\r\npng-bytes"),
         )
         .await;
-        assert_eq!(status(&again), 200, "{again}");
+        assert_eq!(status(&again), StatusCode::OK, "{again}");
         let head = request(port, format!("HEAD /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nConnection: close\r\n\r\n")).await;
-        assert_eq!(status(&head), 200, "{head}");
+        assert_eq!(status(&head), StatusCode::OK, "{head}");
         let forged = request(
             port,
             format!("PUT /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: 5\r\nConnection: close\r\n\r\nother"),
         )
         .await;
-        assert_eq!(status(&forged), 422, "{forged}");
+        assert_eq!(
+            status(&forged),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{forged}"
+        );
         let anonymous = request(
             port,
             format!("HEAD /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n"),
         )
         .await;
-        assert_eq!(status(&anonymous), 401, "{anonymous}");
+        assert_eq!(status(&anonymous), StatusCode::UNAUTHORIZED, "{anonymous}");
     }
 
     #[tokio::test]
@@ -595,11 +622,11 @@ mod tests {
             Some(&capture_json(&home, &frame)),
         )
         .await;
-        assert_eq!(status(&created), 201, "{created}");
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
         let capture: Capture = json(&created);
         assert_eq!(capture.checkpoints[0].artifact.mime, "image/png");
-        assert_eq!(capture.clips[0].frames[0].target_ms, 100.0);
-        assert_eq!(capture.environment.width, Some(1280));
+        assert_eq!(capture.clips[0].frames[0].target_ms, FRAME_TARGET_MS);
+        assert_eq!(capture.environment.width, Some(VIEWPORT_WIDTH));
         assert_eq!(capture.inspection, Inspection::Pending);
 
         let listed: Vec<CaptureSummary> = json(
@@ -627,7 +654,7 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status(&file), 200, "{file}");
+        assert_eq!(status(&file), StatusCode::OK, "{file}");
         assert_eq!(header(&file, "content-type"), Some("image/png"));
         assert_eq!(body(&file), "home-png");
 
@@ -640,7 +667,11 @@ mod tests {
             Some(&note),
         )
         .await;
-        assert_eq!(status(&readers_cannot), 403, "{readers_cannot}");
+        assert_eq!(
+            status(&readers_cannot),
+            StatusCode::FORBIDDEN,
+            "{readers_cannot}"
+        );
         let added = call(
             port,
             "POST",
@@ -649,7 +680,7 @@ mod tests {
             Some(&note),
         )
         .await;
-        assert_eq!(status(&added), 201, "{added}");
+        assert_eq!(status(&added), StatusCode::CREATED, "{added}");
         let finding: Finding = json(&added);
         assert_eq!(finding.author.as_deref(), Some("ana"));
 
@@ -680,7 +711,11 @@ mod tests {
             Some(&capture_json(&home, &missing)),
         )
         .await;
-        assert_eq!(status(&incomplete), 422, "{incomplete}");
+        assert_eq!(
+            status(&incomplete),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{incomplete}"
+        );
 
         let frame = upload(port, &ana, b"frame-png").await;
         let body = capture_json(&home, &frame);
@@ -692,7 +727,7 @@ mod tests {
             Some(&body),
         )
         .await;
-        assert_eq!(status(&reader), 403, "{reader}");
+        assert_eq!(status(&reader), StatusCode::FORBIDDEN, "{reader}");
         let outsider = call(
             port,
             "POST",
@@ -701,7 +736,7 @@ mod tests {
             Some(&body),
         )
         .await;
-        assert_eq!(status(&outsider), 404, "{outsider}");
+        assert_eq!(status(&outsider), StatusCode::NOT_FOUND, "{outsider}");
 
         let escaping = body.replace("checkpoints/home.png", "../home.png");
         let bad_path = call(
@@ -712,7 +747,11 @@ mod tests {
             Some(&escaping),
         )
         .await;
-        assert_eq!(status(&bad_path), 422, "{bad_path}");
+        assert_eq!(
+            status(&bad_path),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{bad_path}"
+        );
     }
 
     #[tokio::test]
@@ -736,7 +775,11 @@ mod tests {
             "/v1/projects/demo/captures".to_owned(),
         ] {
             let response = call(port, "GET", &path, Some(&carla), None).await;
-            assert_eq!(status(&response), 404, "{path}: {response}");
+            assert_eq!(
+                status(&response),
+                StatusCode::NOT_FOUND,
+                "{path}: {response}"
+            );
         }
     }
 }

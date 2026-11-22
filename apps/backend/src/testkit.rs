@@ -2,17 +2,26 @@
 //! raw HTTP/1.1 so tests exercise every layer, middleware included.
 
 use crate::{app, db, security, send, state};
+use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
 use std::net::{Ipv4Addr, SocketAddr};
 
+/// Media uploads in tests are tiny; a small cap keeps mistakes visible.
+const TEST_BLOB_LIMIT: usize = 4 * 1024 * 1024;
+/// Enough parallel requests for any test, small enough to stay cheap.
+const TEST_MAX_CONCURRENCY: usize = 16;
+/// A refill slower than any test runs, so a spent rate budget stays spent.
+pub const NO_REFILL_MS: u64 = 60_000;
+
+/// Production defaults, except the limits above.
 pub fn settings() -> security::Security {
     security::Security {
-        rate_burst: 60,
-        rate_refill_ms: 100,
-        body_limit: 1024 * 1024,
-        blob_limit: 4 * 1024 * 1024,
-        request_timeout: 30,
-        max_concurrency: 16,
+        rate_burst: security::DEFAULT_RATE_BURST,
+        rate_refill_ms: security::DEFAULT_RATE_REFILL_MS,
+        body_limit: security::DEFAULT_BODY_LIMIT,
+        blob_limit: TEST_BLOB_LIMIT,
+        request_timeout: security::DEFAULT_REQUEST_TIMEOUT_SECS,
+        max_concurrency: TEST_MAX_CONCURRENCY,
         behind_proxy: false,
     }
 }
@@ -85,12 +94,9 @@ pub async fn call(
     .await
 }
 
-pub fn status(response: &str) -> u16 {
-    response
-        .split(' ')
-        .nth(1)
-        .and_then(|code| code.parse().ok())
-        .unwrap_or_default()
+/// Status of a raw HTTP response.
+pub fn status(response: &str) -> StatusCode {
+    crate::status_code(response).unwrap_or_else(|| panic!("not an HTTP response: {response}"))
 }
 
 pub fn body(response: &str) -> &str {
@@ -131,6 +137,6 @@ pub const PASSWORD: &str = "correct horse battery";
 pub async fn sign_in(port: u16, handle: &str) -> String {
     let form = format!(r#"{{"handle":"{handle}","password":"{PASSWORD}"}}"#);
     let response = call(port, "POST", "/v1/sessions", None, Some(&form)).await;
-    assert_eq!(status(&response), 201, "{response}");
+    assert_eq!(status(&response), StatusCode::CREATED, "{response}");
     token_of(&response)
 }

@@ -20,11 +20,24 @@ use std::collections::HashMap;
 use subtle::ConstantTimeEq;
 use tokio::sync::{Mutex, Semaphore};
 
-/// How long a sign-in stays valid, in milliseconds.
+/// How long a sign-in stays valid, in milliseconds (7 days).
 pub const SESSION_AGE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 /// Failed sign-ins per account before it is locked for [`LOCK_MS`].
 const MAX_FAILURES: u32 = 8;
+/// How long a locked account stays locked, in milliseconds (5 minutes).
 const LOCK_MS: i64 = 5 * 60 * 1000;
+/// Random bytes in every secret (sessions, tokens, invitation codes).
+const SECRET_BYTES: usize = 32;
+/// Length of a secret or SHA-256 digest written as hex.
+pub(crate) const HEX_SECRET_LEN: usize = 64;
+/// Shortest and longest accepted username.
+const HANDLE_LEN: std::ops::RangeInclusive<usize> = 3..=48;
+/// Shortest and longest accepted password, in bytes.
+pub(crate) const PASSWORD_LEN: std::ops::RangeInclusive<usize> = 12..=1024;
+/// Argon2 hashes computed at once; more requests get 503 instead of piling up.
+const PASSWORD_WORKERS: usize = 4;
+/// Lockout key shared by setup attempts, which have no account yet.
+const SETUP_LOCKOUT_KEY: &str = "__setup__";
 
 /// Current time in Unix milliseconds.
 pub fn now_ms() -> i64 {
@@ -37,11 +50,11 @@ pub fn now_ms() -> i64 {
 
 /// A new 256-bit secret, hex encoded.
 pub fn token() -> String {
-    let mut bytes = [0u8; 32];
+    let mut bytes = [0u8; SECRET_BYTES];
     OsRng.fill_bytes(&mut bytes);
     bytes
         .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
+        .fold(String::with_capacity(HEX_SECRET_LEN), |mut hex, byte| {
             use std::fmt::Write;
             let _ = write!(hex, "{byte:02x}");
             hex
@@ -52,8 +65,19 @@ pub fn digest(secret: &str) -> String {
     format!("{:x}", Sha256::digest(secret.as_bytes()))
 }
 
+/// The 422 sent for a username or password outside the accepted rules.
+pub(crate) fn account_rules() -> ApiError {
+    ApiError::invalid(format!(
+        "use a {}–{} character username (letters, digits, - or _) and a password of {}–{} bytes",
+        HANDLE_LEN.start(),
+        HANDLE_LEN.end(),
+        PASSWORD_LEN.start(),
+        PASSWORD_LEN.end()
+    ))
+}
+
 pub(crate) fn valid_handle(handle: &str) -> bool {
-    (3..=48).contains(&handle.len())
+    HANDLE_LEN.contains(&handle.len())
         && handle
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
@@ -72,7 +96,7 @@ impl Passwords {
     /// Returns an error if the dummy hash cannot be computed.
     pub fn new() -> anyhow::Result<Self> {
         Ok(Self {
-            work: std::sync::Arc::new(Semaphore::new(4)),
+            work: std::sync::Arc::new(Semaphore::new(PASSWORD_WORKERS)),
             dummy: hash(&token())?,
         })
     }
@@ -167,7 +191,9 @@ impl FromRequestParts<Shared> for Principal {
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix("Bearer "))
-            .filter(|secret| secret.len() == 64 && secret.bytes().all(|b| b.is_ascii_hexdigit()))
+            .filter(|secret| {
+                secret.len() == HEX_SECRET_LEN && secret.bytes().all(|b| b.is_ascii_hexdigit())
+            })
             .ok_or(ApiError::Unauthorized)?;
         let digest = digest(secret);
         let row: Option<(String, Option<String>, Option<String>, bool)> = sqlx::query_as(
@@ -211,7 +237,7 @@ pub async fn sign_in(
     if let Some(retry_after) = state.lockout.retry_after(&handle).await {
         return Err(ApiError::TooManyRequests { retry_after });
     }
-    let stored = if valid_handle(&handle) && form.password.len() <= 1024 {
+    let stored = if valid_handle(&handle) && form.password.len() <= *PASSWORD_LEN.end() {
         sqlx::query_scalar("SELECT password_hash FROM accounts WHERE handle = ?1")
             .bind(&handle)
             .fetch_optional(&state.db)
@@ -287,7 +313,7 @@ pub async fn setup(
     Json(form): Json<Setup>,
 ) -> Result<(StatusCode, Json<SessionToken>), ApiError> {
     let handle = form.handle.trim().to_ascii_lowercase();
-    if let Some(retry_after) = state.lockout.retry_after("__setup__").await {
+    if let Some(retry_after) = state.lockout.retry_after(SETUP_LOCKOUT_KEY).await {
         return Err(ApiError::TooManyRequests { retry_after });
     }
     let code_ok = match (&state.setup_code, form.code.as_deref()) {
@@ -298,13 +324,11 @@ pub async fn setup(
         (None, _) => state.open_setup,
     };
     if !code_ok {
-        state.lockout.fail("__setup__").await;
+        state.lockout.fail(SETUP_LOCKOUT_KEY).await;
         return Err(ApiError::Forbidden);
     }
-    if !valid_handle(&handle) || !(12..=1024).contains(&form.password.len()) {
-        return Err(ApiError::Invalid(
-            "use a 3–48 character username (letters, digits, - or _) and a password of at least 12 characters",
-        ));
+    if !valid_handle(&handle) || !PASSWORD_LEN.contains(&form.password.len()) {
+        return Err(account_rules());
     }
     let password = state.passwords.hash(form.password).await?;
     let created = sqlx::query(
@@ -348,9 +372,9 @@ mod tests {
     #[test]
     fn tokens_are_random_hex_and_stored_only_as_digests() {
         let (first, second) = (token(), token());
-        assert_eq!(first.len(), 64);
+        assert_eq!(first.len(), HEX_SECRET_LEN);
         assert_ne!(first, second);
-        assert_eq!(digest(&first).len(), 64);
+        assert_eq!(digest(&first).len(), HEX_SECRET_LEN);
         assert_ne!(digest(&first), first);
     }
 }

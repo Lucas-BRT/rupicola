@@ -14,6 +14,14 @@ use std::{path::Path, time::Duration};
 
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
+/// Pooled connections in production; SQLite serialises writers anyway.
+const POOL_SIZE: u32 = 8;
+/// An in-memory database lives only as long as its connection, so tests keep one.
+#[cfg(test)]
+const MEMORY_POOL_SIZE: u32 = 1;
+/// How long a connection waits for a lock before failing.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Opens (creating if needed) the database at `path` and applies pending migrations.
 /// Every pooled connection enforces foreign keys and uses WAL, so readers never
 /// block the writer.
@@ -28,9 +36,9 @@ pub async fn open(path: &Path) -> anyhow::Result<SqlitePool> {
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
-        .busy_timeout(Duration::from_secs(5));
+        .busy_timeout(BUSY_TIMEOUT);
     let pool = SqlitePoolOptions::new()
-        .max_connections(8)
+        .max_connections(POOL_SIZE)
         .connect_with(options)
         .await
         .with_context(|| format!("cannot open {}", path.display()))?;
@@ -46,8 +54,8 @@ pub(crate) async fn open_memory() -> SqlitePool {
         .in_memory(true)
         .foreign_keys(true);
     let pool = SqlitePoolOptions::new()
-        .min_connections(1)
-        .max_connections(1)
+        .min_connections(MEMORY_POOL_SIZE)
+        .max_connections(MEMORY_POOL_SIZE)
         .idle_timeout(None)
         .max_lifetime(None)
         .connect_with(options)

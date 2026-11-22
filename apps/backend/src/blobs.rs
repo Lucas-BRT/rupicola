@@ -24,7 +24,7 @@ pub enum Blobs {
 
 /// Whether `sha256` is a lowercase hex SHA-256 digest, safe as a file name.
 pub fn valid_digest(sha256: &str) -> bool {
-    sha256.len() == 64
+    sha256.len() == crate::auth::HEX_SECRET_LEN
         && sha256
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -53,7 +53,7 @@ impl Blobs {
     /// [`ApiError::Invalid`] when the content does not match the digest.
     pub fn put(&self, sha256: &str, data: &[u8]) -> Result<bool, ApiError> {
         if !valid_digest(sha256) || format!("{:x}", Sha256::digest(data)) != sha256 {
-            return Err(ApiError::Invalid(
+            return Err(ApiError::invalid(
                 "the uploaded content does not match its SHA-256",
             ));
         }
@@ -152,8 +152,12 @@ impl Blobs {
     }
 }
 
+/// Leading hex characters naming the directory a blob lives in, so no single
+/// directory grows too large.
+const FANOUT_CHARS: usize = 2;
+
 fn disk_path(root: &Path, sha256: &str) -> PathBuf {
-    root.join(&sha256[..2]).join(sha256)
+    root.join(&sha256[..FANOUT_CHARS]).join(sha256)
 }
 
 /// Media type served for an artifact path.
@@ -182,7 +186,7 @@ mod tests {
         let sha = digest(b"pixels");
         assert!(blobs.put(&sha, b"pixels").unwrap());
         assert!(!blobs.put(&sha, b"pixels").unwrap());
-        assert_eq!(blobs.size(&sha).unwrap(), Some(6));
+        assert_eq!(blobs.size(&sha).unwrap(), Some(b"pixels".len() as u64));
         assert!(blobs.put(&sha, b"other").is_err());
         assert!(blobs.put("../etc/passwd", b"x").is_err());
         assert_eq!(blobs.size(&digest(b"missing")).unwrap(), None);

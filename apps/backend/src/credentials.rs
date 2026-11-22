@@ -19,13 +19,23 @@ use rupicola_api::{
 };
 
 const HOUR_MS: i64 = 60 * 60 * 1000;
+/// Longest label of a machine token or device.
+const MAX_LABEL_CHARS: usize = 100;
+/// Validity of an invitation when the owner does not choose one.
+const DEFAULT_INVITE_HOURS: u32 = 24;
+/// Shortest and longest validity of an invitation (up to one week).
+const INVITE_HOURS: std::ops::RangeInclusive<i64> = 1..=168;
+/// Lockout key for invalid invitation codes, which name no account.
+const INVITE_LOCKOUT_KEY: &str = "__register__";
 
 fn clean_label(label: &str) -> Result<String, ApiError> {
     let label = label.trim();
-    if (1..=100).contains(&label.chars().count()) {
+    if (1..=MAX_LABEL_CHARS).contains(&label.chars().count()) {
         Ok(label.to_owned())
     } else {
-        Err(ApiError::Invalid("the label must have 1–100 characters"))
+        Err(ApiError::invalid(format!(
+            "the label must have 1–{MAX_LABEL_CHARS} characters"
+        )))
     }
 }
 
@@ -263,9 +273,13 @@ pub async fn create_invite(
         .await?
         .require(Role::Owner)?;
     let actor = session_person(&principal)?.to_owned();
-    let hours = i64::from(form.hours.unwrap_or(24));
-    if !(1..=168).contains(&hours) {
-        return Err(ApiError::Invalid("an invitation lasts 1–168 hours"));
+    let hours = i64::from(form.hours.unwrap_or(DEFAULT_INVITE_HOURS));
+    if !INVITE_HOURS.contains(&hours) {
+        return Err(ApiError::invalid(format!(
+            "an invitation lasts {}–{} hours",
+            INVITE_HOURS.start(),
+            INVITE_HOURS.end()
+        )));
     }
     let code = token();
     let invite = Invite {
@@ -373,20 +387,18 @@ pub async fn register(
     State(state): State<Shared>,
     Json(form): Json<Register>,
 ) -> Result<(StatusCode, Json<SessionToken>), ApiError> {
-    if let Some(retry_after) = state.lockout.retry_after("__register__").await {
+    if let Some(retry_after) = state.lockout.retry_after(INVITE_LOCKOUT_KEY).await {
         return Err(ApiError::TooManyRequests { retry_after });
     }
     let handle = form.handle.trim().to_ascii_lowercase();
-    if !auth::valid_handle(&handle) || !(12..=1024).contains(&form.password.len()) {
-        return Err(ApiError::Invalid(
-            "use a 3–48 character username (letters, digits, - or _) and a password of at least 12 characters",
-        ));
+    if !auth::valid_handle(&handle) || !auth::PASSWORD_LEN.contains(&form.password.len()) {
+        return Err(auth::account_rules());
     }
     let password = state.passwords.hash(form.password).await?;
     let mut tx = state.db.begin().await?;
     let Some((project, role)) = take_invite(&mut tx, &form.code).await? else {
         drop(tx);
-        state.lockout.fail("__register__").await;
+        state.lockout.fail(INVITE_LOCKOUT_KEY).await;
         return Err(ApiError::Forbidden);
     };
     let created = sqlx::query(
@@ -431,13 +443,13 @@ pub async fn redeem(
     Json(form): Json<Redeem>,
 ) -> Result<Json<rupicola_api::Project>, ApiError> {
     let handle = session_person(&principal)?.to_owned();
-    if let Some(retry_after) = state.lockout.retry_after("__register__").await {
+    if let Some(retry_after) = state.lockout.retry_after(INVITE_LOCKOUT_KEY).await {
         return Err(ApiError::TooManyRequests { retry_after });
     }
     let mut tx = state.db.begin().await?;
     let Some((project, role)) = take_invite(&mut tx, &form.code).await? else {
         drop(tx);
-        state.lockout.fail("__register__").await;
+        state.lockout.fail(INVITE_LOCKOUT_KEY).await;
         return Err(ApiError::Forbidden);
     };
     let current: Option<String> =
@@ -446,7 +458,7 @@ pub async fn redeem(
             .bind(&handle)
             .fetch_optional(&mut *tx)
             .await?;
-    let offered = parse_role(&role).ok_or(ApiError::Invalid("unknown role"))?;
+    let offered = parse_role(&role).ok_or(ApiError::invalid("unknown role"))?;
     let kept = current
         .as_deref()
         .and_then(parse_role)
@@ -474,6 +486,7 @@ pub async fn redeem(
 #[cfg(test)]
 mod tests {
     use crate::testkit::*;
+    use axum::http::StatusCode;
     use rupicola_api::{
         Credential, IssuedCredential, IssuedInvite, Me, Member, Project, Role, TokenKind,
     };
@@ -503,7 +516,7 @@ mod tests {
             Some(&format!(r#"{{"role":"{role}"}}"#)),
         )
         .await;
-        assert_eq!(status(&issued), 201, "{issued}");
+        assert_eq!(status(&issued), StatusCode::CREATED, "{issued}");
         json::<IssuedInvite>(&issued).code
     }
 
@@ -524,7 +537,7 @@ mod tests {
             Some(&registration(&code, "ana")),
         )
         .await;
-        assert_eq!(status(&taken), 409, "{taken}");
+        assert_eq!(status(&taken), StatusCode::CONFLICT, "{taken}");
         // A taken username does not burn the code.
         let joined = call(
             port,
@@ -534,7 +547,7 @@ mod tests {
             Some(&registration(&code, "bruno")),
         )
         .await;
-        assert_eq!(status(&joined), 201, "{joined}");
+        assert_eq!(status(&joined), StatusCode::CREATED, "{joined}");
         let bruno = token_of(&joined);
         let project: Project =
             json(&call(port, "GET", "/v1/projects/demo", Some(&bruno), None).await);
@@ -548,7 +561,7 @@ mod tests {
             Some(&registration(&code, "carla")),
         )
         .await;
-        assert_eq!(status(&reused), 403, "{reused}");
+        assert_eq!(status(&reused), StatusCode::FORBIDDEN, "{reused}");
     }
 
     #[tokio::test]
@@ -567,7 +580,7 @@ mod tests {
             Some(&registration(&expired, "bruno")),
         )
         .await;
-        assert_eq!(status(&late), 403, "{late}");
+        assert_eq!(status(&late), StatusCode::FORBIDDEN, "{late}");
 
         let withdrawn = invite(port, &ana, "reader").await;
         let pending: Vec<rupicola_api::Invite> =
@@ -581,7 +594,7 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status(&gone), 204, "{gone}");
+        assert_eq!(status(&gone), StatusCode::NO_CONTENT, "{gone}");
         let refused = call(
             port,
             "POST",
@@ -590,7 +603,7 @@ mod tests {
             Some(&registration(&withdrawn, "bruno")),
         )
         .await;
-        assert_eq!(status(&refused), 403, "{refused}");
+        assert_eq!(status(&refused), StatusCode::FORBIDDEN, "{refused}");
     }
 
     #[tokio::test]
@@ -616,7 +629,7 @@ mod tests {
             Some(&format!(r#"{{"code":"{code}"}}"#)),
         )
         .await;
-        assert_eq!(status(&joined), 200, "{joined}");
+        assert_eq!(status(&joined), StatusCode::OK, "{joined}");
         let members: Vec<Member> =
             json(&call(port, "GET", "/v1/projects/demo/members", Some(&ana), None).await);
         assert!(members.contains(&Member {
@@ -657,7 +670,7 @@ mod tests {
             Some(r#"{"label":"Another"}"#),
         )
         .await;
-        assert_eq!(status(&minted), 403, "{minted}");
+        assert_eq!(status(&minted), StatusCode::FORBIDDEN, "{minted}");
 
         let listed: Vec<Credential> =
             json(&call(port, "GET", "/v1/tokens", Some(&ana), None).await);
@@ -674,9 +687,9 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status(&revoked), 204, "{revoked}");
+        assert_eq!(status(&revoked), StatusCode::NO_CONTENT, "{revoked}");
         let after = call(port, "GET", "/v1/me", Some(&machine), None).await;
-        assert_eq!(status(&after), 401, "{after}");
+        assert_eq!(status(&after), StatusCode::UNAUTHORIZED, "{after}");
     }
 
     #[tokio::test]
@@ -716,7 +729,7 @@ mod tests {
             Some(blocked),
         )
         .await;
-        assert_eq!(status(&published), 201, "{published}");
+        assert_eq!(status(&published), StatusCode::CREATED, "{published}");
         let read = call(
             port,
             "GET",
@@ -725,7 +738,7 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status(&read), 403, "{read}");
+        assert_eq!(status(&read), StatusCode::FORBIDDEN, "{read}");
         let elsewhere = call(
             port,
             "POST",
@@ -734,7 +747,7 @@ mod tests {
             Some(blocked),
         )
         .await;
-        assert_eq!(status(&elsewhere), 404, "{elsewhere}");
+        assert_eq!(status(&elsewhere), StatusCode::NOT_FOUND, "{elsewhere}");
 
         let revoked = call(
             port,
@@ -744,9 +757,9 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status(&revoked), 204, "{revoked}");
+        assert_eq!(status(&revoked), StatusCode::NO_CONTENT, "{revoked}");
         let after = call(port, "GET", "/v1/me", Some(&device), None).await;
-        assert_eq!(status(&after), 401, "{after}");
+        assert_eq!(status(&after), StatusCode::UNAUTHORIZED, "{after}");
     }
 
     #[tokio::test]
@@ -767,7 +780,11 @@ mod tests {
             ("/v1/projects/demo/devices", r#"{"label":"Sneaky"}"#),
         ] {
             let response = call(port, "POST", path, Some(&bruno), Some(body)).await;
-            assert_eq!(status(&response), 403, "{path}: {response}");
+            assert_eq!(
+                status(&response),
+                StatusCode::FORBIDDEN,
+                "{path}: {response}"
+            );
         }
     }
 }

@@ -26,6 +26,17 @@ use std::{
 };
 use tracing_subscriber::EnvFilter;
 
+/// Port the backend listens on unless told otherwise.
+const DEFAULT_PORT: u16 = 4730;
+/// Shortest accepted setup code, so it cannot be guessed.
+const MIN_SETUP_CODE_LEN: usize = 32;
+/// Password guessing budget per client: a burst of attempts, then one more every
+/// [`SIGN_IN_REFILL_MS`].
+const SIGN_IN_BURST: u32 = 5;
+const SIGN_IN_REFILL_MS: u64 = 12_000;
+/// How long the health probe waits to connect and to read the answer.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
@@ -33,13 +44,13 @@ struct Args {
     #[arg(long, env = "HOST", default_value_t = Ipv4Addr::LOCALHOST)]
     bind: Ipv4Addr,
     /// Listen port.
-    #[arg(long, env = "PORT", default_value_t = 4730)]
+    #[arg(long, env = "PORT", default_value_t = DEFAULT_PORT)]
     port: u16,
     /// Database file; media blobs live next to it.
     #[arg(long, env = "RUPICOLA_DB", default_value = ".rupicola/panel.db")]
     db: PathBuf,
-    /// Code required to create the first administrator (at least 32 characters). Without
-    /// it, setup is only allowed while the backend listens on loopback.
+    /// Code required to create the first administrator; short codes are refused.
+    /// Without it, setup is only allowed while the backend listens on loopback.
     #[arg(long, env = "RUPICOLA_SETUP_CODE", hide_env_values = true)]
     setup_code: Option<String>,
     /// Probe the local listener and exit; used by container health checks.
@@ -52,7 +63,8 @@ struct Args {
 /// Every route, wrapped in the request hardening from [`security`].
 fn app(settings: &security::Security, state: state::Shared) -> Router {
     // Password guessing gets a much smaller budget than ordinary API use.
-    let sign_in_limit = security::rate_limit(5, 12_000, settings.behind_proxy);
+    let sign_in_limit =
+        security::rate_limit(SIGN_IN_BURST, SIGN_IN_REFILL_MS, settings.behind_proxy);
     let credentials = Router::new()
         .route("/v1/sessions", routing::post(auth::sign_in))
         .route("/v1/setup", routing::post(auth::setup))
@@ -137,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     if args.healthcheck {
         let response = fetch(args.port, "/healthz").context("backend is not reachable")?;
-        if !response.starts_with("HTTP/1.1 200") {
+        if status_code(&response) != Some(axum::http::StatusCode::OK) {
             bail!("healthcheck failed");
         }
         return Ok(());
@@ -149,8 +161,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let setup_code = args.setup_code.as_deref().filter(|code| !code.is_empty());
-    if setup_code.is_some_and(|code| code.len() < 32) {
-        bail!("RUPICOLA_SETUP_CODE must contain at least 32 characters");
+    if setup_code.is_some_and(|code| code.len() < MIN_SETUP_CODE_LEN) {
+        bail!("RUPICOLA_SETUP_CODE must contain at least {MIN_SETUP_CODE_LEN} characters");
     }
     let state = state::AppState::open(&args.db, setup_code, args.bind.is_loopback()).await?;
     let listener = tokio::net::TcpListener::bind((args.bind, args.port))
@@ -200,8 +212,14 @@ fn fetch(port: u16, path: &str) -> std::io::Result<String> {
     )
 }
 
+/// Status code of a raw HTTP/1.1 response.
+fn status_code(response: &str) -> Option<axum::http::StatusCode> {
+    let code = response.split(' ').nth(1)?.parse::<u16>().ok()?;
+    axum::http::StatusCode::from_u16(code).ok()
+}
+
 fn send(port: u16, request: &str) -> std::io::Result<String> {
-    let timeout = Duration::from_secs(3);
+    let timeout = PROBE_TIMEOUT;
     let mut stream =
         TcpStream::connect_timeout(&SocketAddr::from((Ipv4Addr::LOCALHOST, port)), timeout)?;
     stream.set_read_timeout(Some(timeout))?;
@@ -215,13 +233,24 @@ fn send(port: u16, request: &str) -> std::io::Result<String> {
 mod tests {
     use super::*;
     use crate::testkit::*;
+    use axum::http::StatusCode;
+
+    /// Length of a hyphenated UUID, the format of request ids.
+    const UUID_TEXT_LEN: usize = 36;
+    /// A body cap small enough to exceed with a short request.
+    const TINY_BODY_LIMIT: usize = 1024;
+    /// A declared body well over [`TINY_BODY_LIMIT`].
+    const OVERSIZED_BODY: usize = TINY_BODY_LIMIT * 4;
+    /// Requests allowed before the rate limit tests expect a 429.
+    const SMALL_BURST: u32 = 2;
+    const SINGLE_REQUEST: u32 = 1;
 
     #[tokio::test]
     async fn healthz_reports_ok_with_the_package_version() {
         let port = start(settings()).await;
         let response = get(port, "/healthz", "").await;
 
-        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert_eq!(status(&response), StatusCode::OK, "{response}");
         let health: Health = serde_json::from_str(body(&response)).unwrap();
         assert_eq!(health.status, HealthStatus::Ok);
         assert_eq!(health.version, env!("CARGO_PKG_VERSION"));
@@ -232,7 +261,7 @@ mod tests {
         let port = start(settings()).await;
         let response = get(port, "/v1/nothing", "").await;
 
-        assert!(response.starts_with("HTTP/1.1 404"), "{response}");
+        assert_eq!(status(&response), StatusCode::NOT_FOUND, "{response}");
         let error: rupicola_api::ErrorBody = serde_json::from_str(body(&response)).unwrap();
         assert_eq!(error.code, "not-found");
     }
@@ -247,23 +276,30 @@ mod tests {
         assert_eq!(header(&response, "cache-control"), Some("no-store"));
         assert!(header(&response, "content-security-policy").is_some());
         assert!(header(&response, "strict-transport-security").is_none());
-        assert_eq!(header(&response, "x-request-id").map(str::len), Some(36));
+        assert_eq!(
+            header(&response, "x-request-id").map(str::len),
+            Some(UUID_TEXT_LEN)
+        );
     }
 
     #[tokio::test]
     async fn clients_over_the_burst_are_rate_limited() {
         let port = start(security::Security {
-            rate_burst: 2,
-            rate_refill_ms: 60_000,
+            rate_burst: SMALL_BURST,
+            rate_refill_ms: NO_REFILL_MS,
             ..settings()
         })
         .await;
-        for _ in 0..2 {
-            assert!(get(port, "/healthz", "").await.starts_with("HTTP/1.1 200"));
+        for _ in 0..SMALL_BURST {
+            assert_eq!(status(&get(port, "/healthz", "").await), StatusCode::OK);
         }
         let response = get(port, "/healthz", "").await;
 
-        assert!(response.starts_with("HTTP/1.1 429"), "{response}");
+        assert_eq!(
+            status(&response),
+            StatusCode::TOO_MANY_REQUESTS,
+            "{response}"
+        );
         assert!(header(&response, "retry-after").is_some());
         let error: rupicola_api::ErrorBody = serde_json::from_str(body(&response)).unwrap();
         assert_eq!(error.code, "rate-limited");
@@ -272,8 +308,8 @@ mod tests {
     #[tokio::test]
     async fn behind_a_proxy_the_last_forwarded_address_is_the_client() {
         let port = start(security::Security {
-            rate_burst: 1,
-            rate_refill_ms: 60_000,
+            rate_burst: SINGLE_REQUEST,
+            rate_refill_ms: NO_REFILL_MS,
             behind_proxy: true,
             ..settings()
         })
@@ -281,7 +317,7 @@ mod tests {
         let from = |address: &str| format!("X-Forwarded-For: 203.0.113.9, {address}\r\n");
 
         let first = get(port, "/healthz", &from("198.51.100.1")).await;
-        assert!(first.starts_with("HTTP/1.1 200"), "{first}");
+        assert_eq!(status(&first), StatusCode::OK, "{first}");
         // A forged first entry does not buy a fresh budget.
         let forged = get(
             port,
@@ -289,27 +325,33 @@ mod tests {
             "X-Forwarded-For: 192.0.2.77, 198.51.100.1\r\n",
         )
         .await;
-        assert!(forged.starts_with("HTTP/1.1 429"), "{forged}");
+        assert_eq!(status(&forged), StatusCode::TOO_MANY_REQUESTS, "{forged}");
         let other = get(port, "/healthz", &from("198.51.100.2")).await;
-        assert!(other.starts_with("HTTP/1.1 200"), "{other}");
+        assert_eq!(status(&other), StatusCode::OK, "{other}");
         assert!(header(&other, "strict-transport-security").is_some());
     }
 
     #[tokio::test]
     async fn oversized_bodies_are_rejected_before_reaching_handlers() {
         let port = start(security::Security {
-            body_limit: 1024,
+            body_limit: TINY_BODY_LIMIT,
             ..settings()
         })
         .await;
         let response = request(
             port,
-            "POST /healthz HTTP/1.1\r\nHost: test\r\nContent-Length: 4096\r\nConnection: close\r\n\r\n"
-                .to_owned(),
+            format!(
+                "POST /healthz HTTP/1.1\r\nHost: test\r\nContent-Length: {OVERSIZED_BODY}\r\n\
+                 Connection: close\r\n\r\n"
+            ),
         )
         .await;
 
-        assert!(response.starts_with("HTTP/1.1 413"), "{response}");
+        assert_eq!(
+            status(&response),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "{response}"
+        );
         let error: rupicola_api::ErrorBody = serde_json::from_str(body(&response)).unwrap();
         assert_eq!(error.code, "payload-too-large");
     }
@@ -319,7 +361,7 @@ mod tests {
     async fn the_first_owner_is_created_once_and_signed_in() {
         let port = start(settings()).await;
         let created = call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
-        assert!(created.starts_with("HTTP/1.1 201"), "{created}");
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
 
         let me = call(port, "GET", "/v1/me", Some(&token_of(&created)), None).await;
         let me: rupicola_api::Me = serde_json::from_str(body(&me)).unwrap();
@@ -328,7 +370,7 @@ mod tests {
         assert!(me.admin);
 
         let again = call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
-        assert!(again.starts_with("HTTP/1.1 409"), "{again}");
+        assert_eq!(status(&again), StatusCode::CONFLICT, "{again}");
     }
 
     #[tokio::test]
@@ -336,11 +378,11 @@ mod tests {
         let code = "a-setup-code-that-is-long-enough-123";
         let port = start_custom(settings(), Some(code), false).await.0;
         let without = call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
-        assert!(without.starts_with("HTTP/1.1 403"), "{without}");
+        assert_eq!(status(&without), StatusCode::FORBIDDEN, "{without}");
         let with =
             format!(r#"{{"handle":"ana","password":"correct horse battery","code":"{code}"}}"#);
         let created = call(port, "POST", "/v1/setup", None, Some(&with)).await;
-        assert!(created.starts_with("HTTP/1.1 201"), "{created}");
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
     }
 
     #[tokio::test]
@@ -350,22 +392,22 @@ mod tests {
 
         let wrong = r#"{"handle":"ana","password":"wrong password here"}"#;
         let refused = call(port, "POST", "/v1/sessions", None, Some(wrong)).await;
-        assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
+        assert_eq!(status(&refused), StatusCode::UNAUTHORIZED, "{refused}");
         let unknown = r#"{"handle":"nobody","password":"correct horse battery"}"#;
         let refused = call(port, "POST", "/v1/sessions", None, Some(unknown)).await;
-        assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
+        assert_eq!(status(&refused), StatusCode::UNAUTHORIZED, "{refused}");
 
         let signed_in = call(port, "POST", "/v1/sessions", None, Some(OWNER)).await;
-        assert!(signed_in.starts_with("HTTP/1.1 201"), "{signed_in}");
+        assert_eq!(status(&signed_in), StatusCode::CREATED, "{signed_in}");
         let token = token_of(&signed_in);
         let out = call(port, "DELETE", "/v1/sessions/current", Some(&token), None).await;
-        assert!(out.starts_with("HTTP/1.1 204"), "{out}");
+        assert_eq!(status(&out), StatusCode::NO_CONTENT, "{out}");
         let after = call(port, "GET", "/v1/me", Some(&token), None).await;
-        assert!(after.starts_with("HTTP/1.1 401"), "{after}");
+        assert_eq!(status(&after), StatusCode::UNAUTHORIZED, "{after}");
 
         for bad in [None, Some("not-a-token"), Some(&"0".repeat(64)[..])] {
             let response = call(port, "GET", "/v1/me", bad, None).await;
-            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+            assert_eq!(status(&response), StatusCode::UNAUTHORIZED, "{response}");
         }
     }
 
@@ -373,12 +415,12 @@ mod tests {
     async fn password_guessing_is_rate_limited_per_client() {
         let port = start(settings()).await;
         let wrong = r#"{"handle":"ana","password":"wrong password here"}"#;
-        for _ in 0..5 {
+        for _ in 0..SIGN_IN_BURST {
             call(port, "POST", "/v1/sessions", None, Some(wrong)).await;
         }
         let limited = call(port, "POST", "/v1/sessions", None, Some(wrong)).await;
-        assert!(limited.starts_with("HTTP/1.1 429"), "{limited}");
+        assert_eq!(status(&limited), StatusCode::TOO_MANY_REQUESTS, "{limited}");
         // Ordinary API use keeps its own, larger budget.
-        assert!(get(port, "/healthz", "").await.starts_with("HTTP/1.1 200"));
+        assert_eq!(status(&get(port, "/healthz", "").await), StatusCode::OK);
     }
 }

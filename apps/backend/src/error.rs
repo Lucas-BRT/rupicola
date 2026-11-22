@@ -7,6 +7,9 @@ use axum::{
 };
 use rupicola_api::ErrorBody;
 
+/// Seconds an overloaded server asks clients to wait before retrying.
+const OVERLOADED_RETRY_AFTER_SECS: u64 = 1;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     /// Also used when the caller may not see the resource, so its existence
@@ -18,7 +21,7 @@ pub enum ApiError {
     #[error("this credential may not do that")]
     Forbidden,
     #[error("{0}")]
-    Invalid(&'static str),
+    Invalid(String),
     #[error("{0}")]
     Conflict(&'static str),
     #[error("too many requests; retry in {retry_after} s")]
@@ -32,6 +35,13 @@ pub enum ApiError {
     /// Unexpected failure; details go to the log, never to the client.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
+}
+
+impl ApiError {
+    /// A 422 explaining what the client must change.
+    pub fn invalid(message: impl Into<String>) -> Self {
+        Self::Invalid(message.into())
+    }
 }
 
 impl From<sqlx::Error> for ApiError {
@@ -82,7 +92,7 @@ impl IntoResponse for ApiError {
         };
         let retry_after = match &self {
             Self::TooManyRequests { retry_after } => Some(retry_after.to_string()),
-            Self::Overloaded => Some("1".to_owned()),
+            Self::Overloaded => Some(OVERLOADED_RETRY_AFTER_SECS.to_string()),
             _ => None,
         };
         let body = ErrorBody {
@@ -109,8 +119,15 @@ mod tests {
 
     #[test]
     fn rate_limited_responses_say_when_to_retry() {
-        let response = ApiError::TooManyRequests { retry_after: 7 }.into_response();
+        const WAIT_SECS: u64 = 7;
+        let response = ApiError::TooManyRequests {
+            retry_after: WAIT_SECS,
+        }
+        .into_response();
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(response.headers()[header::RETRY_AFTER], "7");
+        assert_eq!(
+            response.headers()[header::RETRY_AFTER],
+            WAIT_SECS.to_string()
+        );
     }
 }
