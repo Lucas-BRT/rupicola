@@ -140,3 +140,66 @@ pub async fn sign_in(port: u16, handle: &str) -> String {
     assert_eq!(status(&response), StatusCode::CREATED, "{response}");
     token_of(&response)
 }
+
+/// Two projects: `demo` holds the artifact `shot`, `other` holds `foreign-shot`.
+/// Ana (owner of `demo`), Bruno (reader of `demo`) and Carla (owner of `other`).
+pub const USERS: usize = 3;
+pub const PROJECT_ARTIFACT: &str = "shot";
+pub const FOREIGN_ARTIFACT: &str = "foreign-shot";
+const DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+async fn insert_capture(db: &sqlx::SqlitePool, project: &str, artifact: &str) {
+    let capture = format!("capture-{artifact}");
+    sqlx::query(
+        "INSERT INTO captures (id, project_id, scenario, status, inspection, environment, created_at)
+         VALUES (?1, ?2, 'home', 'complete', 'pending', '{}', 0)",
+    )
+    .bind(&capture)
+    .bind(project)
+    .execute(db)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO artifacts (id, capture_id, role, owner_id, position, path, sha256, bytes, mime)
+         VALUES (?1, ?2, 'checkpoint', 'home', 0, 'home.png', ?3, 1, 'image/png')",
+    )
+    .bind(artifact)
+    .bind(&capture)
+    .bind(DIGEST)
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+pub async fn demo_with_artifacts() -> (u16, [String; USERS]) {
+    let (port, state) = start_custom(settings(), None, true).await;
+    for handle in ["ana", "bruno", "carla"] {
+        seed_account(&state, handle, false).await;
+    }
+    let [ana, bruno, carla] = [
+        sign_in(port, "ana").await,
+        sign_in(port, "bruno").await,
+        sign_in(port, "carla").await,
+    ];
+    for (project, owner) in [("demo", &ana), ("other", &carla)] {
+        call(
+            port,
+            "POST",
+            "/v1/projects",
+            Some(owner),
+            Some(&format!(r#"{{"id":"{project}","label":"{project}"}}"#)),
+        )
+        .await;
+    }
+    call(
+        port,
+        "PUT",
+        "/v1/projects/demo/members/bruno",
+        Some(&ana),
+        Some(r#"{"role":"reader"}"#),
+    )
+    .await;
+    insert_capture(&state.db, "demo", PROJECT_ARTIFACT).await;
+    insert_capture(&state.db, "other", FOREIGN_ARTIFACT).await;
+    (port, [ana, bruno, carla])
+}

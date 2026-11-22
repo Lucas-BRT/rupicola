@@ -5,8 +5,13 @@
 
 use serde::{Deserialize, Serialize};
 
+#[macro_use]
+mod text_enum;
+mod fixes;
 mod problems;
+pub use fixes::*;
 pub use problems::*;
+pub use text_enum::UnknownValue;
 
 /// Path prefix of every versioned API route.
 pub const PREFIX: &str = "/v1";

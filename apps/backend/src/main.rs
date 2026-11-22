@@ -7,6 +7,7 @@ mod captures;
 mod credentials;
 mod db;
 mod error;
+mod fixes;
 mod problems;
 mod projects;
 mod security;
@@ -126,6 +127,13 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
             routing::get(problems::get).patch(problems::update),
         )
         .route("/problems/{id}/comments", routing::post(problems::comment))
+        .route(
+            "/projects/{id}/fixes",
+            routing::get(fixes::list).post(fixes::create),
+        )
+        .route("/fixes/{id}", routing::get(fixes::get))
+        .route("/fixes/{id}/steps", routing::post(fixes::add_step))
+        .route("/fixes/{id}/reviews", routing::post(fixes::review))
         .route(
             "/tokens",
             routing::get(credentials::list_tokens).post(credentials::create_token),

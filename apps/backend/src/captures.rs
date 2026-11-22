@@ -302,6 +302,25 @@ async fn capture_access(
     access(state, principal, &project).await?.require(role)
 }
 
+/// Fails unless `artifact` is a file of one of `project`'s captures.
+pub async fn require_project_artifact(
+    state: &Shared,
+    project: &str,
+    artifact: &str,
+) -> Result<(), ApiError> {
+    let belongs: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM artifacts a JOIN captures c ON c.id = a.capture_id
+         WHERE a.id = ?1 AND c.project_id = ?2",
+    )
+    .bind(artifact)
+    .bind(project)
+    .fetch_optional(&state.db)
+    .await?;
+    belongs.map(|_| ()).ok_or(ApiError::invalid(
+        "the evidence must be files of this project's captures",
+    ))
+}
+
 /// `GET /v1/captures/{id}`
 pub async fn get(
     State(state): State<Shared>,

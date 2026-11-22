@@ -1,58 +1,6 @@
 //! Problems: defects found in a project's interface.
 
 use serde::{Deserialize, Serialize};
-use std::{fmt, str::FromStr};
-
-/// Text that names none of an enumeration's values.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnknownValue(pub String);
-
-impl fmt::Display for UnknownValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "unknown value `{}`", self.0)
-    }
-}
-
-impl std::error::Error for UnknownValue {}
-
-/// Declares a kebab-case enumeration stored as text: serde, `as_str`, `Display`, `FromStr`.
-macro_rules! text_enum {
-    ($(#[$meta:meta])* $name:ident { $($(#[$vmeta:meta])* $variant:ident => $text:literal,)+ }) => {
-        $(#[$meta])*
-        #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-        pub enum $name {
-            $($(#[$vmeta])* #[serde(rename = $text)] $variant,)+
-        }
-
-        impl $name {
-            /// Every value, in declaration order.
-            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
-
-            /// The text stored in the database and used on the wire.
-            #[must_use]
-            pub const fn as_str(self) -> &'static str {
-                match self { $(Self::$variant => $text,)+ }
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(self.as_str())
-            }
-        }
-
-        impl FromStr for $name {
-            type Err = UnknownValue;
-
-            fn from_str(text: &str) -> Result<Self, Self::Err> {
-                match text {
-                    $($text => Ok(Self::$variant),)+
-                    other => Err(UnknownValue(other.to_owned())),
-                }
-            }
-        }
-    };
-}
 
 text_enum! {
     /// Where a problem stands in triage.
