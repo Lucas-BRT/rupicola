@@ -23,6 +23,8 @@ use topcoat::{
 
 /// Port the site listens on unless told otherwise.
 const DEFAULT_PORT: u16 = 4732;
+/// Path of the review panel under the public URL.
+const DASHBOARD_PATH: &str = "/dashboard";
 /// How long the health probe waits to connect and to read the answer.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -32,6 +34,8 @@ mod pages;
 const SITE_CSS: &str = include_str!("site.css");
 const SITE_JS: &str = include_str!("site.js");
 const INSTALL_SH: &str = include_str!("install.sh");
+/// Text in `install.sh` replaced by the site's public URL when the script is served.
+const PUBLIC_URL_PLACEHOLDER: &str = "@PUBLIC_URL@";
 
 path_param!(*slug);
 
@@ -44,7 +48,12 @@ struct Args {
     /// Listen port (defaults to PORT env var or 4732).
     #[arg(long)]
     port: Option<u16>,
-    /// Public URL of the Rupicola review panel.
+    /// Public URL of this site, used in install commands (defaults to `RUPICOLA_PUBLIC_URL`
+    /// or the local listener).
+    #[arg(long)]
+    public_url: Option<String>,
+    /// Public URL of the Rupicola review panel (defaults to `RUPICOLA_PANEL_URL` or
+    /// `<public url>/dashboard`).
     #[arg(long)]
     panel_url: Option<String>,
     /// Run a self-contained health probe against the local listener and exit.
@@ -54,6 +63,7 @@ struct Args {
 
 #[derive(Clone)]
 struct SiteConfig {
+    public_url: String,
     panel_url: String,
 }
 
@@ -90,13 +100,22 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .or_else(|| std::env::var("HOST").ok().and_then(|v| v.parse().ok()))
         .unwrap_or(Ipv4Addr::LOCALHOST);
 
+    let public_url = args
+        .public_url
+        .or_else(|| std::env::var("RUPICOLA_PUBLIC_URL").ok())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("http://{host}:{port}"));
+    let public_url = public_url.trim_end_matches('/').to_owned();
     let panel_url = args
         .panel_url
         .or_else(|| std::env::var("RUPICOLA_PANEL_URL").ok())
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "https://rupicola.lucasbrt.dev/dashboard".to_string());
+        .unwrap_or_else(|| format!("{public_url}{DASHBOARD_PATH}"));
 
-    let shared = Arc::new(SiteConfig { panel_url });
+    let shared = Arc::new(SiteConfig {
+        public_url,
+        panel_url,
+    });
 
     let app = Router::builder()
         .app_context(shared)
@@ -120,12 +139,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
 #[route(GET "/")]
 async fn home(cx: &Cx) -> TopcoatResult<Response> {
-    Html(pages::render_home(&cfg(cx).panel_url)).into_response(cx)
+    Html(pages::render_home(&cfg(cx).panel_url, &cfg(cx).public_url)).into_response(cx)
 }
 
 #[route(GET "/install")]
 async fn install(cx: &Cx) -> TopcoatResult<Response> {
-    Html(pages::render_install(&cfg(cx).panel_url)).into_response(cx)
+    Html(pages::render_install(
+        &cfg(cx).panel_url,
+        &cfg(cx).public_url,
+    ))
+    .into_response(cx)
 }
 
 #[route(GET "/architecture")]
@@ -175,12 +198,14 @@ async fn js(_cx: &Cx) -> TopcoatResult<Response> {
 }
 
 #[route(GET "/install.sh")]
-async fn install_script(_cx: &Cx) -> TopcoatResult<Response> {
+async fn install_script(cx: &Cx) -> TopcoatResult<Response> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8")
         .header(header::CACHE_CONTROL, "public, max-age=300")
-        .body(Body::from(INSTALL_SH))
+        .body(Body::from(
+            INSTALL_SH.replace(PUBLIC_URL_PLACEHOLDER, &cfg(cx).public_url),
+        ))
         .expect("valid install.sh response"))
 }
 

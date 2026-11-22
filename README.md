@@ -268,7 +268,7 @@ Use a project device token issued in the hosted panel. Keep the bearer in
 
 ```toml
 [mcp_servers.rupicola]
-url = "https://rupicola.lucasbrt.dev/mcp/PROJECT_ID"
+url = "https://YOUR-RUPICOLA-HOST/mcp"
 bearer_token_env_var = "RUPICOLA_MCP_TOKEN"
 ```
 

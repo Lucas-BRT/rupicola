@@ -52,10 +52,10 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "4732"
-      RUPICOLA_PANEL_URL: "https://rupicola.lucasbrt.dev/dashboard"
+      RUPICOLA_PUBLIC_URL: "https://${RUPICOLA_DOMAIN:?set RUPICOLA_DOMAIN}"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.rupicola-site.rule=Host(`rupicola.lucasbrt.dev`) && (Path(`/`) || PathPrefix(`/install`) || PathPrefix(`/docs`) || Path(`/architecture`) || Path(`/site.css`) || Path(`/site.js`))"
+      - "traefik.http.routers.rupicola-site.rule=Host(`${RUPICOLA_DOMAIN}`) && (Path(`/`) || PathPrefix(`/install`) || PathPrefix(`/docs`) || Path(`/architecture`) || Path(`/site.css`) || Path(`/site.js`))"
       - "traefik.http.routers.rupicola-site.entrypoints=websecure"
       - "traefik.http.routers.rupicola-site.tls.certresolver=letsencrypt"
       - "traefik.http.routers.rupicola-site.priority=100"

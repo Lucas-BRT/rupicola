@@ -179,9 +179,9 @@ fn framework_tags() -> String {
     tags
 }
 
-pub fn render_home(panel_url: &str) -> String {
-    let install_cmd = "curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash";
-    let esc_cmd = escape_html(install_cmd);
+pub fn render_home(panel_url: &str, public_url: &str) -> String {
+    let install_cmd = format!("curl -fsSL {public_url}/install.sh | bash");
+    let esc_cmd = escape_html(&install_cmd);
 
     let strip = stage_strip();
     let tags = framework_tags();
@@ -256,10 +256,10 @@ pub fn render_home(panel_url: &str) -> String {
     )
 }
 
-pub fn render_install(panel_url: &str) -> String {
+pub fn render_install(panel_url: &str, public_url: &str) -> String {
     let quick_block = code_block(
         "Quick Install (Linux / macOS)",
-        "curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash\nrupicola --version",
+        &format!("curl -fsSL {public_url}/install.sh | bash\nrupicola --version"),
     );
     let source_block = code_block(
         "Cargo (Git)",

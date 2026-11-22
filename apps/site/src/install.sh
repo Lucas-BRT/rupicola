@@ -22,8 +22,8 @@ while [ "$#" -gt 0 ]; do
 Rupicola installer
 
 Usage:
-  curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash
-  curl -fsSL https://rupicola.lucasbrt.dev/install.sh | bash -s -- [--version v0.1.0] [--source]
+  curl -fsSL @PUBLIC_URL@/install.sh | bash
+  curl -fsSL @PUBLIC_URL@/install.sh | bash -s -- [--version v0.1.0] [--source]
 EOF
       exit 0
       ;;

@@ -58,8 +58,7 @@ COPY --from=builder /app/target/website/rupicola-site ./rupicola-site
 
 USER 10001:10001
 ENV HOST=0.0.0.0 \
-    PORT=4732 \
-    RUPICOLA_PANEL_URL=https://rupicola.lucasbrt.dev/dashboard
+    PORT=4732
 
 EXPOSE 4732
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
