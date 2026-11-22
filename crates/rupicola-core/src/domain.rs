@@ -1,9 +1,27 @@
 //! Unified domain layer shared across CLI, Panel HTTP, and MCP entrypoints.
 //! Connects Phase 1 (`rupicola-capture` / `rupicola-protocol`) to Phase 2 queues.
 
-pub use rupicola_capture::{CaptureOutput, CaptureRequest};
+use rupicola_protocol::UiSnapshot;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// Files one capture produced, as the panel index stores them.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CaptureOutput {
+    pub screenshot_png: PathBuf,
+    #[serde(default)]
+    pub annotated_png: Option<PathBuf>,
+    #[serde(default)]
+    pub video_mp4: Option<PathBuf>,
+    #[serde(default)]
+    pub annotated_video_mp4: Option<PathBuf>,
+    #[serde(default)]
+    pub video_gif: Option<PathBuf>,
+    #[serde(default)]
+    pub annotated_video_gif: Option<PathBuf>,
+    #[serde(default)]
+    pub snapshot: Option<UiSnapshot>,
+}
 
 /// Lifecycle state of a capture inside `CaptureQueue`.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
@@ -26,7 +44,7 @@ impl CaptureQueueStatus {
     }
 }
 
-/// Persisted capture record bridging `rupicola_capture::CaptureOutput` into the panel index.
+/// Persisted capture record bridging [`CaptureOutput`] into the panel index.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CaptureRecord {
     pub id: String,
@@ -55,53 +73,4 @@ pub enum SolutionDecision {
     RequestChanges { note: String },
     ApproveVisual,
     ImplementInRepo,
-}
-
-/// Video length asked for when a reviewer requests video evidence, and the
-/// shortest accepted (shorter clips rarely show a whole interaction).
-const DEFAULT_REPROCESS_VIDEO_MS: u64 = 2000;
-const MIN_REPROCESS_VIDEO_MS: u64 = 1500;
-
-/// Builds a targeted Phase 1 [`CaptureRequest`] when a reviewer requests new evidence
-/// (for example upgrading a static screenshot to a video walkthrough).
-#[must_use]
-pub fn build_reprocess_request(
-    base: &CaptureRequest,
-    require_video: bool,
-    output_dir: PathBuf,
-) -> CaptureRequest {
-    let mut next = base.clone();
-    next.output_dir = output_dir;
-    if require_video {
-        next.record_video_ms = Some(
-            next.record_video_ms
-                .unwrap_or(DEFAULT_REPROCESS_VIDEO_MS)
-                .max(MIN_REPROCESS_VIDEO_MS),
-        );
-    }
-    next
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const VIEWPORT: [u32; 2] = [1280, 720];
-
-    #[test]
-    fn reprocess_request_enables_video_when_required() {
-        let base = CaptureRequest {
-            command: "http://127.0.0.1:4732".into(),
-            args: vec![],
-            viewport: VIEWPORT,
-            warmup_ms: 0,
-            actions: vec![],
-            record_video_ms: None,
-            annotations: vec![],
-            output_dir: PathBuf::from("/tmp/old"),
-        };
-        let next = build_reprocess_request(&base, true, PathBuf::from("/tmp/new"));
-        assert_eq!(next.output_dir, PathBuf::from("/tmp/new"));
-        assert_eq!(next.record_video_ms, Some(DEFAULT_REPROCESS_VIDEO_MS));
-    }
 }

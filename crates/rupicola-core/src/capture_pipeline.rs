@@ -1,14 +1,14 @@
-//! Layered capture architecture: Trigger -> `CapturePlan` -> Orchestrator
-//! -> `CaptureBackend` -> Middleend -> Middleware -> Standardized `CaptureBundle`.
+//! Rupicola's envelope around a capture plan: who asked, for which project and scenario,
+//! and which baseline run to mirror. The capture itself is `rupicola_capture::session`.
 
-use rupicola_protocol::{ToolkitKind, UiAction, UiSnapshot, WidgetBox};
+use rupicola_capture::session::{Bundle, CaptureBackend, CaptureError, Plan, run_plan};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::time::Instant;
 
-/// Width and height in pixels.
-pub type Dimensions = [u32; 2];
-/// A widget rectangle in pixels: x, y, width, height.
-pub type PixelBox = [u32; 4];
+const EMPTY_PROJECT_ID: &str = "CaptureEnvelope.project_id must not be empty";
+const ZERO_VIEWPORT: &str = "CaptureEnvelope.plan.environment.viewport must be non-zero";
+const NO_STEPS: &str = "CaptureEnvelope.plan.steps must contain at least one step";
 
 /// Origin that initiated a capture run.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -21,294 +21,205 @@ pub enum TriggerSource {
     Scheduler,
 }
 
-/// Target application under test or isolated proposal preview.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum TargetKind {
-    /// Live web server/URL or an isolated hidden proposal route with mock state.
-    Web {
-        base_url: String,
-        #[serde(default)]
-        isolated_preview_route: Option<String>,
-    },
-    /// Native desktop application launched in a headless/background environment.
-    Desktop {
-        command: String,
-        #[serde(default)]
-        args: Vec<String>,
-        #[serde(default)]
-        protocol_socket: Option<PathBuf>,
-        #[serde(default)]
-        background: bool,
-    },
+/// Errors produced by [`CaptureEnvelope::validate`] and [`CaptureEnvelope::run`].
+#[derive(Debug, thiserror::Error)]
+pub enum CapturePipelineError {
+    #[error("invalid capture envelope: {0}")]
+    InvalidEnvelope(&'static str),
+    #[error("capture failed: {0}")]
+    Capture(#[from] CaptureError),
 }
 
-/// Low-level capture backend responsible for frame/video/event extraction.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CaptureBackendKind {
-    Playwright,
-    Cdp,
-    CosmicHeadless,
-    WaylandScreencopy,
-    X11,
-    Custom(String),
-}
-
-/// Middleend runtime environment (browser engine or display server + metrics).
+/// A capture plan plus the Rupicola context it runs in.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct MiddleendEnv {
-    pub runtime: String,
-    pub viewport: Dimensions,
-    #[serde(default = "default_scale")]
-    pub scale_factor: f64,
-    #[serde(default = "default_theme")]
-    pub theme: String,
-    #[serde(default)]
-    pub locale: Option<String>,
-    #[serde(default)]
-    pub reduced_motion: bool,
-}
-
-const fn default_scale() -> f64 {
-    1.0
-}
-
-fn default_theme() -> String {
-    "light".to_owned()
-}
-
-/// Middleware adapter used to inspect widget trees and dispatch interactions.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum MiddlewareKind {
-    WebDom,
-    RupicolaProtocol(ToolkitKind),
-    AtSpi2,
-    None,
-}
-
-/// Declarative step executed inside a [`CapturePlan`].
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "step", rename_all = "kebab-case")]
-pub enum CaptureStep {
-    Navigate {
-        target: String,
-    },
-    Action {
-        action: UiAction,
-    },
-    Snapshot {
-        id: String,
-        label: String,
-    },
-    RecordClip {
-        id: String,
-        duration_ms: u64,
-        fps: u16,
-    },
-}
-
-/// Unified, backend-agnostic capture plan submitted by any trigger.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct CapturePlan {
+pub struct CaptureEnvelope {
     pub project_id: String,
     pub scenario: String,
     pub trigger: TriggerSource,
-    pub target: TargetKind,
-    pub backend: CaptureBackendKind,
-    pub middleend: MiddleendEnv,
-    pub middleware: MiddlewareKind,
-    #[serde(default)]
-    pub steps: Vec<CaptureStep>,
+    pub plan: Plan,
     /// Optional baseline run ID so worktree/proposal captures mirror exact geometry.
     #[serde(default)]
     pub baseline_run_id: Option<String>,
 }
 
-/// Structured errors produced by [`CapturePlan::validate`], [`CaptureBackend::execute`],
-/// and [`Orchestrator::run`].
-#[derive(Debug, thiserror::Error)]
-pub enum CapturePipelineError {
-    #[error("invalid capture plan: {0}")]
-    InvalidPlan(&'static str),
-    #[error("no registered capture backend for {0:?} with target")]
-    NoBackend(CaptureBackendKind),
-    #[error("capture execution failed: {0}")]
-    Execution(#[from] anyhow::Error),
+/// What an envelope produced, and how long it took.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CaptureRun {
+    pub envelope: CaptureEnvelope,
+    pub bundle: Bundle,
+    pub elapsed_ms: u64,
 }
 
-impl CapturePlan {
-    /// Validates structural invariants before dispatching to a backend.
+impl CaptureEnvelope {
+    /// Validates structural invariants before anything starts.
     ///
     /// # Errors
     ///
-    /// Returns [`CapturePipelineError::InvalidPlan`] if the plan is malformed or mismatched.
+    /// Returns [`CapturePipelineError::InvalidEnvelope`] if the envelope is malformed.
     pub fn validate(&self) -> Result<(), CapturePipelineError> {
         if self.project_id.trim().is_empty() {
-            return Err(CapturePipelineError::InvalidPlan(
-                "CapturePlan.project_id must not be empty",
-            ));
+            return Err(CapturePipelineError::InvalidEnvelope(EMPTY_PROJECT_ID));
         }
-        if self.middleend.viewport[0] == 0 || self.middleend.viewport[1] == 0 {
-            return Err(CapturePipelineError::InvalidPlan(
-                "CapturePlan.middleend.viewport must be non-zero",
-            ));
+        if self.plan.environment.viewport.contains(&0) {
+            return Err(CapturePipelineError::InvalidEnvelope(ZERO_VIEWPORT));
         }
-        if self.steps.is_empty() {
-            return Err(CapturePipelineError::InvalidPlan(
-                "CapturePlan.steps must contain at least one step",
-            ));
-        }
-        match (&self.target, &self.backend) {
-            (
-                TargetKind::Web { base_url, .. },
-                CaptureBackendKind::Playwright
-                | CaptureBackendKind::Cdp
-                | CaptureBackendKind::Custom(_),
-            ) => {
-                if base_url.trim().is_empty() {
-                    return Err(CapturePipelineError::InvalidPlan(
-                        "Web target requires a non-empty base_url",
-                    ));
-                }
-            }
-            (TargetKind::Web { .. }, _) => {
-                return Err(CapturePipelineError::InvalidPlan(
-                    "Web target requires Playwright, Cdp, or Custom backend",
-                ));
-            }
-            (
-                TargetKind::Desktop { command, .. },
-                CaptureBackendKind::CosmicHeadless
-                | CaptureBackendKind::WaylandScreencopy
-                | CaptureBackendKind::X11
-                | CaptureBackendKind::Custom(_),
-            ) => {
-                if command.trim().is_empty() {
-                    return Err(CapturePipelineError::InvalidPlan(
-                        "Desktop target requires a non-empty command",
-                    ));
-                }
-            }
-            (TargetKind::Desktop { .. }, _) => {
-                return Err(CapturePipelineError::InvalidPlan(
-                    "Desktop target requires CosmicHeadless, WaylandScreencopy, X11, or Custom backend",
-                ));
-            }
+        if self.plan.steps.is_empty() {
+            return Err(CapturePipelineError::InvalidEnvelope(NO_STEPS));
         }
         Ok(())
     }
-}
 
-/// Standardized media item produced by any backend.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct CapturedCheckpoint {
-    pub id: String,
-    pub label: String,
-    pub image_path: PathBuf,
-    pub dimensions: Dimensions,
-    #[serde(default)]
-    pub boxes: Vec<WidgetBoxJson>,
-}
-
-/// Serializable widget bounding box attached to a checkpoint or clip.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct WidgetBoxJson {
-    pub id: String,
-    pub role: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    pub pixel_box: PixelBox,
-}
-
-impl WidgetBoxJson {
-    #[must_use]
-    pub fn from_widget_box(w: &WidgetBox, scale_factor: f64) -> Self {
-        Self {
-            id: w.id.clone(),
-            role: w.role.clone(),
-            label: w.label.clone(),
-            pixel_box: w.bounds.to_pixel_box(scale_factor),
-        }
-    }
-}
-
-/// Standardized video clip produced by any backend.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct CapturedClip {
-    pub id: String,
-    pub video_path: PathBuf,
-    pub duration_ms: u64,
-    pub dimensions: Dimensions,
-}
-
-/// Backend-agnostic bundle returned by [`Orchestrator::run`].
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct CaptureBundle {
-    pub plan: CapturePlan,
-    pub checkpoints: Vec<CapturedCheckpoint>,
-    pub clips: Vec<CapturedClip>,
-    #[serde(default)]
-    pub snapshots: Vec<UiSnapshot>,
-    pub elapsed_ms: u64,
-    #[serde(default)]
-    pub warnings: Vec<String>,
-}
-
-/// Trait implemented by each platform/capture backend.
-pub trait CaptureBackend {
-    fn kind(&self) -> CaptureBackendKind;
-    fn supports(&self, target: &TargetKind) -> bool;
-
-    /// Executes `plan` and writes artifacts under `output_dir`.
+    /// Validates the envelope and runs its plan on `backend`, writing files under `out`.
     ///
     /// # Errors
     ///
-    /// Returns [`CapturePipelineError`] if the environment cannot start or capture fails.
-    fn execute(
-        &self,
-        plan: &CapturePlan,
-        output_dir: &Path,
-    ) -> Result<CaptureBundle, CapturePipelineError>;
-}
-
-/// Single entry point that validates a [`CapturePlan`] and dispatches it
-/// to a compatible [`CaptureBackend`].
-#[derive(Default)]
-pub struct Orchestrator {
-    backends: Vec<Box<dyn CaptureBackend>>,
-}
-
-impl Orchestrator {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            backends: Vec::new(),
-        }
-    }
-
-    pub fn register(&mut self, backend: Box<dyn CaptureBackend>) {
-        self.backends.push(backend);
-    }
-
-    /// Validates `plan` and executes it on the matching registered backend.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CapturePipelineError`] if validation fails, no matching backend is registered,
-    /// or execution fails.
+    /// [`CapturePipelineError::InvalidEnvelope`] before anything starts, or the capture
+    /// error from [`run_plan`].
     pub fn run(
         &self,
-        plan: &CapturePlan,
-        output_dir: &Path,
-    ) -> Result<CaptureBundle, CapturePipelineError> {
-        plan.validate()?;
-        let backend = self
-            .backends
-            .iter()
-            .find(|b| b.kind() == plan.backend && b.supports(&plan.target))
-            .ok_or_else(|| CapturePipelineError::NoBackend(plan.backend.clone()))?;
-        backend.execute(plan, output_dir)
+        backend: &dyn CaptureBackend,
+        out: &Path,
+    ) -> Result<CaptureRun, CapturePipelineError> {
+        self.validate()?;
+        let started = Instant::now();
+        let bundle = run_plan(backend, &self.plan, out)?;
+        Ok(CaptureRun {
+            envelope: self.clone(),
+            bundle,
+            elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rupicola_capture::session::{
+        Capabilities, CaptureSession, Checkpoint, Clip, Environment, Step, Target, WaitCondition,
+    };
+    use rupicola_protocol::UiAction;
+    use std::path::PathBuf;
+
+    const PROJECT: &str = "demo";
+    const SCENARIO: &str = "proposal-preview";
+    const BASELINE: &str = "0/baseline";
+    const URL: &str = "http://127.0.0.1:4732";
+    const VIEWPORT: [u32; 2] = [1440, 900];
+    const CHECKPOINT: &str = "hero";
+    const OUT: &str = "/tmp/out";
+    const BACKEND_ID: &str = "mock";
+
+    struct MockBackend;
+
+    struct MockSession {
+        out: PathBuf,
+    }
+
+    impl CaptureBackend for MockBackend {
+        fn id(&self) -> &'static str {
+            BACKEND_ID
+        }
+
+        fn capabilities(&self) -> Capabilities {
+            Capabilities::default()
+        }
+
+        fn start(
+            &self,
+            _target: &Target,
+            _environment: &Environment,
+            out: &Path,
+        ) -> Result<Box<dyn CaptureSession>, CaptureError> {
+            Ok(Box::new(MockSession {
+                out: out.to_path_buf(),
+            }))
+        }
+    }
+
+    impl CaptureSession for MockSession {
+        fn perform(&mut self, _action: &UiAction) -> Result<(), CaptureError> {
+            Ok(())
+        }
+
+        fn wait_for(&mut self, _condition: &WaitCondition) -> Result<(), CaptureError> {
+            Ok(())
+        }
+
+        fn screenshot(&mut self, id: &str) -> Result<Checkpoint, CaptureError> {
+            Ok(Checkpoint {
+                id: id.to_owned(),
+                png: self.out.join(format!("{id}.png")),
+                snapshot: None,
+            })
+        }
+
+        fn start_recording(&mut self) -> Result<(), CaptureError> {
+            Ok(())
+        }
+
+        fn stop_recording(&mut self, id: &str) -> Result<Clip, CaptureError> {
+            Ok(Clip {
+                id: id.to_owned(),
+                mp4: self.out.join(format!("{id}.mp4")),
+            })
+        }
+
+        fn finish(self: Box<Self>) -> Result<(), CaptureError> {
+            Ok(())
+        }
+    }
+
+    fn envelope() -> CaptureEnvelope {
+        CaptureEnvelope {
+            project_id: PROJECT.to_owned(),
+            scenario: SCENARIO.to_owned(),
+            trigger: TriggerSource::McpAgent,
+            plan: Plan {
+                target: Target {
+                    command: URL.to_owned(),
+                    args: vec![],
+                },
+                environment: Environment::new(VIEWPORT),
+                steps: vec![Step::Checkpoint {
+                    id: CHECKPOINT.to_owned(),
+                }],
+                allow_degraded: false,
+            },
+            baseline_run_id: Some(BASELINE.to_owned()),
+        }
+    }
+
+    #[test]
+    fn envelope_validates_and_runs_its_plan() {
+        let run = envelope().run(&MockBackend, Path::new(OUT)).unwrap();
+        assert_eq!(run.bundle.checkpoints.len(), 1);
+        assert_eq!(run.bundle.checkpoints[0].id, CHECKPOINT);
+        assert_eq!(run.envelope.baseline_run_id.as_deref(), Some(BASELINE));
+    }
+
+    #[test]
+    fn envelope_rejects_an_empty_project_zero_viewport_and_no_steps() {
+        let mut no_project = envelope();
+        no_project.project_id = "  ".to_owned();
+        let mut flat = envelope();
+        flat.plan.environment.viewport = [VIEWPORT[0], 0];
+        let mut no_steps = envelope();
+        no_steps.plan.steps.clear();
+        for bad in [no_project, flat, no_steps] {
+            assert!(matches!(
+                bad.run(&MockBackend, Path::new(OUT)),
+                Err(CapturePipelineError::InvalidEnvelope(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn envelope_round_trips_through_json() {
+        let original = envelope();
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(
+            serde_json::from_str::<CaptureEnvelope>(&json).unwrap(),
+            original
+        );
     }
 }

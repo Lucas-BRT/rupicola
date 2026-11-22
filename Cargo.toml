@@ -23,8 +23,8 @@ repository = "https://github.com/Lucas-BRT/rupicola"
 [workspace.dependencies]
 rupicola-core = { path = "crates/rupicola-core" }
 rupicola-api = { path = "crates/rupicola-api" }
-rupicola-protocol = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", tag = "v0.3.0" }
-rupicola-capture = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", tag = "v0.3.0" }
+rupicola-protocol = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", branch = "feat/capture-session" }
+rupicola-capture = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", branch = "feat/capture-session" }
 anyhow = "=1.0.104"
 argon2 = { version = "=0.5.3", features = ["std"] }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
