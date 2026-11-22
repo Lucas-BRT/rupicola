@@ -10,6 +10,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+/// Largest capture manifest read when linking evidence.
+const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+/// Longest design-record title, note, surface name and reference URL.
+const MAX_TITLE_LEN: usize = 200;
+const MAX_NOTE_LEN: usize = 16_000;
+const MAX_SURFACE_LEN: usize = 200;
+const MAX_URL_LEN: usize = 2048;
+
 #[derive(clap::Subcommand)]
 pub enum Action {
     /// Register this project and read its current design context.
@@ -83,7 +91,7 @@ fn evidence(path: &Path, root: &Path, project: &str) -> Result<String> {
     }
     let manifest = parent.join("manifest.json");
     let metadata = fs::symlink_metadata(&manifest)?;
-    if !metadata.is_file() || metadata.len() > 1024 * 1024 {
+    if !metadata.is_file() || metadata.len() > MAX_MANIFEST_BYTES {
         bail!("Invalid capture manifest");
     }
     let manifest: serde_json::Value = serde_json::from_slice(&fs::read(manifest)?)?;
@@ -173,12 +181,14 @@ pub fn run(action: Action) -> Result<()> {
             evidence: path,
         } => {
             if title.trim().is_empty()
-                || title.len() > 200
+                || title.len() > MAX_TITLE_LEN
                 || note.trim().is_empty()
-                || note.len() > 16000
-                || surface.as_ref().is_some_and(|text| text.len() > 200)
+                || note.len() > MAX_NOTE_LEN
+                || surface
+                    .as_ref()
+                    .is_some_and(|text| text.len() > MAX_SURFACE_LEN)
                 || reference.as_ref().is_some_and(|url| {
-                    url.len() > 2048
+                    url.len() > MAX_URL_LEN
                         || url.chars().any(char::is_whitespace)
                         || !(url.starts_with("https://") || url.starts_with("http://"))
                 })

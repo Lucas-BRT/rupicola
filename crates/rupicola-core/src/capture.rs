@@ -18,9 +18,9 @@ const MS_PER_SEC: f64 = 1000.0;
 const OPAQUE: u8 = u8::MAX;
 /// Frame rate and x264 quality (CRF) used unless the caller picks others; CRF
 /// 18 is visually lossless, and x264 accepts 0 through 51.
-const DEFAULT_VIDEO_FPS: f64 = 60.0;
-const DEFAULT_CRF: u8 = 18;
-const MAX_CRF: u8 = 51;
+pub const DEFAULT_VIDEO_FPS: f64 = 60.0;
+pub const DEFAULT_CRF: u8 = 18;
+pub const MAX_CRF: u8 = 51;
 /// The 95th percentile drops the slowest 1/20 of frames.
 const P95_TAIL_DIVISOR: usize = 20;
 /// H.264 with 4:2:0 chroma needs even dimensions, so odd ones are padded by one.

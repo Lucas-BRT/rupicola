@@ -217,11 +217,14 @@ pub struct Dispatch {
     pub structured_prompt: String,
 }
 
+/// Largest HTML preview and image a proposal may carry.
+pub const MAX_PREVIEW_HTML_BYTES: u64 = 2 * 1024 * 1024;
+pub const MAX_PREVIEW_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
 /// Longest proposal id.
 const MAX_ID_LEN: usize = 80;
 /// Largest JSON file read for a proposal, the MCP session marker and a dispatch.
 const MAX_PROPOSAL_BYTES: u64 = 1024 * 1024;
-const MAX_SESSION_BYTES: u64 = 16 * 1024;
+pub const MAX_SESSION_BYTES: u64 = 16 * 1024;
 const MAX_DISPATCH_BYTES: u64 = 256 * 1024;
 
 #[must_use]

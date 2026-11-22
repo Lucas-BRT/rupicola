@@ -204,7 +204,12 @@ pub fn run(action: Action) -> Result<()> {
             let mut artifact = None;
             let mut attachments = Vec::new();
             if let Some(html) = html_file {
-                copy_asset(&html, &assets_dir, "preview.html", 2 * 1024 * 1024)?;
+                copy_asset(
+                    &html,
+                    &assets_dir,
+                    "preview.html",
+                    proposal_record::MAX_PREVIEW_HTML_BYTES,
+                )?;
                 artifact = Some(Artifact {
                     kind: ArtifactKind::Html,
                     entry: "preview.html".into(),
@@ -218,7 +223,12 @@ pub fn run(action: Action) -> Result<()> {
                     .filter(|e| matches!(*e, "png" | "jpg" | "jpeg" | "webp"))
                     .unwrap_or("png");
                 let filename = format!("render.{ext}");
-                copy_asset(&img, &assets_dir, &filename, 16 * 1024 * 1024)?;
+                copy_asset(
+                    &img,
+                    &assets_dir,
+                    &filename,
+                    proposal_record::MAX_PREVIEW_IMAGE_BYTES,
+                )?;
                 attachments.push(Attachment {
                     id: "render".into(),
                     filename: filename.clone(),
@@ -278,7 +288,12 @@ pub fn run(action: Action) -> Result<()> {
             let mut p = proposal_record::read_proposal(&path)?;
             let assets_dir = root.join(&id).join("assets");
             if let Some(html) = html_file {
-                copy_asset(&html, &assets_dir, "preview.html", 2 * 1024 * 1024)?;
+                copy_asset(
+                    &html,
+                    &assets_dir,
+                    "preview.html",
+                    proposal_record::MAX_PREVIEW_HTML_BYTES,
+                )?;
                 p.artifact = Some(Artifact {
                     kind: ArtifactKind::Html,
                     entry: "preview.html".into(),
@@ -292,7 +307,12 @@ pub fn run(action: Action) -> Result<()> {
                     .filter(|e| matches!(*e, "png" | "jpg" | "jpeg" | "webp"))
                     .unwrap_or("png");
                 let filename = format!("render.{ext}");
-                copy_asset(&img, &assets_dir, &filename, 16 * 1024 * 1024)?;
+                copy_asset(
+                    &img,
+                    &assets_dir,
+                    &filename,
+                    proposal_record::MAX_PREVIEW_IMAGE_BYTES,
+                )?;
                 p.artifact = Some(Artifact {
                     kind: ArtifactKind::Image,
                     entry: filename,

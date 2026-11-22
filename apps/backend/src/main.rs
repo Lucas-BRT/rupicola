@@ -414,7 +414,11 @@ mod tests {
         let after = call(port, "GET", "/v1/me", Some(&token), None).await;
         assert_eq!(status(&after), StatusCode::UNAUTHORIZED, "{after}");
 
-        for bad in [None, Some("not-a-token"), Some(&"0".repeat(64)[..])] {
+        for bad in [
+            None,
+            Some("not-a-token"),
+            Some(&"0".repeat(crate::auth::HEX_SECRET_LEN)[..]),
+        ] {
             let response = call(port, "GET", "/v1/me", bad, None).await;
             assert_eq!(status(&response), StatusCode::UNAUTHORIZED, "{response}");
         }

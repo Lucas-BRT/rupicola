@@ -8,12 +8,19 @@ use std::{
     process::{Command, Stdio},
 };
 
+/// Length of an auth token: 32 random bytes written as hex.
+const TOKEN_HEX_LEN: usize = 64;
+/// HTTP statuses the remote MCP endpoint answers with.
+const HTTP_OK: u16 = 200;
+const HTTP_ACCEPTED: u16 = 202;
+const HTTP_NO_CONTENT: u16 = 204;
+
 fn validate_token(raw: &str) -> Result<String> {
     let token = raw.trim();
-    if token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if token.len() == TOKEN_HEX_LEN && token.bytes().all(|b| b.is_ascii_hexdigit()) {
         Ok(token.to_owned())
     } else {
-        bail!("Rupicola auth token must be 64 hexadecimal characters");
+        bail!("Rupicola auth token must be {TOKEN_HEX_LEN} hexadecimal characters");
     }
 }
 
@@ -143,11 +150,11 @@ pub fn serve(server_url: &str, project: Option<&str>) -> Result<()> {
             .ok()
             .and_then(|v| v.get("id").cloned());
         match forward(&url, &token, trimmed) {
-            Ok((200, body)) if !body.trim().is_empty() => {
+            Ok((HTTP_OK, body)) if !body.trim().is_empty() => {
                 writeln!(stdout, "{}", body.trim())?;
                 stdout.flush()?;
             }
-            Ok((202 | 204, _)) => {}
+            Ok((HTTP_ACCEPTED | HTTP_NO_CONTENT, _)) => {}
             Ok((code, body)) => {
                 if let Some(id) = req_id {
                     let msg = if body.trim().is_empty() {
@@ -155,14 +162,14 @@ pub fn serve(server_url: &str, project: Option<&str>) -> Result<()> {
                     } else {
                         format!("Remote MCP returned HTTP {code}: {}", body.trim())
                     };
-                    let err = json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32001, "message": msg}});
+                    let err = json!({"jsonrpc": "2.0", "id": id, "error": {"code": crate::mcp::JSONRPC_HTTP_ERROR, "message": msg}});
                     writeln!(stdout, "{err}")?;
                     stdout.flush()?;
                 }
             }
             Err(err_msg) => {
                 if let Some(id) = req_id {
-                    let err = json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": format!("{err_msg:#}")}});
+                    let err = json!({"jsonrpc": "2.0", "id": id, "error": {"code": crate::mcp::JSONRPC_TRANSPORT_ERROR, "message": format!("{err_msg:#}")}});
                     writeln!(stdout, "{err}")?;
                     stdout.flush()?;
                 }

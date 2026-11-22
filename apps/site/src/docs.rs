@@ -1,5 +1,8 @@
 use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, html};
 
+/// Rendered HTML is roughly twice the size of its Markdown source.
+const HTML_EXPANSION: usize = 2;
+
 #[derive(Clone, Copy)]
 pub struct DocPage {
     pub slug: &'static str,
@@ -253,7 +256,7 @@ pub fn render_markdown(doc: &DocPage) -> String {
         }
         other => other,
     });
-    let mut html_out = String::with_capacity(doc.markdown.len() * 2);
+    let mut html_out = String::with_capacity(doc.markdown.len() * HTML_EXPANSION);
     html::push_html(&mut html_out, parser);
     html_out
 }

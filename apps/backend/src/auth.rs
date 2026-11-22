@@ -26,6 +26,8 @@ pub const SESSION_AGE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 const MAX_FAILURES: u32 = 8;
 /// How long a locked account stays locked, in milliseconds (5 minutes).
 const LOCK_MS: i64 = 5 * 60 * 1000;
+/// Milliseconds in a second, to round lock waits up to whole seconds.
+const MS_PER_SEC: u64 = 1000;
 /// Random bytes in every secret (sessions, tokens, invitation codes).
 const SECRET_BYTES: usize = 32;
 /// Length of a secret or SHA-256 digest written as hex.
@@ -158,7 +160,8 @@ impl Lockout {
             .get(handle)
             .filter(|(failures, _)| *failures >= MAX_FAILURES)
             .map(|(_, since)| {
-                u64::try_from(LOCK_MS - (current - since)).map_or(1, |left| left.div_ceil(1000))
+                u64::try_from(LOCK_MS - (current - since))
+                    .map_or(1, |left| left.div_ceil(MS_PER_SEC))
             })
     }
 

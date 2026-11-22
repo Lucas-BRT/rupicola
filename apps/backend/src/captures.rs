@@ -537,7 +537,7 @@ mod tests {
     }
 
     /// Ana owns `demo`; Bruno reads it; Carla is an outsider. Returns their tokens.
-    async fn demo() -> (u16, [String; 3]) {
+    async fn demo() -> (u16, [String; USERS]) {
         let (port, state) = start_custom(settings(), None, true).await;
         for handle in ["ana", "bruno", "carla"] {
             seed_account(&state, handle, false).await;
@@ -566,6 +566,8 @@ mod tests {
         (port, [ana, bruno, carla])
     }
 
+    /// Ana (owner), Bruno (reader) and Carla (outsider).
+    const USERS: usize = 3;
     const VIEWPORT_WIDTH: u32 = 1280;
     const VIEWPORT_HEIGHT: u32 = 720;
     const FRAME_TARGET_MS: f64 = 100.0;

@@ -9,6 +9,28 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+/// Viewport presets (width, height): a small phone, a portrait tablet, a laptop,
+/// a common desktop and a full-HD monitor.
+const MOBILE_VIEWPORT: (u32, u32) = (320, 844);
+const TABLET_VIEWPORT: (u32, u32) = (768, 1024);
+const LAPTOP_VIEWPORT: (u32, u32) = (1280, 800);
+const DESKTOP_VIEWPORT: (u32, u32) = (1440, 900);
+const WIDE_VIEWPORT: (u32, u32) = (1920, 1080);
+/// Accepted viewport sides, in CSS pixels.
+const VIEWPORT_SIDE: std::ops::RangeInclusive<u32> = 240..=4096;
+/// Most pages one probe visits, and how long a page may take to load.
+const MAX_PAGES: usize = 50;
+const PAGE_TIMEOUT_MS: u32 = 10_000;
+/// UI audit findings reported per page and viewport.
+const AUDIT_FINDINGS_PER_CELL: usize = 4;
+/// Contact sheets: the matrix overview and each clip.
+const MATRIX_SHEET_COLUMNS: usize = 3;
+const MATRIX_SHEET_THUMB_WIDTH: u32 = 360;
+const CLIP_SHEET_COLUMNS: usize = 5;
+const CLIP_SHEET_THUMB_WIDTH: u32 = 320;
+/// Share of changed pixels that makes a clip step count as motion.
+const ACTIVE_STEP_RATIO: f64 = 0.005;
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize, clap::ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum Mode {
@@ -177,11 +199,11 @@ pub fn parse_viewports(raw: &str, mode: Mode) -> Result<Vec<Viewport>> {
             continue;
         }
         let (w, h) = match token {
-            "mobile" => (320, 844),
-            "tablet" => (768, 1024),
-            "laptop" => (1280, 800),
-            "desktop" => (1440, 900),
-            "wide" => (1920, 1080),
+            "mobile" => MOBILE_VIEWPORT,
+            "tablet" => TABLET_VIEWPORT,
+            "laptop" => LAPTOP_VIEWPORT,
+            "desktop" => DESKTOP_VIEWPORT,
+            "wide" => WIDE_VIEWPORT,
             other => {
                 let (ws, hs) = other
                     .split_once('x')
@@ -196,8 +218,12 @@ pub fn parse_viewports(raw: &str, mode: Mode) -> Result<Vec<Viewport>> {
                 (w, h)
             }
         };
-        if !(240..=4096).contains(&w) || !(240..=4096).contains(&h) {
-            bail!("viewport {w}x{h} must be between 240 and 4096 px");
+        if !VIEWPORT_SIDE.contains(&w) || !VIEWPORT_SIDE.contains(&h) {
+            bail!(
+                "viewport {w}x{h} must be between {} and {} px",
+                VIEWPORT_SIDE.start(),
+                VIEWPORT_SIDE.end()
+            );
         }
         out.push(Viewport {
             width: w,
@@ -300,13 +326,13 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
         origin: &origin,
         pages_mode: if crawl_all { "all" } else { "selected" },
         pages: seed_pages,
-        max_pages: cfg.max_pages.clamp(1, 50),
+        max_pages: cfg.max_pages.clamp(1, MAX_PAGES),
         viewports: viewports.clone(),
         themes: themes.clone(),
         depth: cfg.mode.depth(),
         output: &output,
         module_path: cfg.playwright_module.as_deref(),
-        timeout_ms: 10_000,
+        timeout_ms: PAGE_TIMEOUT_MS,
     };
     let payload = serde_json::to_vec(&req)?;
 
@@ -353,7 +379,10 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
             let _ = fs::write(&tree_path, bytes);
         }
         if let Ok(tree) = serde_json::from_value::<visual::Tree>(cell.tree.clone()) {
-            for issue in visual::audit(&tree).into_iter().take(4) {
+            for issue in visual::audit(&tree)
+                .into_iter()
+                .take(AUDIT_FINDINGS_PER_CELL)
+            {
                 res.findings.push(Finding {
                     note: format!(
                         "measured · [{} @ {} {}] {} ({}): {}",
@@ -375,7 +404,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
         let shots_dir = output.join("checkpoints");
         let sheet_rel = PathBuf::from("checkpoints/matrix-sheet.png");
         if let Ok(files) = visual::list_pngs(&shots_dir)
-            && let Ok(img) = visual::sheet(&files, 3, 360)
+            && let Ok(img) = visual::sheet(&files, MATRIX_SHEET_COLUMNS, MATRIX_SHEET_THUMB_WIDTH)
             && visual::save(&output.join(&sheet_rel), &img).is_ok()
         {
             res.checkpoints.insert(
@@ -391,11 +420,11 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
     // Analyze clips with visual::analyze_frames (+ optional MP4 video)
     for clip in &mut res.clips {
         let clip_dir = output.join("samples").join(&clip.id);
-        if let Ok(report) = visual::analyze_frames(&clip_dir, 8) {
+        if let Ok(report) = visual::analyze_frames(&clip_dir, visual::DEFAULT_DIFF_THRESHOLD) {
             let active_steps = report
                 .step_changed_ratio
                 .iter()
-                .filter(|&&r| r >= 0.005)
+                .filter(|&&r| r >= ACTIVE_STEP_RATIO)
                 .count();
             let is_instant_cut = active_steps <= 1 && report.stalls.is_empty();
             if !is_instant_cut && (!report.stalls.is_empty() || !report.jumps.is_empty()) {
@@ -411,7 +440,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
             }
             let analysis_rel = PathBuf::from(format!("samples/{}/analysis.json", clip.id));
             if let Ok(json_bytes) = serde_json::to_vec_pretty(&serde_json::json!({
-                "threshold": 8,
+                "threshold": visual::DEFAULT_DIFF_THRESHOLD,
                 "frame_report": report,
             })) && fs::write(output.join(&analysis_rel), json_bytes).is_ok()
             {
@@ -420,7 +449,7 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
         }
         let sheet_rel = PathBuf::from(format!("samples/{}/sheet.png", clip.id));
         if let Ok(files) = visual::list_pngs(&clip_dir)
-            && let Ok(img) = visual::sheet(&files, 5, 320)
+            && let Ok(img) = visual::sheet(&files, CLIP_SHEET_COLUMNS, CLIP_SHEET_THUMB_WIDTH)
             && visual::save(&output.join(&sheet_rel), &img).is_ok()
         {
             clip.sheet_path = Some(sheet_rel);
@@ -445,8 +474,8 @@ pub fn run(cfg: Config) -> Result<ProbeSummary> {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
     let first_vp = viewports.first().cloned().unwrap_or(Viewport {
-        width: 1440,
-        height: 900,
+        width: DESKTOP_VIEWPORT.0,
+        height: DESKTOP_VIEWPORT.1,
     });
     let status = if res.blocker.is_some() {
         "blocked"

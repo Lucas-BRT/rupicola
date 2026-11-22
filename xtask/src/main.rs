@@ -10,6 +10,39 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+/// Evaluation run budgets: dollars and seconds per full run and per trigger run,
+/// turns a trigger run may take, and the default bootstrap resample count.
+const DEFAULT_RUN_USD: f64 = 2.0;
+const DEFAULT_RUN_TIMEOUT_SECS: u64 = 1800;
+const DEFAULT_TRIGGER_RUN_USD: f64 = 0.3;
+const DEFAULT_TRIGGER_TIMEOUT_SECS: u64 = 300;
+const DEFAULT_TRIGGER_TURNS: u32 = 2;
+const DEFAULT_RESAMPLES: usize = 10_000;
+/// Tasks per condition drawn by default when planning.
+const DEFAULT_K: usize = 4;
+/// Exit code `sh` reports for a command that could not start.
+const EXIT_SPAWN_FAILED: i32 = 127;
+/// Polling intervals while waiting on child processes.
+const SH_POLL: Duration = Duration::from_millis(200);
+const AGENT_POLL: Duration = Duration::from_millis(500);
+const RUN_POLL: Duration = Duration::from_millis(300);
+/// Time limits: copying a repository, a git command, and a task verifier.
+const COPY_TIMEOUT: Duration = Duration::from_secs(60);
+const GIT_TIMEOUT: Duration = Duration::from_secs(30);
+const VERIFIER_TIMEOUT: Duration = Duration::from_secs(600);
+/// Characters of command output kept in a result.
+const OUTPUT_TAIL_CHARS: usize = 2000;
+/// F1 is the harmonic mean: 2PR / (P + R).
+const F1_WEIGHT: f64 = 2.0;
+/// A sign test is two-sided, so its one-sided tail doubles.
+const TWO_SIDED: f64 = 2.0;
+/// The 95% bootstrap interval drops 1/40 of the sorted resamples at each end.
+const CONFIDENCE_TAIL_DIVISOR: usize = 40;
+/// Xorshift64 shift triple (13, 7, 17), a full-period choice.
+const XORSHIFT_A: u32 = 13;
+const XORSHIFT_B: u32 = 7;
+const XORSHIFT_C: u32 = 17;
+
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -34,9 +67,9 @@ enum Cmd {
         #[arg(long)]
         max_usd: f64,
         /// Per-run cost cap passed to the agent.
-        #[arg(long, default_value_t = 2.0)]
+        #[arg(long, default_value_t = DEFAULT_RUN_USD)]
         run_usd: f64,
-        #[arg(long, default_value_t = 1800)]
+        #[arg(long, default_value_t = DEFAULT_RUN_TIMEOUT_SECS)]
         timeout_secs: u64,
         /// Do not isolate the agent configuration. User-level skills, hooks and plugins then
         /// leak into every condition and the run is not a clean comparison.
@@ -55,14 +88,14 @@ enum Cmd {
         out: PathBuf,
         #[arg(long)]
         max_usd: f64,
-        #[arg(long, default_value_t = 0.3)]
+        #[arg(long, default_value_t = DEFAULT_TRIGGER_RUN_USD)]
         run_usd: f64,
-        #[arg(long, default_value_t = 300)]
+        #[arg(long, default_value_t = DEFAULT_TRIGGER_TIMEOUT_SECS)]
         timeout_secs: u64,
         #[arg(long)]
         no_isolate: bool,
         /// Turns the agent may take before the run is cut; the Skill call must happen within them.
-        #[arg(long, default_value_t = 2)]
+        #[arg(long, default_value_t = DEFAULT_TRIGGER_TURNS)]
         max_turns: u32,
         /// Keep each run's trajectory next to its result (for inspection).
         #[arg(long)]
@@ -75,7 +108,7 @@ enum Cmd {
         base: String,
         #[arg(long)]
         cand: String,
-        #[arg(long, default_value_t = 10000)]
+        #[arg(long, default_value_t = DEFAULT_RESAMPLES)]
         resamples: usize,
     },
     /// Paired comparison of two conditions from a results directory.
@@ -85,7 +118,7 @@ enum Cmd {
         base: String,
         #[arg(long)]
         cand: String,
-        #[arg(long, default_value_t = 10000)]
+        #[arg(long, default_value_t = DEFAULT_RESAMPLES)]
         resamples: usize,
         /// Also write rows.csv for external mixed-effects modelling.
         #[arg(long)]
@@ -98,7 +131,7 @@ struct Matrix {
     root: PathBuf,
     #[arg(long, default_value = "dev")]
     split: String,
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, default_value_t = DEFAULT_K)]
     k: usize,
     /// Condition as name=none or name=<git rev of this repo>. Repeatable.
     #[arg(long = "cond", required = true)]
@@ -196,7 +229,7 @@ fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
         .stderr(Stdio::piped())
         .spawn();
     let Ok(mut child) = child else {
-        return (127, "spawn failed".into());
+        return (EXIT_SPAWN_FAILED, "spawn failed".into());
     };
     let start = Instant::now();
     loop {
@@ -205,7 +238,7 @@ fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
                 let _ = child.kill();
                 break;
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(200)),
+            Ok(None) => std::thread::sleep(SH_POLL),
             Ok(Some(_)) | Err(_) => break,
         }
     }
@@ -216,7 +249,7 @@ fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
             let tail: String = text
                 .chars()
                 .rev()
-                .take(2000)
+                .take(OUTPUT_TAIL_CHARS)
                 .collect::<Vec<_>>()
                 .into_iter()
                 .rev()
@@ -249,7 +282,7 @@ fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
         root.display(),
         dest.display()
     );
-    let (code, out) = sh(root, &cmd, Duration::from_secs(60));
+    let (code, out) = sh(root, &cmd, COPY_TIMEOUT);
     if code != 0 {
         return Err(format!("cannot extract skill at {rev}: {out}"));
     }
@@ -399,7 +432,7 @@ fn execute_one(
     sh(
         &work,
         &format!("git init -q && git add -A && {git} commit -q --allow-empty -m base"),
-        Duration::from_secs(30),
+        GIT_TIMEOUT,
     );
     if let Some(rev) = skill_rev {
         install_skill(repo, rev, &work.join(".claude/skills/rupicola"))?;
@@ -443,13 +476,13 @@ fn execute_one(
                 timed_out = true;
                 break;
             }
-            None => std::thread::sleep(Duration::from_millis(500)),
+            None => std::thread::sleep(AGENT_POLL),
         }
     }
     let mut record = analyze_trajectory(&traj);
     let mut verifiers = Vec::new();
     for v in &task.verifier {
-        let (code, tail) = sh(&work, &v.command, Duration::from_secs(600));
+        let (code, tail) = sh(&work, &v.command, VERIFIER_TIMEOUT);
         verifiers.push(json!({"name": v.name, "exit": code, "tail": tail}));
     }
     // The condition's setup must have held: the skill is loaded exactly when the condition has it.
@@ -481,7 +514,7 @@ fn execute_one(
     let (_, diff) = sh(
         &work,
         "git add -A && git diff --cached --name-only",
-        Duration::from_secs(30),
+        GIT_TIMEOUT,
     );
     let o = record.as_object_mut().unwrap();
     o.insert("task".into(), json!(task.id));
@@ -718,7 +751,7 @@ fn trigger_run(
                         let _ = child.wait();
                         break;
                     }
-                    std::thread::sleep(Duration::from_millis(300));
+                    std::thread::sleep(RUN_POLL);
                 }
                 let mut rec = analyze_trajectory(&traj);
                 let loaded = rec["skills_loaded"]
@@ -783,7 +816,7 @@ fn prf(rows: &[(bool, f64)]) -> (f64, f64, f64, f64) {
     let precision = if tp + fp > 0.0 { tp / (tp + fp) } else { 0.0 };
     let recall = if pos > 0.0 { tp / pos } else { 0.0 };
     let f1 = if precision + recall > 0.0 {
-        2.0 * precision * recall / (precision + recall)
+        F1_WEIGHT * precision * recall / (precision + recall)
     } else {
         0.0
     };
@@ -981,14 +1014,17 @@ fn mcnemar_p(b: u64, c: u64) -> f64 {
     }
     let m = b.min(c);
     let tail: f64 = (0..=m)
-        .map(|i| (ln_choose(n, i) - n as f64 * 2f64.ln()).exp())
+        .map(|i| (ln_choose(n, i) - n as f64 * std::f64::consts::LN_2).exp())
         .sum();
-    (2.0 * tail).min(1.0)
+    (TWO_SIDED * tail).min(1.0)
 }
 fn confidence_bounds(sorted: &[f64]) -> [f64; 2] {
     let last = sorted.len() - 1;
     // Floor of 2.5% and 97.5% of the last index.
-    [sorted[last / 40], sorted[last - last.div_ceil(40)]]
+    [
+        sorted[last / CONFIDENCE_TAIL_DIVISOR],
+        sorted[last - last.div_ceil(CONFIDENCE_TAIL_DIVISOR)],
+    ]
 }
 
 struct Rng(u64);
@@ -999,9 +1035,9 @@ impl Rng {
     }
 
     fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
+        self.0 ^= self.0 << XORSHIFT_A;
+        self.0 ^= self.0 >> XORSHIFT_B;
+        self.0 ^= self.0 << XORSHIFT_C;
         self.0
     }
 }

@@ -1,11 +1,32 @@
 use crate::{proposal_record, scenario, service};
 use anyhow::{Context, Result, anyhow, bail};
+use base64::Engine as _;
 use serde_json::{Value, json};
 use std::{
     io::{self, BufRead, Write},
     path::PathBuf,
     process::Command,
 };
+
+/// JSON-RPC 2.0 error codes: the spec's parse error and unknown method, and the
+/// server-defined codes the bridge uses for transport and HTTP failures.
+pub(crate) const JSONRPC_PARSE_ERROR: i64 = -32700;
+pub(crate) const JSONRPC_METHOD_NOT_FOUND: i64 = -32601;
+pub(crate) const JSONRPC_TRANSPORT_ERROR: i64 = -32000;
+pub(crate) const JSONRPC_HTTP_ERROR: i64 = -32001;
+/// Largest capture manifest read.
+const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+/// Most files, and most media bytes, in one published capture bundle.
+const MAX_BUNDLE_ASSETS: usize = 256;
+const MAX_BUNDLE_BYTES: u64 = 40 * 1024 * 1024;
+/// How long to wait for the preview panel to print its address.
+const PREVIEW_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+/// Largest artifact returned inline to an agent.
+const MAX_INLINE_ARTIFACT_BYTES: u64 = 8 * 1024 * 1024;
+/// Waiting for a proposal dispatch: default and longest wait, and poll interval.
+const DEFAULT_DISPATCH_WAIT_SECS: u64 = 25;
+const MAX_DISPATCH_WAIT_SECS: u64 = 120;
+const DISPATCH_POLL: std::time::Duration = std::time::Duration::from_millis(400);
 
 #[derive(Default)]
 struct Preview(Option<std::process::Child>, Option<String>);
@@ -48,7 +69,7 @@ fn import_bundle(source: &std::path::Path) -> Result<Value> {
         }
         Ok(file)
     };
-    let bytes = read(&resolve("manifest.json")?, 1024 * 1024)?;
+    let bytes = read(&resolve("manifest.json")?, MAX_MANIFEST_BYTES)?;
     let value: Value = serde_json::from_slice(&bytes)?;
     let manifest: rupicola_core::capture_manifest::Manifest =
         serde_json::from_slice(&bytes).context("Invalid capture manifest")?;
@@ -73,8 +94,8 @@ fn import_bundle(source: &std::path::Path) -> Result<Value> {
             }
         }
     }
-    if paths.len() > 256 {
-        bail!("Bundle exceeds 256 assets");
+    if paths.len() > MAX_BUNDLE_ASSETS {
+        bail!("Bundle exceeds {MAX_BUNDLE_ASSETS} assets");
     }
     let out = service::output()?;
     let staging = out.with_extension("import");
@@ -88,7 +109,7 @@ fn import_bundle(source: &std::path::Path) -> Result<Value> {
     fs::create_dir_all(out.parent().unwrap())?;
     builder.create(&staging)?;
     let result = (|| -> Result<()> {
-        let mut remaining = 40 * 1024 * 1024;
+        let mut remaining = MAX_BUNDLE_BYTES;
         for path in paths {
             if !matches!(
                 std::path::Path::new(path)
@@ -420,7 +441,7 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 let _ = io::copy(&mut reader, &mut io::sink());
             });
             let url = receive
-                .recv_timeout(std::time::Duration::from_secs(15))
+                .recv_timeout(PREVIEW_START_TIMEOUT)
                 .ok()
                 .and_then(|line| {
                     line.split_whitespace()
@@ -467,8 +488,8 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                     app_id: arg("app_id")?.into(),
                     fixtures: arg("fixtures")?.into(),
                     symbolic_icon: args["symbolic_icon"].as_str().map(PathBuf::from),
-                    x: coordinate("x", 640)?,
-                    y: coordinate("y", 18)?,
+                    x: coordinate("x", scenario::DEFAULT_APPLET_CLICK_X)?,
+                    y: coordinate("y", scenario::DEFAULT_APPLET_CLICK_Y)?,
                     project_id,
                     project_label,
                     revision: args["revision"].as_str().map(str::to_owned),
@@ -488,7 +509,7 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 input,
                 &out,
                 module.as_deref(),
-                8,
+                rupicola_core::visual::DEFAULT_DIFF_THRESHOLD,
                 args["video"].as_bool().unwrap_or(false),
             )?;
             json!({"run":out.file_name().and_then(|name| name.to_str()), "manifest":capture})
@@ -547,13 +568,15 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
             }
             let root = path.parent().unwrap().canonicalize()?;
             let file = root.join(relative).canonicalize()?;
-            if !file.starts_with(root) || std::fs::metadata(&file)?.len() > 8 * 1024 * 1024 {
-                bail!("Artifact outside run or larger than 8 MiB");
+            if !file.starts_with(root)
+                || std::fs::metadata(&file)?.len() > MAX_INLINE_ARTIFACT_BYTES
+            {
+                bail!("Artifact outside run or larger than {MAX_INLINE_ARTIFACT_BYTES} bytes");
             }
             let bytes = std::fs::read(file)?;
             if matches!(artifact.rsplit_once('.'), Some((_, "png"))) {
                 return Ok(
-                    json!({"content":[{"type":"image","mimeType":"image/png","data":base64(&bytes)}]}),
+                    json!({"content":[{"type":"image","mimeType":"image/png","data":base64::engine::general_purpose::STANDARD.encode(&bytes)}]}),
                 );
             }
             String::from_utf8(bytes)?
@@ -624,8 +647,11 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
             let mut p = proposal_record::read_proposal(&path)?;
             let assets_dir = root.join(id).join("assets");
             if let Some(html) = args["html_content"].as_str() {
-                if html.len() > 2 * 1024 * 1024 {
-                    bail!("html_content exceeds 2 MiB");
+                if html.len() as u64 > proposal_record::MAX_PREVIEW_HTML_BYTES {
+                    bail!(
+                        "html_content exceeds {} bytes",
+                        proposal_record::MAX_PREVIEW_HTML_BYTES
+                    );
                 }
                 proposal_record::private_dir(&assets_dir)?;
                 std::fs::write(assets_dir.join("preview.html"), html)?;
@@ -644,8 +670,11 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
             } else if let Some(img) = args["image_path"].as_str() {
                 let src = PathBuf::from(img);
                 let meta = std::fs::metadata(&src)?;
-                if !meta.is_file() || meta.len() > 16 * 1024 * 1024 {
-                    bail!("image_path must be a regular file <= 16 MiB");
+                if !meta.is_file() || meta.len() > proposal_record::MAX_PREVIEW_IMAGE_BYTES {
+                    bail!(
+                        "image_path must be a regular file of at most {} bytes",
+                        proposal_record::MAX_PREVIEW_IMAGE_BYTES
+                    );
                 }
                 let ext = src
                     .extension()
@@ -701,7 +730,10 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 Some(_) => bail!("Invalid project ID"),
                 None => service::detect_project()?.0,
             };
-            let timeout = args["timeout_secs"].as_u64().unwrap_or(25).min(120);
+            let timeout = args["timeout_secs"]
+                .as_u64()
+                .unwrap_or(DEFAULT_DISPATCH_WAIT_SECS)
+                .min(MAX_DISPATCH_WAIT_SECS);
             let root = service::data()?
                 .join(proposal_record::DIRECTORY)
                 .join(&project_id);
@@ -731,7 +763,7 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 if std::time::Instant::now() >= deadline {
                     return Ok(json!({"content":[{"type":"text","text":"No pending dispatches"}]}));
                 }
-                std::thread::sleep(std::time::Duration::from_millis(400));
+                std::thread::sleep(DISPATCH_POLL);
             }
         }
         "probe_run" => {
@@ -913,29 +945,6 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
     Ok(json!({"content":[{"type":"text","text":output}]}))
 }
 
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for group in bytes.chunks(3) {
-        let a = group[0];
-        let b = group.get(1).copied().unwrap_or(0);
-        let c = group.get(2).copied().unwrap_or(0);
-        result.push(ALPHABET[(a >> 2) as usize] as char);
-        result.push(ALPHABET[(((a & 3) << 4) | (b >> 4)) as usize] as char);
-        result.push(if group.len() > 1 {
-            ALPHABET[(((b & 15) << 2) | (c >> 6)) as usize] as char
-        } else {
-            '='
-        });
-        result.push(if group.len() > 2 {
-            ALPHABET[(c & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    result
-}
-
 struct SessionGuard(Option<PathBuf>);
 
 impl SessionGuard {
@@ -964,8 +973,11 @@ impl SessionGuard {
 impl Drop for SessionGuard {
     fn drop(&mut self) {
         if let Some(path) = self.0.take()
-            && proposal_record::read_json::<proposal_record::McpSession>(&path, 16 * 1024)
-                .is_ok_and(|s| s.pid == std::process::id())
+            && proposal_record::read_json::<proposal_record::McpSession>(
+                &path,
+                proposal_record::MAX_SESSION_BYTES,
+            )
+            .is_ok_and(|s| s.pid == std::process::id())
         {
             let _ = std::fs::remove_file(path);
         }
@@ -984,7 +996,7 @@ pub fn serve() -> io::Result<()> {
             writeln!(
                 stdout,
                 "{}",
-                json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}})
+                json!({"jsonrpc":"2.0","id":null,"error":{"code":JSONRPC_PARSE_ERROR,"message":"Parse error"}})
             )?;
             stdout.flush()?;
             continue;
@@ -1029,7 +1041,7 @@ pub fn serve() -> io::Result<()> {
                 );
                 json!({"result":result})
             }
-            _ => json!({"error":{"code":-32601,"message":"Method not found"}}),
+            _ => json!({"error":{"code":JSONRPC_METHOD_NOT_FOUND,"message":"Method not found"}}),
         };
         let mut reply = json!({"jsonrpc":"2.0","id":id});
         reply
@@ -1048,13 +1060,15 @@ mod tests {
 
     #[test]
     fn capture_import_rejects_missing_panel_metadata() {
+        /// Any valid millisecond timestamp will do for the fixture manifest.
+        const FIXTURE_CREATED_AT_MS: i64 = 1_795_182_148_405;
         let source = tempfile::tempdir().unwrap();
         let path = source.path().join("manifest.json");
         let valid = json!({
             "version": 1,
             "project": {"id": "example", "label": "Example"},
             "scenario": "Settings review",
-            "created_at_ms": 1_795_182_148_405_i64,
+            "created_at_ms": FIXTURE_CREATED_AT_MS,
             "environment": {"renderer": "gpui"},
             "status": "complete",
             "inspection": "pending",

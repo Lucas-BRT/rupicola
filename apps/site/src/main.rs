@@ -21,6 +21,11 @@ use topcoat::{
     },
 };
 
+/// Port the site listens on unless told otherwise.
+const DEFAULT_PORT: u16 = 4732;
+/// How long the health probe waits to connect and to read the answer.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
 mod docs;
 mod pages;
 
@@ -62,12 +67,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let port = args
         .port
         .or_else(|| std::env::var("PORT").ok().and_then(|v| v.parse().ok()))
-        .unwrap_or(4732);
+        .unwrap_or(DEFAULT_PORT);
 
     if args.healthcheck {
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-        let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(3))?;
-        stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+        let mut stream = TcpStream::connect_timeout(&addr, PROBE_TIMEOUT)?;
+        stream.set_read_timeout(Some(PROBE_TIMEOUT))?;
         write!(
             stream,
             "GET /healthz HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"

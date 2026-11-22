@@ -9,6 +9,22 @@ use crate::{
 use anyhow::{Context, Result, anyhow, bail};
 use std::fs;
 
+/// Viewport recorded for a problem unless the caller names another.
+const DEFAULT_VIEWPORT: &str = "1440×900";
+/// Agent task tracking: steps in a fix, and the progress shown when a problem is
+/// queued, claimed, reported without a value and completed.
+const DEFAULT_TASK_STEPS: usize = 4;
+const QUEUED_PCT: u8 = 5;
+const CLAIMED_PCT: u8 = 25;
+const DEFAULT_PROGRESS_PCT: u8 = 50;
+const DEFAULT_PROGRESS_STEP: usize = 2;
+const COMPLETE_PCT: u8 = 100;
+/// Capture runs kept locally when cleaning up or offloading.
+const DEFAULT_KEEP_LATEST_RUNS: usize = 2;
+/// A rule is written `scope:code:title`; a fix step `title::detail::verification`.
+const RULE_FIELDS: usize = 3;
+const STEP_FIELDS: usize = 3;
+
 #[derive(clap::Subcommand)]
 #[allow(clippy::large_enum_variant)]
 pub enum ProblemAction {
@@ -35,7 +51,7 @@ pub enum ProblemAction {
         title: String,
         #[arg(long, default_value = "/")]
         route: String,
-        #[arg(long, default_value = "1440×900")]
+        #[arg(long, default_value = DEFAULT_VIEWPORT)]
         viewport: String,
         #[arg(long, default_value = "dark")]
         theme: String,
@@ -75,7 +91,7 @@ pub enum ProblemAction {
         agent: String,
         #[arg(long, default_value = "Inspecting problem evidence and violated norms")]
         activity: String,
-        #[arg(long, default_value_t = 4)]
+        #[arg(long, default_value_t = DEFAULT_TASK_STEPS)]
         total_steps: usize,
         #[arg(long)]
         project: Option<String>,
@@ -89,11 +105,11 @@ pub enum ProblemAction {
         #[arg(long, default_value = "fixing")]
         stage: String,
         /// Completion percentage (0..=100).
-        #[arg(long, default_value_t = 50)]
+        #[arg(long, default_value_t = DEFAULT_PROGRESS_PCT)]
         pct: u8,
-        #[arg(long, default_value_t = 2)]
+        #[arg(long, default_value_t = DEFAULT_PROGRESS_STEP)]
         step: usize,
-        #[arg(long, default_value_t = 4)]
+        #[arg(long, default_value_t = DEFAULT_TASK_STEPS)]
         total_steps: usize,
         #[arg(long)]
         activity: String,
@@ -140,7 +156,7 @@ pub enum FixAction {
         problems: Vec<String>,
         #[arg(long, default_value = "/")]
         route: String,
-        #[arg(long, default_value = "1440×900")]
+        #[arg(long, default_value = DEFAULT_VIEWPORT)]
         viewport: String,
         #[arg(long, default_value = "dark")]
         theme: String,
@@ -207,7 +223,7 @@ pub enum StorageAction {
         auto_policy: String,
         #[arg(long, default_value_t = true)]
         delete_local: bool,
-        #[arg(long, default_value_t = 2)]
+        #[arg(long, default_value_t = DEFAULT_KEEP_LATEST_RUNS)]
         keep_latest_runs: usize,
     },
     /// Clean up local storage (strip raw frames, prune unpinned runs, or clean by date).
@@ -217,7 +233,7 @@ pub enum StorageAction {
         mode: String,
         #[arg(long)]
         project: Option<String>,
-        #[arg(long, default_value_t = 2)]
+        #[arg(long, default_value_t = DEFAULT_KEEP_LATEST_RUNS)]
         keep_latest: usize,
         #[arg(long)]
         date: Option<String>,
@@ -250,7 +266,7 @@ fn resolve_project(explicit: Option<String>) -> Result<String> {
 }
 
 pub fn parse_rule(raw: &str) -> ViolatedRule {
-    let parts: Vec<&str> = raw.splitn(3, ':').collect();
+    let parts: Vec<&str> = raw.splitn(RULE_FIELDS, ':').collect();
     match parts.as_slice() {
         [scope, code, title] => ViolatedRule {
             scope: scope.trim().to_string(),
@@ -413,14 +429,14 @@ pub fn run_problem(action: ProblemAction) -> Result<u8> {
                 let (stage, pct, step_cur, msg) = if let Some(ref a) = agent_name {
                     (
                         "claimed".to_string(),
-                        25,
+                        CLAIMED_PCT,
                         1,
                         format!("Claimed by {a} — inspecting evidence and preparing fix"),
                     )
                 } else {
                     (
                         "queued".to_string(),
-                        5,
+                        QUEUED_PCT,
                         0,
                         "Queued for fix — waiting for an agent to claim task".to_string(),
                     )
@@ -430,7 +446,7 @@ pub fn run_problem(action: ProblemAction) -> Result<u8> {
                     stage: stage.clone(),
                     progress_pct: pct,
                     step_current: step_cur,
-                    step_total: 4,
+                    step_total: DEFAULT_TASK_STEPS,
                     current_activity: msg.clone(),
                     logs: Vec::new(),
                     started_at_ms: now,
@@ -472,7 +488,7 @@ pub fn run_problem(action: ProblemAction) -> Result<u8> {
             let mut exec = item.execution.take().unwrap_or(TaskExecution {
                 agent_id: Some(agent.clone()),
                 stage: "claimed".into(),
-                progress_pct: 25,
+                progress_pct: CLAIMED_PCT,
                 step_current: 1,
                 step_total: total,
                 current_activity: activity.clone(),
@@ -482,14 +498,14 @@ pub fn run_problem(action: ProblemAction) -> Result<u8> {
             });
             exec.agent_id = Some(agent.clone());
             exec.stage = "claimed".into();
-            exec.progress_pct = 25;
+            exec.progress_pct = CLAIMED_PCT;
             exec.step_current = 1;
             exec.step_total = total;
             exec.current_activity.clone_from(&activity);
             exec.updated_at_ms = now;
             exec.logs.push(TaskStepLog {
                 stage: "claimed".into(),
-                progress_pct: 25,
+                progress_pct: CLAIMED_PCT,
                 detail: format!("[{agent}] {activity}"),
                 timestamp_ms: now,
             });
@@ -511,8 +527,8 @@ pub fn run_problem(action: ProblemAction) -> Result<u8> {
             let pid = resolve_project(project)?;
             let mut item = problem_record::load(&data, &pid, &id)?;
             let (_, now) = problem_record::next_id();
-            let clamped_pct = pct.min(100);
-            if clamped_pct >= 100 || stage == "completed" {
+            let clamped_pct = pct.min(COMPLETE_PCT);
+            if clamped_pct >= COMPLETE_PCT || stage == "completed" {
                 item.status = ProblemStatus::Resolved;
             } else {
                 item.status = ProblemStatus::InProgress;
@@ -660,7 +676,7 @@ pub fn run_fix(action: FixAction) -> Result<u8> {
                 .iter()
                 .enumerate()
                 .map(|(i, raw)| {
-                    let parts: Vec<&str> = raw.splitn(3, "::").collect();
+                    let parts: Vec<&str> = raw.splitn(STEP_FIELDS, "::").collect();
                     let (st_title, detail, verification) = match parts.as_slice() {
                         [a, b, c] => (a.trim(), b.trim(), c.trim()),
                         [a, b] => (a.trim(), b.trim(), "Verified visually"),
@@ -712,7 +728,7 @@ pub fn run_fix(action: FixAction) -> Result<u8> {
                     let mut exec = p.execution.take().unwrap_or(TaskExecution {
                         agent_id: Some("rupicola-agent".into()),
                         stage: "completed".into(),
-                        progress_pct: 100,
+                        progress_pct: COMPLETE_PCT,
                         step_current: total,
                         step_total: total,
                         current_activity: format!("Fix recorded: {}", record.title),
@@ -724,15 +740,17 @@ pub fn run_fix(action: FixAction) -> Result<u8> {
                         exec.agent_id = Some("rupicola-agent".into());
                     }
                     exec.stage = "completed".into();
-                    exec.progress_pct = 100;
+                    exec.progress_pct = COMPLETE_PCT;
                     exec.step_current = total;
                     exec.step_total = total;
                     exec.current_activity =
                         format!("Verified & recorded Fix #{id} with Before/After comparison");
                     exec.updated_at_ms = now;
                     for st in &record.steps {
-                        let pct = u8::try_from((st.index.saturating_mul(100) / total).min(100))
-                            .expect("progress is bounded by 100");
+                        let complete = usize::from(COMPLETE_PCT);
+                        let pct =
+                            u8::try_from((st.index.saturating_mul(complete) / total).min(complete))
+                                .expect("progress is bounded by COMPLETE_PCT");
                         exec.logs.push(TaskStepLog {
                             stage: if st.index == total {
                                 "completed".into()

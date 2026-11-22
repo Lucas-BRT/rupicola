@@ -13,6 +13,29 @@ use rupicola_core::{
 };
 use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 
+/// Process exit codes, documented in the README: success with nothing to
+/// report, an error or diagnostic, findings that need review, and no supported
+/// analysis.
+const EXIT_CLEAN: u8 = 0;
+const EXIT_ERROR: u8 = 1;
+const EXIT_FINDINGS: u8 = 2;
+const EXIT_UNSUPPORTED: u8 = 3;
+/// Pages a probe crawls unless told otherwise.
+const DEFAULT_MAX_PAGES: usize = 20;
+/// Colors a palette reports unless told otherwise.
+const DEFAULT_PALETTE_COLORS: usize = 8;
+/// Contact sheet layout unless told otherwise.
+const DEFAULT_SHEET_COLUMNS: usize = 4;
+const DEFAULT_SHEET_THUMB_WIDTH: u32 = 320;
+/// Desktop capture matrix: most combinations run, and seconds each may take.
+const DEFAULT_MATRIX_MAX_RUNS: usize = 48;
+const DEFAULT_MATRIX_TIMEOUT_SECS: u64 = 60;
+/// Ratios are printed as percentages.
+const PERCENT: f64 = 100.0;
+/// The CLI runs on a thread with a larger stack: the default main-thread stack
+/// overflowed on Windows.
+const MAIN_STACK_BYTES: usize = 8 * 1024 * 1024;
+
 #[derive(Parser)]
 #[command(
     version,
@@ -70,7 +93,7 @@ enum Command {
         before: PathBuf,
         after: PathBuf,
         /// Largest per-channel difference still treated as unchanged.
-        #[arg(long, default_value_t = 8)]
+        #[arg(long, default_value_t = visual::DEFAULT_DIFF_THRESHOLD)]
         threshold: u8,
         /// Write a diff image (changed pixels in red).
         #[arg(long)]
@@ -81,7 +104,7 @@ enum Command {
     /// Analyze a directory of animation frames (PNG) for stalls, jumps and settling.
     Frames {
         dir: PathBuf,
-        #[arg(long, default_value_t = 8)]
+        #[arg(long, default_value_t = visual::DEFAULT_DIFF_THRESHOLD)]
         threshold: u8,
         #[arg(long)]
         json: bool,
@@ -97,7 +120,7 @@ enum Command {
         #[arg(long)]
         playwright_module: Option<PathBuf>,
         /// Largest per-channel difference still treated as unchanged.
-        #[arg(long, default_value_t = 8)]
+        #[arg(long, default_value_t = visual::DEFAULT_DIFF_THRESHOLD)]
         threshold: u8,
         /// Encode an approximate MP4 preview with ffmpeg.
         #[arg(long)]
@@ -125,8 +148,8 @@ enum Command {
         project_label: Option<String>,
         #[arg(long)]
         revision: Option<String>,
-        /// Click position in the private 1280x800 display.
-        #[arg(long, num_args = 2, value_names = ["X", "Y"], default_values = ["640", "18"])]
+        /// Click position in the private COSMIC display.
+        #[arg(long, num_args = 2, value_names = ["X", "Y"], default_values_t = [scenario::DEFAULT_APPLET_CLICK_X, scenario::DEFAULT_APPLET_CLICK_Y])]
         click: Vec<u32>,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -195,7 +218,7 @@ enum Command {
         /// Comma-separated themes (dark,light).
         #[arg(long, default_value = "dark")]
         themes: String,
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = DEFAULT_MAX_PAGES)]
         max_pages: usize,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -222,7 +245,7 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
         /// Target constant frame rate.
-        #[arg(long, default_value_t = 60.0)]
+        #[arg(long, default_value_t = capture::DEFAULT_VIDEO_FPS)]
         fps: f64,
         /// Read raw pixel frames from stdin instead of a PNG directory.
         #[arg(long)]
@@ -239,8 +262,8 @@ enum Command {
         /// Also save lossless PNG frames to this directory when reading --raw stdin.
         #[arg(long)]
         save_frames: Option<PathBuf>,
-        /// x264 CRF quality (0..=51, lower is sharper).
-        #[arg(long, default_value_t = 18)]
+        /// x264 CRF quality (lower is sharper; see `capture::MAX_CRF` for the top).
+        #[arg(long, default_value_t = capture::DEFAULT_CRF)]
         crf: u8,
         /// x264 encoder preset (e.g. ultrafast, fast, medium).
         #[arg(long, default_value = "fast")]
@@ -251,7 +274,7 @@ enum Command {
     /// Extract a dominant-color palette and suggested roles from a PNG.
     Palette {
         image: PathBuf,
-        #[arg(long, default_value_t = 8)]
+        #[arg(long, default_value_t = DEFAULT_PALETTE_COLORS)]
         colors: usize,
         #[arg(long)]
         json: bool,
@@ -261,9 +284,9 @@ enum Command {
         dir: PathBuf,
         #[arg(long)]
         out: PathBuf,
-        #[arg(long, default_value_t = 4)]
+        #[arg(long, default_value_t = DEFAULT_SHEET_COLUMNS)]
         cols: usize,
-        #[arg(long, default_value_t = 320)]
+        #[arg(long, default_value_t = DEFAULT_SHEET_THUMB_WIDTH)]
         thumb: u32,
     },
     /// Run a capture command once per state, theme, scale, size and locale combination.
@@ -287,9 +310,9 @@ enum Command {
         #[arg(long, value_delimiter = ',', default_value = "en")]
         locales: Vec<String>,
         /// Refuse to run more combinations than this.
-        #[arg(long, default_value_t = 48)]
+        #[arg(long, default_value_t = DEFAULT_MATRIX_MAX_RUNS)]
         max: usize,
-        #[arg(long, default_value_t = 60)]
+        #[arg(long, default_value_t = DEFAULT_MATRIX_TIMEOUT_SECS)]
         timeout_secs: u64,
         /// Print the planned combinations without running anything.
         #[arg(long)]
@@ -353,14 +376,14 @@ enum AuthAction {
 )]
 fn run(cli: Cli) -> Result<u8> {
     match cli.command {
-        Command::Mcp => Ok(mcp::serve().map(|()| 0)?),
+        Command::Mcp => Ok(mcp::serve().map(|()| EXIT_CLEAN)?),
         Command::McpBridge {
             server_url,
             project,
-        } => mcp_bridge::serve(&server_url, project.as_deref()).map(|()| 0),
+        } => mcp_bridge::serve(&server_url, project.as_deref()).map(|()| EXIT_CLEAN),
         Command::Auth {
             action: AuthAction::SetToken { token },
-        } => mcp_bridge::set_token(token).map(|()| 0),
+        } => mcp_bridge::set_token(token).map(|()| EXIT_CLEAN),
         Command::Capture {
             scenario: path,
             out,
@@ -432,23 +455,23 @@ fn run(cli: Cli) -> Result<u8> {
         } => {
             scenario::review(&manifest, note, evidence)?;
             println!("{}: inspection recorded", manifest.display());
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Setup { print_unit } => {
             service::setup(print_unit)?;
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Link { project } => {
             service::link(project)?;
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Design { action } => {
             design::run(action)?;
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Propose { action } => {
             propose::run(action)?;
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Problem { action } => pipeline::run_problem(action),
         Command::Fix { action } => pipeline::run_fix(action),
@@ -497,16 +520,16 @@ fn run(cli: Cli) -> Result<u8> {
                 }
             }
             Ok(if summary.blocker.is_some() {
-                1
+                EXIT_ERROR
             } else if summary.findings_count > 0 {
-                2
+                EXIT_FINDINGS
             } else {
-                0
+                EXIT_CLEAN
             })
         }
         Command::Doctor => {
             service::doctor()?;
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Serve { options } => {
             let status = std::process::Command::new("rupicola-panel")
@@ -587,13 +610,13 @@ fn run(cli: Cli) -> Result<u8> {
                 }
             }
             Ok(if !result.diagnostics.is_empty() {
-                1
+                EXIT_ERROR
             } else if !result.findings.is_empty() {
-                2
+                EXIT_FINDINGS
             } else if result.parsed_files == 0 || !result.unsupported_files.is_empty() {
-                3
+                EXIT_UNSUPPORTED
             } else {
-                0
+                EXIT_CLEAN
             })
         }
         Command::Diff {
@@ -620,16 +643,16 @@ fn run(cli: Cli) -> Result<u8> {
                     "{} of {} pixels changed ({:.2}%); mean delta {:.2}; max delta {}; region {:?}",
                     report.changed_pixels,
                     u64::from(report.width) * u64::from(report.height),
-                    report.changed_ratio * 100.0,
+                    report.changed_ratio * PERCENT,
                     report.mean_abs_delta,
                     report.max_delta,
                     report.bbox
                 );
             }
             Ok(if report.dimension_mismatch || report.changed_pixels > 0 {
-                2
+                EXIT_FINDINGS
             } else {
-                0
+                EXIT_CLEAN
             })
         }
         Command::Frames {
@@ -648,7 +671,7 @@ fn run(cli: Cli) -> Result<u8> {
                     report.settled_at,
                     report.stalls,
                     report.jumps,
-                    report.total_changed_ratio * 100.0
+                    report.total_changed_ratio * PERCENT
                 );
                 for note in &report.notes {
                     println!("note: {note}");
@@ -659,9 +682,9 @@ fn run(cli: Cli) -> Result<u8> {
                     && report.jumps.is_empty()
                     && report.first_change.is_some()
                 {
-                    0
+                    EXIT_CLEAN
                 } else {
-                    2
+                    EXIT_FINDINGS
                 },
             )
         }
@@ -726,7 +749,7 @@ fn run(cli: Cli) -> Result<u8> {
                     report.bytes
                 );
             }
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Palette {
             image,
@@ -738,11 +761,11 @@ fn run(cli: Cli) -> Result<u8> {
                 json(&report)?;
             } else {
                 for c in &report.colors {
-                    println!("{} {:.1}%", c.hex, c.share * 100.0);
+                    println!("{} {:.1}%", c.hex, c.share * PERCENT);
                 }
                 println!("suggested: {:?}", report.suggested);
             }
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Sheet {
             dir,
@@ -756,7 +779,7 @@ fn run(cli: Cli) -> Result<u8> {
             for f in &files {
                 println!("{}", f.display());
             }
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Matrix {
             cmd,
@@ -835,7 +858,11 @@ fn run(cli: Cli) -> Result<u8> {
                 }
                 println!("{} nodes, {} findings", parsed.nodes.len(), findings.len());
             }
-            Ok(if findings.is_empty() { 0 } else { 2 })
+            Ok(if findings.is_empty() {
+                EXIT_CLEAN
+            } else {
+                EXIT_FINDINGS
+            })
         }
         Command::Check {
             path,
@@ -864,7 +891,7 @@ fn run(cli: Cli) -> Result<u8> {
                     println!("{id}: {description}");
                 }
             }
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
         Command::Modules { json: output_json } => {
             let modules: Vec<_> = FRAMEWORKS
@@ -879,14 +906,14 @@ fn run(cli: Cli) -> Result<u8> {
                     println!("{module}");
                 }
             }
-            Ok(0)
+            Ok(EXIT_CLEAN)
         }
     }
 }
 fn main() -> ExitCode {
     let builder = std::thread::Builder::new()
         .name("rupicola-main".to_string())
-        .stack_size(8 * 1024 * 1024);
+        .stack_size(MAIN_STACK_BYTES);
     let handle = builder
         .spawn(|| run(Cli::parse()))
         .unwrap_or_else(|e| panic!("failed to spawn main thread: {e}"));

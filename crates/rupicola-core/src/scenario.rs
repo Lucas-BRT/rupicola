@@ -190,6 +190,10 @@ const MAX_APP_ID_LEN: usize = 128;
 /// Size of the virtual display the COSMIC capture runs in.
 const COSMIC_DISPLAY_WIDTH: u32 = 1280;
 const COSMIC_DISPLAY_HEIGHT: u32 = 800;
+/// Default click position in the COSMIC display: the panel applet's slot near the
+/// top center.
+pub const DEFAULT_APPLET_CLICK_X: u32 = 640;
+pub const DEFAULT_APPLET_CLICK_Y: u32 = 18;
 /// Checkpoints the COSMIC applet capture produces (closed and open).
 const COSMIC_CHECKPOINTS: usize = 2;
 /// Stalled and jumping frames kept in a clip's selection, at most.

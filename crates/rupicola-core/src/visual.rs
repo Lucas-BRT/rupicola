@@ -8,6 +8,9 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
+/// Largest per-channel difference still treated as unchanged, unless the caller
+/// picks another.
+pub const DEFAULT_DIFF_THRESHOLD: u8 = 8;
 /// Channels per pixel in RGBA, RGB and grayscale-with-alpha images.
 pub const RGBA_CHANNELS: usize = 4;
 const RGB_CHANNELS: usize = 3;
