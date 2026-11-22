@@ -2598,8 +2598,8 @@ dependencies = [
 
 [[package]]
 name = "rupicola-capture"
-version = "0.2.0"
-source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?tag=v0.2.0#19ca312ce126a598ac8b77853e751cbf8c171460"
+version = "0.3.0"
+source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?tag=v0.3.0#292b94d3f2fe3d73d49610e6af4efdf09320644e"
 dependencies = [
  "rupicola-protocol",
  "serde",
@@ -2649,8 +2649,8 @@ dependencies = [
 
 [[package]]
 name = "rupicola-protocol"
-version = "0.2.0"
-source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?tag=v0.2.0#19ca312ce126a598ac8b77853e751cbf8c171460"
+version = "0.3.0"
+source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?tag=v0.3.0#292b94d3f2fe3d73d49610e6af4efdf09320644e"
 dependencies = [
  "serde",
  "serde_json",

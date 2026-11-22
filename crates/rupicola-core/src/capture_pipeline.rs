@@ -61,7 +61,7 @@ pub struct MiddleendEnv {
     pub runtime: String,
     pub viewport: Dimensions,
     #[serde(default = "default_scale")]
-    pub scale_factor: f32,
+    pub scale_factor: f64,
     #[serde(default = "default_theme")]
     pub theme: String,
     #[serde(default)]
@@ -70,7 +70,7 @@ pub struct MiddleendEnv {
     pub reduced_motion: bool,
 }
 
-const fn default_scale() -> f32 {
+const fn default_scale() -> f64 {
     1.0
 }
 
@@ -224,7 +224,7 @@ pub struct WidgetBoxJson {
 
 impl WidgetBoxJson {
     #[must_use]
-    pub fn from_widget_box(w: &WidgetBox, scale_factor: f32) -> Self {
+    pub fn from_widget_box(w: &WidgetBox, scale_factor: f64) -> Self {
         Self {
             id: w.id.clone(),
             role: w.role.clone(),
