@@ -32,8 +32,8 @@ pub enum ApiError {
     Internal(#[from] anyhow::Error),
 }
 
-impl From<turso::Error> for ApiError {
-    fn from(error: turso::Error) -> Self {
+impl From<sqlx::Error> for ApiError {
+    fn from(error: sqlx::Error) -> Self {
         Self::Internal(error.into())
     }
 }

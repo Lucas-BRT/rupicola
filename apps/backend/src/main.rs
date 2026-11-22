@@ -162,20 +162,20 @@ mod tests {
         }
     }
 
-    async fn start(settings: security::Security) -> u16 {
-        start_with(settings).await.0
-    }
-
-    async fn start_with(settings: security::Security) -> (u16, tempfile::TempDir) {
+    /// Starts a server on a fresh database; keep the directory alive for the test.
+    async fn start(settings: security::Security) -> (u16, tempfile::TempDir) {
         start_custom(settings, None, true).await
     }
 
-    /// Starts a server on a fresh database; the returned directory keeps it alive.
     async fn start_custom(
         settings: security::Security,
         setup_code: Option<&str>,
         open_setup: bool,
     ) -> (u16, tempfile::TempDir) {
+        let _ = tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_env_filter("rupicola_backend=debug")
+            .try_init();
         let dir = tempfile::tempdir().unwrap();
         let state = state::AppState::open(&dir.path().join("panel.db"), setup_code, open_setup)
             .await
@@ -219,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn healthz_reports_ok_with_the_package_version() {
-        let port = start(settings()).await;
+        let (port, _dir) = start(settings()).await;
         let response = get(port, "/healthz", "").await;
 
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
@@ -230,7 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_routes_are_not_found() {
-        let port = start(settings()).await;
+        let (port, _dir) = start(settings()).await;
         let response = get(port, "/v1/nothing", "").await;
 
         assert!(response.starts_with("HTTP/1.1 404"), "{response}");
@@ -240,7 +240,7 @@ mod tests {
 
     #[tokio::test]
     async fn responses_carry_security_headers_and_a_request_id() {
-        let port = start(settings()).await;
+        let (port, _dir) = start(settings()).await;
         let response = get(port, "/healthz", "").await;
 
         assert_eq!(header(&response, "x-content-type-options"), Some("nosniff"));
@@ -253,7 +253,7 @@ mod tests {
 
     #[tokio::test]
     async fn clients_over_the_burst_are_rate_limited() {
-        let port = start(security::Security {
+        let (port, _dir) = start(security::Security {
             rate_burst: 2,
             rate_refill_ms: 60_000,
             ..settings()
@@ -272,7 +272,7 @@ mod tests {
 
     #[tokio::test]
     async fn behind_a_proxy_the_last_forwarded_address_is_the_client() {
-        let port = start(security::Security {
+        let (port, _dir) = start(security::Security {
             rate_burst: 1,
             rate_refill_ms: 60_000,
             behind_proxy: true,
@@ -298,7 +298,7 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_bodies_are_rejected_before_reaching_handlers() {
-        let port = start(settings()).await;
+        let (port, _dir) = start(settings()).await;
         let response = request(
             port,
             "POST /healthz HTTP/1.1\r\nHost: test\r\nContent-Length: 4096\r\nConnection: close\r\n\r\n"
@@ -341,7 +341,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_first_owner_is_created_once_and_signed_in() {
-        let port = start(settings()).await;
+        let (port, _dir) = start(settings()).await;
         let created = call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
         assert!(created.starts_with("HTTP/1.1 201"), "{created}");
 
@@ -369,7 +369,7 @@ mod tests {
 
     #[tokio::test]
     async fn sign_in_sign_out_and_rejected_credentials() {
-        let port = start(settings()).await;
+        let (port, _dir) = start(settings()).await;
         call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
 
         let wrong = r#"{"handle":"ana","password":"wrong password here"}"#;
@@ -395,7 +395,7 @@ mod tests {
 
     #[tokio::test]
     async fn password_guessing_is_rate_limited_per_client() {
-        let port = start(settings()).await;
+        let (port, _dir) = start(settings()).await;
         let wrong = r#"{"handle":"ana","password":"wrong password here"}"#;
         for _ in 0..5 {
             call(port, "POST", "/v1/sessions", None, Some(wrong)).await;

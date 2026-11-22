@@ -1,20 +1,19 @@
 //! Shared server state handed to every handler.
 
 use crate::auth::{Lockout, Passwords};
-use anyhow::Context;
+use sqlx::SqlitePool;
 use std::{path::Path, sync::Arc};
-use tokio::sync::Mutex;
-use turso::Connection;
 
 pub type Shared = Arc<AppState>;
 
 pub struct AppState {
-    pub db: Mutex<Connection>,
+    pub db: SqlitePool,
     pub passwords: Passwords,
     pub lockout: Lockout,
-    /// SHA-256 of the setup code that may create the first owner, if configured.
+    /// SHA-256 of the setup code that may create the first administrator, if set.
     pub setup_code: Option<String>,
-    /// Whether the first owner may be created without a setup code (loopback only).
+    /// Whether the first administrator may be created without a setup code
+    /// (only while listening on loopback).
     pub open_setup: bool,
 }
 
@@ -30,22 +29,8 @@ impl AppState {
         setup_code: Option<&str>,
         open_setup: bool,
     ) -> anyhow::Result<Shared> {
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("cannot create {}", parent.display()))?;
-        }
-        let database =
-            turso::Builder::new_local(path.to_str().context("database path is not UTF-8")?)
-                .build()
-                .await
-                .with_context(|| format!("cannot open {}", path.display()))?;
-        let db = crate::db::connect(&database).await?;
-        crate::db::migrate(&db).await?;
         Ok(Arc::new(Self {
-            db: Mutex::new(db),
+            db: crate::db::open(path).await?,
             passwords: Passwords::new()?,
             lockout: Lockout::default(),
             setup_code: setup_code.map(crate::auth::digest),

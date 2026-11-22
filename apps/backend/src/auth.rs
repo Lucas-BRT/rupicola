@@ -170,35 +170,34 @@ impl FromRequestParts<Shared> for Principal {
             .filter(|secret| secret.len() == 64 && secret.bytes().all(|b| b.is_ascii_hexdigit()))
             .ok_or(ApiError::Unauthorized)?;
         let digest = digest(secret);
-        let db = state.db.lock().await;
-        let mut rows = db
-            .query(
-                "SELECT t.kind, t.handle, t.project_id, COALESCE(a.admin, 0) FROM tokens t
-                 LEFT JOIN accounts a ON a.handle = t.handle
-                 WHERE t.digest = ?1 AND (t.expires_at IS NULL OR t.expires_at > ?2)",
-                turso::params![digest.as_str(), now_ms()],
-            )
-            .await?;
-        let row = rows.next().await?.ok_or(ApiError::Unauthorized)?;
-        let kind = match row.get::<String>(0)?.as_str() {
+        let row: Option<(String, Option<String>, Option<String>, bool)> = sqlx::query_as(
+            "SELECT t.kind, t.handle, t.project_id, COALESCE(a.admin, 0) FROM tokens t
+             LEFT JOIN accounts a ON a.handle = t.handle
+             WHERE t.digest = ?1 AND (t.expires_at IS NULL OR t.expires_at > ?2)",
+        )
+        .bind(&digest)
+        .bind(now_ms())
+        .fetch_optional(&state.db)
+        .await?;
+        let (kind, handle, project, admin) = row.ok_or(ApiError::Unauthorized)?;
+        let kind = match kind.as_str() {
             "session" => TokenKind::Session,
             "machine" => TokenKind::Machine,
             "device" => TokenKind::Device,
             _ => return Err(ApiError::Unauthorized),
         };
+        sqlx::query("UPDATE tokens SET last_used_at = ?1 WHERE digest = ?2")
+            .bind(now_ms())
+            .bind(&digest)
+            .execute(&state.db)
+            .await?;
         let principal = Self {
             kind,
-            handle: row.get(1)?,
-            project: row.get(2)?,
-            admin: row.get::<i64>(3)? == 1,
+            handle,
+            admin,
+            project,
             digest,
         };
-        drop(rows);
-        db.execute(
-            "UPDATE tokens SET last_used_at = ?1 WHERE digest = ?2",
-            turso::params![now_ms(), principal.digest.as_str()],
-        )
-        .await?;
         Ok(principal)
     }
 }
@@ -213,17 +212,10 @@ pub async fn sign_in(
         return Err(ApiError::TooManyRequests { retry_after });
     }
     let stored = if valid_handle(&handle) && form.password.len() <= 1024 {
-        let db = state.db.lock().await;
-        let mut rows = db
-            .query(
-                "SELECT password_hash FROM accounts WHERE handle = ?1",
-                [handle.as_str()],
-            )
-            .await?;
-        rows.next()
+        sqlx::query_scalar("SELECT password_hash FROM accounts WHERE handle = ?1")
+            .bind(&handle)
+            .fetch_optional(&state.db)
             .await?
-            .map(|row| row.get::<String>(0))
-            .transpose()?
     } else {
         None
     };
@@ -242,17 +234,19 @@ async fn issue_session(state: &Shared, handle: &str) -> Result<SessionToken, Api
     let secret = token();
     let created_at = now_ms();
     let expires_at = created_at + SESSION_AGE_MS;
-    let db = state.db.lock().await;
-    db.execute(
-        "DELETE FROM tokens WHERE expires_at IS NOT NULL AND expires_at <= ?1",
-        [created_at],
-    )
-    .await?;
-    db.execute(
+    sqlx::query("DELETE FROM tokens WHERE expires_at IS NOT NULL AND expires_at <= ?1")
+        .bind(created_at)
+        .execute(&state.db)
+        .await?;
+    sqlx::query(
         "INSERT INTO tokens (digest, kind, handle, label, created_at, expires_at)
          VALUES (?1, 'session', ?2, 'Session', ?3, ?4)",
-        turso::params![digest(&secret), handle, created_at, expires_at],
     )
+    .bind(digest(&secret))
+    .bind(handle)
+    .bind(created_at)
+    .bind(expires_at)
+    .execute(&state.db)
     .await?;
     Ok(SessionToken {
         token: secret,
@@ -268,12 +262,10 @@ pub async fn sign_out(
     if principal.kind != TokenKind::Session {
         return Err(ApiError::Forbidden);
     }
-    let db = state.db.lock().await;
-    db.execute(
-        "DELETE FROM tokens WHERE digest = ?1",
-        [principal.digest.as_str()],
-    )
-    .await?;
+    sqlx::query("DELETE FROM tokens WHERE digest = ?1")
+        .bind(&principal.digest)
+        .execute(&state.db)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -315,16 +307,16 @@ pub async fn setup(
         ));
     }
     let password = state.passwords.hash(form.password).await?;
-    let created = state
-        .db
-        .lock()
-        .await
-        .execute(
-            "INSERT OR IGNORE INTO accounts (handle, password_hash, admin, created_at)
-             SELECT ?1, ?2, 1, ?3 WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE admin = 1)",
-            turso::params![handle.as_str(), password.as_str(), now_ms()],
-        )
-        .await?;
+    let created = sqlx::query(
+        "INSERT OR IGNORE INTO accounts (handle, password_hash, admin, created_at)
+         SELECT ?1, ?2, 1, ?3 WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE admin = 1)",
+    )
+    .bind(&handle)
+    .bind(&password)
+    .bind(now_ms())
+    .execute(&state.db)
+    .await?
+    .rows_affected();
     if created == 0 {
         return Err(ApiError::Conflict("an administrator already exists"));
     }
