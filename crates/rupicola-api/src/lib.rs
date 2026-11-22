@@ -29,7 +29,7 @@ pub struct Credentials {
     pub password: String,
 }
 
-/// `POST /v1/setup`: create the first owner account. `code` is the server's setup
+/// `POST /v1/setup`: create the first administrator account. `code` is the server's setup
 /// code, required unless the backend only listens on loopback.
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Setup {
@@ -39,7 +39,7 @@ pub struct Setup {
     pub code: Option<String>,
 }
 
-/// A bearer token and when it stops working (Unix seconds).
+/// A bearer token and when it stops working (Unix milliseconds).
 #[derive(Clone, Deserialize, Serialize)]
 pub struct SessionToken {
     pub token: String,
@@ -63,7 +63,8 @@ pub enum TokenKind {
 pub struct Me {
     pub kind: TokenKind,
     pub handle: Option<String>,
-    pub owner: bool,
+    /// Administers the whole server.
+    pub admin: bool,
     pub project: Option<String>,
 }
 

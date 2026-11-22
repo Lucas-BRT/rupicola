@@ -42,7 +42,7 @@ impl AppState {
                 .build()
                 .await
                 .with_context(|| format!("cannot open {}", path.display()))?;
-        let db = database.connect()?;
+        let db = crate::db::connect(&database).await?;
         crate::db::migrate(&db).await?;
         Ok(Arc::new(Self {
             db: Mutex::new(db),

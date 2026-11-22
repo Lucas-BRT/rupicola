@@ -32,7 +32,7 @@ struct Args {
     /// Database file; media blobs live next to it.
     #[arg(long, env = "RUPICOLA_DB", default_value = ".rupicola/panel.db")]
     db: PathBuf,
-    /// Code required to create the first owner (at least 32 characters). Without
+    /// Code required to create the first administrator (at least 32 characters). Without
     /// it, setup is only allowed while the backend listens on loopback.
     #[arg(long, env = "RUPICOLA_SETUP_CODE", hide_env_values = true)]
     setup_code: Option<String>,
@@ -349,7 +349,7 @@ mod tests {
         let me: rupicola_api::Me = serde_json::from_str(body(&me)).unwrap();
         assert_eq!(me.kind, rupicola_api::TokenKind::Session);
         assert_eq!(me.handle.as_deref(), Some("ana"));
-        assert!(me.owner);
+        assert!(me.admin);
 
         let again = call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
         assert!(again.starts_with("HTTP/1.1 409"), "{again}");

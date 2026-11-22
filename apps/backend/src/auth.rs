@@ -20,18 +20,19 @@ use std::collections::HashMap;
 use subtle::ConstantTimeEq;
 use tokio::sync::{Mutex, Semaphore};
 
-/// How long a sign-in stays valid.
-pub const SESSION_AGE: i64 = 7 * 24 * 60 * 60;
-/// Failed sign-ins per account before it is locked for [`LOCK_SECS`].
+/// How long a sign-in stays valid, in milliseconds.
+pub const SESSION_AGE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+/// Failed sign-ins per account before it is locked for [`LOCK_MS`].
 const MAX_FAILURES: u32 = 8;
-const LOCK_SECS: i64 = 300;
+const LOCK_MS: i64 = 5 * 60 * 1000;
 
-pub fn now() -> i64 {
-    let secs = std::time::SystemTime::now()
+/// Current time in Unix milliseconds.
+pub fn now_ms() -> i64 {
+    let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
-    i64::try_from(secs).unwrap_or(i64::MAX)
+        .as_millis();
+    i64::try_from(millis).unwrap_or(i64::MAX)
 }
 
 /// A new 256-bit secret, hex encoded.
@@ -127,17 +128,19 @@ pub struct Lockout(Mutex<HashMap<String, (u32, i64)>>);
 impl Lockout {
     async fn retry_after(&self, handle: &str) -> Option<u64> {
         let mut entries = self.0.lock().await;
-        let current = now();
-        entries.retain(|_, (_, since)| current - *since < LOCK_SECS);
+        let current = now_ms();
+        entries.retain(|_, (_, since)| current - *since < LOCK_MS);
         entries
             .get(handle)
             .filter(|(failures, _)| *failures >= MAX_FAILURES)
-            .map(|(_, since)| u64::try_from(LOCK_SECS - (current - since)).unwrap_or(1))
+            .map(|(_, since)| {
+                u64::try_from(LOCK_MS - (current - since)).map_or(1, |left| left.div_ceil(1000))
+            })
     }
 
     async fn fail(&self, handle: &str) {
         let mut entries = self.0.lock().await;
-        let entry = entries.entry(handle.to_owned()).or_insert((0, now()));
+        let entry = entries.entry(handle.to_owned()).or_insert((0, now_ms()));
         entry.0 = entry.0.saturating_add(1);
     }
 
@@ -150,7 +153,7 @@ impl Lockout {
 pub struct Principal {
     pub kind: TokenKind,
     pub handle: Option<String>,
-    pub owner: bool,
+    pub admin: bool,
     pub project: Option<String>,
     digest: String,
 }
@@ -170,11 +173,10 @@ impl FromRequestParts<Shared> for Principal {
         let db = state.db.lock().await;
         let mut rows = db
             .query(
-                "SELECT t.kind, t.handle, t.project, COALESCE(a.owner, 0) FROM tokens t
+                "SELECT t.kind, t.handle, t.project_id, COALESCE(a.admin, 0) FROM tokens t
                  LEFT JOIN accounts a ON a.handle = t.handle
-                 WHERE t.digest = ?1 AND (t.expires IS NULL OR t.expires > ?2)
-                   AND (t.handle IS NULL OR a.handle IS NOT NULL)",
-                turso::params![digest.as_str(), now()],
+                 WHERE t.digest = ?1 AND (t.expires_at IS NULL OR t.expires_at > ?2)",
+                turso::params![digest.as_str(), now_ms()],
             )
             .await?;
         let row = rows.next().await?.ok_or(ApiError::Unauthorized)?;
@@ -188,13 +190,13 @@ impl FromRequestParts<Shared> for Principal {
             kind,
             handle: row.get(1)?,
             project: row.get(2)?,
-            owner: row.get::<i64>(3)? == 1,
+            admin: row.get::<i64>(3)? == 1,
             digest,
         };
         drop(rows);
         db.execute(
-            "UPDATE tokens SET last_seen = ?1 WHERE digest = ?2",
-            turso::params![now(), principal.digest.as_str()],
+            "UPDATE tokens SET last_used_at = ?1 WHERE digest = ?2",
+            turso::params![now_ms(), principal.digest.as_str()],
         )
         .await?;
         Ok(principal)
@@ -214,7 +216,7 @@ pub async fn sign_in(
         let db = state.db.lock().await;
         let mut rows = db
             .query(
-                "SELECT password FROM accounts WHERE handle = ?1",
+                "SELECT password_hash FROM accounts WHERE handle = ?1",
                 [handle.as_str()],
             )
             .await?;
@@ -238,17 +240,18 @@ pub async fn sign_in(
 
 async fn issue_session(state: &Shared, handle: &str) -> Result<SessionToken, ApiError> {
     let secret = token();
-    let expires_at = now() + SESSION_AGE;
+    let created_at = now_ms();
+    let expires_at = created_at + SESSION_AGE_MS;
     let db = state.db.lock().await;
     db.execute(
-        "DELETE FROM tokens WHERE expires IS NOT NULL AND expires <= ?1",
-        [now()],
+        "DELETE FROM tokens WHERE expires_at IS NOT NULL AND expires_at <= ?1",
+        [created_at],
     )
     .await?;
     db.execute(
-        "INSERT INTO tokens (digest, kind, handle, project, label, created, expires, last_seen)
-         VALUES (?1, 'session', ?2, NULL, 'Session', ?3, ?4, NULL)",
-        turso::params![digest(&secret), handle, now(), expires_at],
+        "INSERT INTO tokens (digest, kind, handle, label, created_at, expires_at)
+         VALUES (?1, 'session', ?2, 'Session', ?3, ?4)",
+        turso::params![digest(&secret), handle, created_at, expires_at],
     )
     .await?;
     Ok(SessionToken {
@@ -279,13 +282,14 @@ pub async fn me(principal: Principal) -> Json<Me> {
     Json(Me {
         kind: principal.kind,
         handle: principal.handle,
-        owner: principal.owner,
+        admin: principal.admin,
         project: principal.project,
     })
 }
 
-/// `POST /v1/setup`: create the first owner and sign them in. Refused once an owner
-/// exists, and without the setup code unless the backend only listens on loopback.
+/// `POST /v1/setup`: create the first administrator and sign them in. Refused once
+/// one exists, and without the setup code unless the backend only listens on
+/// loopback.
 pub async fn setup(
     State(state): State<Shared>,
     Json(form): Json<Setup>,
@@ -316,15 +320,15 @@ pub async fn setup(
         .lock()
         .await
         .execute(
-            "INSERT OR IGNORE INTO accounts SELECT ?1, ?2, 1
-             WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE owner = 1)",
-            [handle.as_str(), password.as_str()],
+            "INSERT OR IGNORE INTO accounts (handle, password_hash, admin, created_at)
+             SELECT ?1, ?2, 1, ?3 WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE admin = 1)",
+            turso::params![handle.as_str(), password.as_str(), now_ms()],
         )
         .await?;
     if created == 0 {
-        return Err(ApiError::Conflict("an owner already exists"));
+        return Err(ApiError::Conflict("an administrator already exists"));
     }
-    tracing::info!(handle, "created the first owner account");
+    tracing::info!(handle, "created the first administrator account");
     Ok((
         StatusCode::CREATED,
         Json(issue_session(&state, &handle).await?),

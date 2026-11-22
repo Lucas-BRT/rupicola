@@ -3,18 +3,12 @@
 //!
 //! Each file runs once, inside one transaction, and is recorded in
 //! `schema_migrations`. Never edit a file that has shipped: add a new one.
-//! Versions 1 and 2 match what the web panel created before the backend took the
-//! database over, so the backend opens an existing `panel.db` unchanged.
 
 use anyhow::Context;
 use turso::{Connection, Value, transaction::TransactionBehavior};
 
 /// Migration files in `apps/backend/migrations/`, embedded at build time.
-const MIGRATIONS: &[(i64, &str)] = &[
-    (1, include_str!("../migrations/0001_captures.sql")),
-    (2, include_str!("../migrations/0002_panel_baseline.sql")),
-    (3, include_str!("../migrations/0003_tokens.sql")),
-];
+const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("../migrations/0001_init.sql"))];
 
 /// Splits a migration file into statements: `--` comment lines are dropped and
 /// statements end with `;`. Migration files must not put `;` inside literals.
@@ -54,7 +48,10 @@ pub async fn migrate(db: &Connection) -> anyhow::Result<()> {
             .collect();
         batch.push((
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
-            vec![Value::Integer(*target), Value::Integer(crate::auth::now())],
+            vec![
+                Value::Integer(*target),
+                Value::Integer(crate::auth::now_ms()),
+            ],
         ));
         db.transactional_batch(batch, TransactionBehavior::Immediate)
             .await
@@ -62,6 +59,18 @@ pub async fn migrate(db: &Connection) -> anyhow::Result<()> {
         tracing::info!(version = target, "applied database migration");
     }
     Ok(())
+}
+
+/// Opens a connection with foreign keys enforced; the database ignores them unless
+/// every connection asks.
+///
+/// # Errors
+///
+/// Returns an error if the connection cannot be opened.
+pub async fn connect(database: &turso::Database) -> anyhow::Result<Connection> {
+    let db = database.connect()?;
+    db.execute("PRAGMA foreign_keys = ON", ()).await?;
+    Ok(db)
 }
 
 async fn version(db: &Connection) -> anyhow::Result<i64> {
@@ -85,7 +94,8 @@ pub(crate) async fn open_test() -> (tempfile::TempDir, Connection) {
         .build()
         .await
         .unwrap();
-    let conn = db.connect().unwrap();
+    let conn = connect(&db).await.unwrap();
+    migrate(&conn).await.unwrap();
     (dir, conn)
 }
 
@@ -111,47 +121,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn opens_a_database_the_panel_created_and_keeps_its_credentials() {
+    async fn foreign_keys_and_checks_are_enforced() {
         let (_dir, db) = open_test().await;
-        // What an existing panel.db looks like: panel tables plus migration 1.
+        let orphan = db
+            .execute(
+                "INSERT INTO members (project_id, handle, role) VALUES ('nope', 'nobody', 'reader')",
+                (),
+            )
+            .await;
+        assert!(orphan.is_err(), "orphan member was accepted");
         db.execute_batch(
-            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
-             CREATE TABLE sessions (id TEXT PRIMARY KEY, handle TEXT NOT NULL, csrf TEXT NOT NULL, expires INTEGER NOT NULL);
-             CREATE TABLE machine_tokens (digest TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, created INTEGER NOT NULL, last_seen INTEGER);
-             CREATE TABLE devices (digest TEXT PRIMARY KEY, project TEXT NOT NULL, label TEXT NOT NULL, created INTEGER NOT NULL, last_seen INTEGER);
-             INSERT INTO sessions VALUES ('s-digest', 'ana', 'csrf', 99);
-             INSERT INTO machine_tokens VALUES ('m-digest', 'ana', 'laptop', 5, NULL);
-             INSERT INTO devices VALUES ('d-digest', 'demo', 'ci', 6, 7);",
+            "INSERT INTO accounts VALUES ('ana', 'hash', 0, 0);
+             INSERT INTO projects VALUES ('demo', 'Demo', 0);
+             INSERT INTO members VALUES ('demo', 'ana', 'owner');",
         )
         .await
         .unwrap();
-        for statement in statements(MIGRATIONS[0].1) {
-            db.execute(&statement, ()).await.unwrap();
-        }
-        db.execute("INSERT INTO schema_migrations VALUES (1, 0)", ())
+        let bad_role = db
+            .execute("UPDATE members SET role = 'king' WHERE handle = 'ana'", ())
+            .await;
+        assert!(bad_role.is_err(), "unknown role was accepted");
+        db.execute("DELETE FROM projects WHERE id = 'demo'", ())
             .await
             .unwrap();
+        let mut rows = db.query("SELECT count(*) FROM members", ()).await.unwrap();
+        let left: i64 = rows.next().await.unwrap().unwrap().get(0).unwrap();
+        assert_eq!(left, 0, "deleting a project must remove its members");
+    }
 
-        migrate(&db).await.unwrap();
-
-        let mut rows = db
-            .query(
-                "SELECT digest || ':' || kind || ':' || COALESCE(handle, project) FROM tokens ORDER BY digest",
+    #[tokio::test]
+    async fn a_device_token_needs_a_project_and_no_person() {
+        let (_dir, db) = open_test().await;
+        db.execute_batch(
+            "INSERT INTO accounts VALUES ('ana', 'hash', 0, 0);
+             INSERT INTO projects VALUES ('demo', 'Demo', 0);",
+        )
+        .await
+        .unwrap();
+        let mixed = db
+            .execute(
+                "INSERT INTO tokens (digest, kind, handle, project_id, label, created_at)
+                 VALUES ('d', 'device', 'ana', 'demo', 'ci', 0)",
                 (),
             )
-            .await
-            .unwrap();
-        let mut found = Vec::new();
-        while let Some(row) = rows.next().await.unwrap() {
-            found.push(row.get::<String>(0).unwrap());
-        }
-        assert_eq!(
-            found,
-            [
-                "d-digest:device:demo",
-                "m-digest:machine:ana",
-                "s-digest:session:ana"
-            ]
+            .await;
+        assert!(
+            mixed.is_err(),
+            "device token owned by a person was accepted"
         );
     }
 }
