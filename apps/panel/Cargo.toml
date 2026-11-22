@@ -19,7 +19,6 @@ topcoat = { workspace = true, features = ["view", "serve", "tailwind", "ui"] }
 tower-http.workspace = true
 turso.workspace = true
 argon2.workspace = true
-rand.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 url.workspace = true

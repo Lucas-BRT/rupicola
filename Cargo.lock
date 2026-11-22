@@ -2182,7 +2182,6 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "http",
- "rand 0.8.6",
  "rupicola-core",
  "serde",
  "serde_json",

@@ -6,10 +6,12 @@ use super::{
 use crate::components::button::button;
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{SaltString, rand_core::OsRng},
+    password_hash::{
+        SaltString,
+        rand_core::{OsRng, RngCore},
+    },
 };
 use http::{HeaderMap, HeaderValue, Method};
-use rand::RngCore;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use subtle::ConstantTimeEq;
