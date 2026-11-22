@@ -6,7 +6,8 @@ pub const DIRECTORY: &str = "proposals";
 pub const MCP_SESSION_FILE: &str = "mcp-session.json";
 pub const DISPATCH_DIR: &str = "dispatch";
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
     Palette,
@@ -61,7 +62,8 @@ impl Kind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum Status {
     Draft,

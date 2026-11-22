@@ -9,7 +9,8 @@ pub struct Project {
     pub label: String,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
     Brief,
@@ -30,7 +31,8 @@ impl Kind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum Status {
     Proposed,

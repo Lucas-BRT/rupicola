@@ -14,7 +14,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-rupicola-core.workspace = true
+rupicola-core = { workspace = true, features = ["clap"] }
 rupicola-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
