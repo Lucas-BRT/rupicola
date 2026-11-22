@@ -1,0 +1,174 @@
+//! Request hardening applied to every route: per-client rate limiting, body size,
+//! timeout and concurrency limits, panic isolation, security headers, request ids
+//! and redaction of credentials from logs.
+
+use crate::error::ApiError;
+use axum::{
+    Router,
+    error_handling::HandleErrorLayer,
+    extract::ConnectInfo,
+    http::{HeaderName, HeaderValue, Request, header},
+    response::IntoResponse,
+};
+use std::{net::IpAddr, net::SocketAddr, sync::Arc, time::Duration};
+use tower::ServiceBuilder;
+use tower_governor::{
+    GovernorError, GovernorLayer, governor::GovernorConfigBuilder, key_extractor::KeyExtractor,
+};
+use tower_http::{
+    catch_panic::CatchPanicLayer,
+    limit::RequestBodyLimitLayer,
+    request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
+    sensitive_headers::SetSensitiveRequestHeadersLayer,
+    set_header::SetResponseHeaderLayer,
+    trace::TraceLayer,
+};
+
+/// Limits and trust settings, from command-line flags or environment variables.
+#[derive(Clone, Debug, clap::Args)]
+pub struct Security {
+    /// Requests each client may send in a burst before being rate limited.
+    #[arg(long, env = "RUPICOLA_RATE_BURST", default_value_t = 60)]
+    pub rate_burst: u32,
+    /// Milliseconds for a rate-limited client to earn one more request.
+    #[arg(long, env = "RUPICOLA_RATE_REFILL_MS", default_value_t = 100)]
+    pub rate_refill_ms: u64,
+    /// Largest accepted request body, in bytes.
+    #[arg(long, env = "RUPICOLA_BODY_LIMIT", default_value_t = 1024 * 1024)]
+    pub body_limit: usize,
+    /// Seconds a request may take before it is answered with 408.
+    #[arg(long, env = "RUPICOLA_REQUEST_TIMEOUT", default_value_t = 30)]
+    pub request_timeout: u64,
+    /// Requests processed at once; further requests get 503 instead of queueing.
+    #[arg(long, env = "RUPICOLA_MAX_CONCURRENCY", default_value_t = 512)]
+    pub max_concurrency: usize,
+    /// Set when a TLS-terminating reverse proxy (one hop) sits in front: the client
+    /// address is then the last X-Forwarded-For entry, and HSTS is sent. Never set
+    /// it when clients reach the backend directly, or they can forge their address.
+    #[arg(long, env = "RUPICOLA_BEHIND_PROXY")]
+    pub behind_proxy: bool,
+}
+
+/// Rate-limit key: the client address as seen by us or by our own proxy.
+#[derive(Clone)]
+struct ClientIp {
+    behind_proxy: bool,
+}
+
+impl KeyExtractor for ClientIp {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, request: &Request<T>) -> Result<IpAddr, GovernorError> {
+        if self.behind_proxy {
+            // The proxy appends the address it saw; earlier entries are client-supplied.
+            return request
+                .headers()
+                .get_all("x-forwarded-for")
+                .iter()
+                .filter_map(|value| value.to_str().ok())
+                .flat_map(|value| value.split(','))
+                .next_back()
+                .and_then(|last| last.trim().parse().ok())
+                .ok_or(GovernorError::UnableToExtractKey);
+        }
+        request
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(address)| address.ip())
+            .ok_or(GovernorError::UnableToExtractKey)
+    }
+}
+
+/// Wraps `router` with every protection. Must run inside a Tokio runtime: it starts
+/// the task that forgets idle rate-limit entries.
+///
+/// # Panics
+///
+/// Panics if the rate settings are zero.
+pub fn harden(router: Router, settings: &Security) -> Router {
+    let governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .key_extractor(ClientIp {
+                behind_proxy: settings.behind_proxy,
+            })
+            .per_millisecond(settings.rate_refill_ms)
+            .burst_size(settings.rate_burst)
+            .finish()
+            .expect("rate burst and refill must be greater than zero"),
+    );
+    let limiter = governor.limiter().clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            tick.tick().await;
+            limiter.retain_recent();
+        }
+    });
+
+    let mut headers = vec![
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::X_FRAME_OPTIONS, "DENY"),
+        (header::REFERRER_POLICY, "no-referrer"),
+        (
+            header::CONTENT_SECURITY_POLICY,
+            "default-src 'none'; frame-ancestors 'none'",
+        ),
+        (header::CACHE_CONTROL, "no-store"),
+        (
+            HeaderName::from_static("cross-origin-resource-policy"),
+            "same-origin",
+        ),
+    ];
+    if settings.behind_proxy {
+        headers.push((
+            header::STRICT_TRANSPORT_SECURITY,
+            "max-age=63072000; includeSubDomains",
+        ));
+    }
+    let mut router = router
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|error: tower::BoxError| async move {
+                    if error.is::<tower::timeout::error::Elapsed>() {
+                        ApiError::Timeout
+                    } else if error.is::<tower::load_shed::error::Overloaded>() {
+                        ApiError::Overloaded
+                    } else {
+                        ApiError::Internal(anyhow::anyhow!(error))
+                    }
+                }))
+                .load_shed()
+                .concurrency_limit(settings.max_concurrency)
+                .timeout(Duration::from_secs(settings.request_timeout)),
+        )
+        .layer(RequestBodyLimitLayer::new(settings.body_limit))
+        .layer(GovernorLayer::new(governor).error_handler(|error| {
+            match error {
+                GovernorError::TooManyRequests { wait_time, .. } => ApiError::TooManyRequests {
+                    retry_after: wait_time,
+                }
+                .into_response(),
+                other => {
+                    ApiError::Internal(anyhow::anyhow!("rate limiter: {other}")).into_response()
+                }
+            }
+        }))
+        .layer(CatchPanicLayer::custom(|_| {
+            ApiError::Internal(anyhow::anyhow!("handler panicked")).into_response()
+        }));
+    for (name, value) in headers {
+        router = router.layer(SetResponseHeaderLayer::overriding(
+            name,
+            HeaderValue::from_static(value),
+        ));
+    }
+    let request_id = HeaderName::from_static("x-request-id");
+    router
+        .layer(PropagateRequestIdLayer::new(request_id.clone()))
+        .layer(TraceLayer::new_for_http())
+        .layer(SetSensitiveRequestHeadersLayer::new([
+            header::AUTHORIZATION,
+            header::COOKIE,
+        ]))
+        .layer(SetRequestIdLayer::new(request_id, MakeRequestUuid))
+}

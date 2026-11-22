@@ -1,8 +1,8 @@
-//! Errors returned by API handlers, rendered as [`ErrorBody`] JSON.
+//! Errors returned by API handlers and middleware, rendered as [`ErrorBody`] JSON.
 
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use rupicola_api::ErrorBody;
@@ -11,6 +11,12 @@ use rupicola_api::ErrorBody;
 pub enum ApiError {
     #[error("no route matches this request")]
     NotFound,
+    #[error("too many requests; retry in {retry_after} s")]
+    TooManyRequests { retry_after: u64 },
+    #[error("the request took too long")]
+    Timeout,
+    #[error("the server is busy; retry shortly")]
+    Overloaded,
     /// Unexpected failure; details go to the log, never to the client.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -20,6 +26,9 @@ impl ApiError {
     fn status(&self) -> StatusCode {
         match self {
             Self::NotFound => StatusCode::NOT_FOUND,
+            Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
+            Self::Timeout => StatusCode::REQUEST_TIMEOUT,
+            Self::Overloaded => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -27,6 +36,9 @@ impl ApiError {
     fn code(&self) -> &'static str {
         match self {
             Self::NotFound => "not-found",
+            Self::TooManyRequests { .. } => "rate-limited",
+            Self::Timeout => "timeout",
+            Self::Overloaded => "overloaded",
             Self::Internal(_) => "internal",
         }
     }
@@ -34,18 +46,26 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let message = match &self {
-            Self::Internal(error) => {
-                tracing::error!(error = format!("{error:#}"), "request failed");
-                "internal server error".to_owned()
-            }
-            Self::NotFound => self.to_string(),
+        let message = if let Self::Internal(error) = &self {
+            tracing::error!(error = format!("{error:#}"), "request failed");
+            "internal server error".to_owned()
+        } else {
+            self.to_string()
+        };
+        let retry_after = match &self {
+            Self::TooManyRequests { retry_after } => Some(retry_after.to_string()),
+            Self::Overloaded => Some("1".to_owned()),
+            _ => None,
         };
         let body = ErrorBody {
             code: self.code().to_owned(),
             message,
         };
-        (self.status(), Json(body)).into_response()
+        let mut response = (self.status(), Json(body)).into_response();
+        if let Some(value) = retry_after.and_then(|value| HeaderValue::from_str(&value).ok()) {
+            response.headers_mut().insert(header::RETRY_AFTER, value);
+        }
+        response
     }
 }
 
@@ -57,5 +77,12 @@ mod tests {
     fn internal_errors_hide_their_details_from_clients() {
         let response = ApiError::from(anyhow::anyhow!("database path /secret")).into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn rate_limited_responses_say_when_to_retry() {
+        let response = ApiError::TooManyRequests { retry_after: 7 }.into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "7");
     }
 }

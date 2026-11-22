@@ -11,11 +11,21 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-clap.workspace = true
+clap = { workspace = true, features = ["env"] }
 rupicola-api.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal"] }
-tower-http = { workspace = true, features = ["trace"] }
+tower = { workspace = true, features = ["limit", "load-shed", "timeout"] }
+tower-http = { workspace = true, features = [
+    "catch-panic",
+    "limit",
+    "request-id",
+    "sensitive-headers",
+    "set-header",
+    "trace",
+    "util",
+] }
+tower_governor.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
