@@ -10,6 +10,7 @@ use axum::{
     http::{HeaderName, HeaderValue, Request, header},
     response::IntoResponse,
 };
+use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use std::{net::IpAddr, net::SocketAddr, sync::Arc, time::Duration};
 use tower::ServiceBuilder;
 use tower_governor::{
@@ -51,7 +52,7 @@ pub struct Security {
 
 /// Rate-limit key: the client address as seen by us or by our own proxy.
 #[derive(Clone)]
-struct ClientIp {
+pub struct ClientIp {
     behind_proxy: bool,
 }
 
@@ -92,24 +93,25 @@ async fn json_payload_too_large(response: axum::response::Response) -> axum::res
     response
 }
 
-/// Wraps `router` with every protection. Must run inside a Tokio runtime: it starts
-/// the task that forgets idle rate-limit entries.
+/// Rate limiter keyed by client address, with idle entries pruned every minute.
+pub type RateLimit = GovernorLayer<ClientIp, NoOpMiddleware<QuantaInstant>, axum::body::Body>;
+
+/// Builds a [`RateLimit`]: `burst` requests at once, one more every `refill_ms`.
+/// Must run inside a Tokio runtime, which hosts the pruning task.
 ///
 /// # Panics
 ///
-/// Panics if the rate settings are zero.
-pub fn harden(router: Router, settings: &Security) -> Router {
-    let governor = Arc::new(
+/// Panics if `burst` or `refill_ms` is zero.
+pub fn rate_limit(burst: u32, refill_ms: u64, behind_proxy: bool) -> RateLimit {
+    let config = Arc::new(
         GovernorConfigBuilder::default()
-            .key_extractor(ClientIp {
-                behind_proxy: settings.behind_proxy,
-            })
-            .per_millisecond(settings.rate_refill_ms)
-            .burst_size(settings.rate_burst)
+            .key_extractor(ClientIp { behind_proxy })
+            .per_millisecond(refill_ms)
+            .burst_size(burst)
             .finish()
             .expect("rate burst and refill must be greater than zero"),
     );
-    let limiter = governor.limiter().clone();
+    let limiter = config.limiter().clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(60));
         loop {
@@ -117,7 +119,17 @@ pub fn harden(router: Router, settings: &Security) -> Router {
             limiter.retain_recent();
         }
     });
+    GovernorLayer::new(config).error_handler(|error| match error {
+        GovernorError::TooManyRequests { wait_time, .. } => ApiError::TooManyRequests {
+            retry_after: wait_time,
+        }
+        .into_response(),
+        other => ApiError::Internal(anyhow::anyhow!("rate limiter: {other}")).into_response(),
+    })
+}
 
+/// Wraps `router` with every protection. Must run inside a Tokio runtime.
+pub fn harden(router: Router, settings: &Security) -> Router {
     let mut headers = vec![
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         (header::X_FRAME_OPTIONS, "DENY"),
@@ -156,17 +168,11 @@ pub fn harden(router: Router, settings: &Security) -> Router {
         )
         .layer(RequestBodyLimitLayer::new(settings.body_limit))
         .layer(axum::middleware::map_response(json_payload_too_large))
-        .layer(GovernorLayer::new(governor).error_handler(|error| {
-            match error {
-                GovernorError::TooManyRequests { wait_time, .. } => ApiError::TooManyRequests {
-                    retry_after: wait_time,
-                }
-                .into_response(),
-                other => {
-                    ApiError::Internal(anyhow::anyhow!("rate limiter: {other}")).into_response()
-                }
-            }
-        }))
+        .layer(rate_limit(
+            settings.rate_burst,
+            settings.rate_refill_ms,
+            settings.behind_proxy,
+        ))
         .layer(CatchPanicLayer::custom(|_| {
             ApiError::Internal(anyhow::anyhow!("handler panicked")).into_response()
         }));

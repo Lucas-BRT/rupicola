@@ -11,6 +11,14 @@ use rupicola_api::ErrorBody;
 pub enum ApiError {
     #[error("no route matches this request")]
     NotFound,
+    #[error("sign in or send a valid bearer token")]
+    Unauthorized,
+    #[error("this credential may not do that")]
+    Forbidden,
+    #[error("{0}")]
+    Invalid(&'static str),
+    #[error("{0}")]
+    Conflict(&'static str),
     #[error("too many requests; retry in {retry_after} s")]
     TooManyRequests { retry_after: u64 },
     #[error("the request took too long")]
@@ -24,10 +32,20 @@ pub enum ApiError {
     Internal(#[from] anyhow::Error),
 }
 
+impl From<turso::Error> for ApiError {
+    fn from(error: turso::Error) -> Self {
+        Self::Internal(error.into())
+    }
+}
+
 impl ApiError {
     fn status(&self) -> StatusCode {
         match self {
             Self::NotFound => StatusCode::NOT_FOUND,
+            Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Timeout => StatusCode::REQUEST_TIMEOUT,
             Self::Overloaded => StatusCode::SERVICE_UNAVAILABLE,
@@ -39,6 +57,10 @@ impl ApiError {
     fn code(&self) -> &'static str {
         match self {
             Self::NotFound => "not-found",
+            Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
+            Self::Invalid(_) => "invalid",
+            Self::Conflict(_) => "conflict",
             Self::TooManyRequests { .. } => "rate-limited",
             Self::Timeout => "timeout",
             Self::Overloaded => "overloaded",

@@ -10,9 +10,13 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+argon2.workspace = true
 axum.workspace = true
 clap = { workspace = true, features = ["env"] }
+governor.workspace = true
 rupicola-api.workspace = true
+sha2.workspace = true
+subtle.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal"] }
 tower = { workspace = true, features = ["limit", "load-shed", "timeout"] }
@@ -28,9 +32,11 @@ tower-http = { workspace = true, features = [
 tower_governor.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+turso.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

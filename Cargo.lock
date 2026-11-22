@@ -2360,10 +2360,15 @@ name = "rupicola-backend"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "argon2",
  "axum",
  "clap",
+ "governor",
  "rupicola-api",
  "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tower",
@@ -2371,6 +2376,7 @@ dependencies = [
  "tower_governor",
  "tracing",
  "tracing-subscriber",
+ "turso",
 ]
 
 [[package]]
