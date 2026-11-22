@@ -4,8 +4,11 @@
 mod auth;
 mod db;
 mod error;
+mod projects;
 mod security;
 mod state;
+#[cfg(test)]
+mod testkit;
 
 use anyhow::{Context, bail};
 use axum::{Json, Router, routing};
@@ -55,6 +58,22 @@ fn app(settings: &security::Security, state: state::Shared) -> Router {
         .route("/healthz", routing::get(health))
         .route("/v1/me", routing::get(auth::me))
         .route("/v1/sessions/current", routing::delete(auth::sign_out))
+        .route(
+            "/v1/projects",
+            routing::get(projects::list).post(projects::create),
+        )
+        .route(
+            "/v1/projects/{id}",
+            routing::get(projects::get)
+                .patch(projects::update)
+                .delete(projects::delete),
+        )
+        .route("/v1/projects/{id}/members", routing::get(projects::members))
+        .route(
+            "/v1/projects/{id}/members/{handle}",
+            routing::put(projects::put_member).delete(projects::delete_member),
+        )
+        .route("/v1/projects/{id}/audit", routing::get(projects::audit_log))
         .merge(credentials)
         .fallback(|| async { ApiError::NotFound })
         .with_state(state);
@@ -150,69 +169,7 @@ fn send(port: u16, request: &str) -> std::io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn settings() -> security::Security {
-        security::Security {
-            rate_burst: 60,
-            rate_refill_ms: 100,
-            body_limit: 1024,
-            request_timeout: 30,
-            max_concurrency: 16,
-            behind_proxy: false,
-        }
-    }
-
-    /// Starts a server on a fresh in-memory database.
-    async fn start(settings: security::Security) -> u16 {
-        start_custom(settings, None, true).await
-    }
-
-    async fn start_custom(
-        settings: security::Security,
-        setup_code: Option<&str>,
-        open_setup: bool,
-    ) -> u16 {
-        let _ = tracing_subscriber::fmt()
-            .with_test_writer()
-            .with_env_filter("rupicola_backend=debug")
-            .try_init();
-        let state = state::AppState::new(db::open_memory().await, setup_code, open_setup).unwrap();
-        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-            .await
-            .unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let app = app(&settings, state).into_make_service_with_connect_info::<SocketAddr>();
-        tokio::spawn(async move { axum::serve(listener, app).await });
-        port
-    }
-
-    async fn request(port: u16, raw: String) -> String {
-        tokio::task::spawn_blocking(move || send(port, &raw))
-            .await
-            .unwrap()
-            .unwrap()
-    }
-
-    async fn get(port: u16, path: &str, extra_headers: &str) -> String {
-        request(
-            port,
-            format!(
-                "GET {path} HTTP/1.1\r\nHost: test\r\n{extra_headers}Connection: close\r\n\r\n"
-            ),
-        )
-        .await
-    }
-
-    fn body(response: &str) -> &str {
-        response.split_once("\r\n\r\n").unwrap().1
-    }
-
-    fn header<'a>(response: &'a str, name: &str) -> Option<&'a str> {
-        response.lines().find_map(|line| {
-            let (key, value) = line.split_once(':')?;
-            key.eq_ignore_ascii_case(name).then(|| value.trim())
-        })
-    }
+    use crate::testkit::*;
 
     #[tokio::test]
     async fn healthz_reports_ok_with_the_package_version() {
@@ -295,7 +252,11 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_bodies_are_rejected_before_reaching_handlers() {
-        let port = start(settings()).await;
+        let port = start(security::Security {
+            body_limit: 1024,
+            ..settings()
+        })
+        .await;
         let response = request(
             port,
             "POST /healthz HTTP/1.1\r\nHost: test\r\nContent-Length: 4096\r\nConnection: close\r\n\r\n"
@@ -307,33 +268,6 @@ mod tests {
         let error: rupicola_api::ErrorBody = serde_json::from_str(body(&response)).unwrap();
         assert_eq!(error.code, "payload-too-large");
     }
-    async fn call(
-        port: u16,
-        method: &str,
-        path: &str,
-        token: Option<&str>,
-        json: Option<&str>,
-    ) -> String {
-        let auth = token.map_or(String::new(), |token| {
-            format!("Authorization: Bearer {token}\r\n")
-        });
-        let body = json.unwrap_or("");
-        request(
-            port,
-            format!(
-                "{method} {path} HTTP/1.1\r\nHost: test\r\n{auth}Content-Type: application/json\r\n\
-                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            ),
-        )
-        .await
-    }
-
-    fn token_of(response: &str) -> String {
-        let session: rupicola_api::SessionToken = serde_json::from_str(body(response)).unwrap();
-        session.token
-    }
-
     const OWNER: &str = r#"{"handle":"Ana","password":"correct horse battery"}"#;
 
     #[tokio::test]
@@ -355,7 +289,7 @@ mod tests {
     #[tokio::test]
     async fn setup_needs_the_code_unless_listening_on_loopback() {
         let code = "a-setup-code-that-is-long-enough-123";
-        let port = start_custom(settings(), Some(code), false).await;
+        let port = start_custom(settings(), Some(code), false).await.0;
         let without = call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
         assert!(without.starts_with("HTTP/1.1 403"), "{without}");
         let with =

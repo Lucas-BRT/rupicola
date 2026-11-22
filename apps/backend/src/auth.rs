@@ -113,7 +113,7 @@ impl Passwords {
     }
 }
 
-fn hash(password: &str) -> anyhow::Result<String> {
+pub(crate) fn hash(password: &str) -> anyhow::Result<String> {
     Argon2::default()
         .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
         .map(|hash| hash.to_string())

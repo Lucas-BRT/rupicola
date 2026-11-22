@@ -9,7 +9,9 @@ use rupicola_api::ErrorBody;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
-    #[error("no route matches this request")]
+    /// Also used when the caller may not see the resource, so its existence
+    /// does not leak.
+    #[error("not found")]
     NotFound,
     #[error("sign in or send a valid bearer token")]
     Unauthorized,

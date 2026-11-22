@@ -68,6 +68,62 @@ pub struct Me {
     pub project: Option<String>,
 }
 
+/// What a caller may do in one project.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Role {
+    /// Reads everything in the project.
+    Reader,
+    /// Also triages problems and reviews captures and fixes.
+    Reviewer,
+    /// Also manages the project, its members and its credentials.
+    Owner,
+}
+
+/// A project as seen by the caller.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct Project {
+    pub id: String,
+    pub label: String,
+    pub created_at: i64,
+    /// The caller's role; `None` for a capture device, which may only publish.
+    pub role: Option<Role>,
+}
+
+/// `POST /v1/projects`. The id is a stable slug chosen by the client, such as one
+/// derived from the repository.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NewProject {
+    pub id: String,
+    pub label: String,
+}
+
+/// `PATCH /v1/projects/{id}`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ProjectUpdate {
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct Member {
+    pub handle: String,
+    pub role: Role,
+}
+
+/// `PUT /v1/projects/{id}/members/{handle}`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MemberRole {
+    pub role: Role,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct AuditEvent {
+    pub id: String,
+    pub actor: String,
+    pub event: String,
+    pub occurred_at: i64,
+}
+
 /// Body of every non-2xx API response.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct ErrorBody {
