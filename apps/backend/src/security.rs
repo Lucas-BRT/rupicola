@@ -34,9 +34,12 @@ pub struct Security {
     /// Milliseconds for a rate-limited client to earn one more request.
     #[arg(long, env = "RUPICOLA_RATE_REFILL_MS", default_value_t = 100)]
     pub rate_refill_ms: u64,
-    /// Largest accepted request body, in bytes.
+    /// Largest accepted request body, in bytes, except media uploads.
     #[arg(long, env = "RUPICOLA_BODY_LIMIT", default_value_t = 1024 * 1024)]
     pub body_limit: usize,
+    /// Largest accepted media file (`PUT /v1/blobs/…`), in bytes.
+    #[arg(long, env = "RUPICOLA_BLOB_LIMIT", default_value_t = 64 * 1024 * 1024)]
+    pub blob_limit: usize,
     /// Seconds a request may take before it is answered with 408.
     #[arg(long, env = "RUPICOLA_REQUEST_TIMEOUT", default_value_t = 30)]
     pub request_timeout: u64,
@@ -128,7 +131,19 @@ pub fn rate_limit(burst: u32, refill_ms: u64, behind_proxy: bool) -> RateLimit {
     })
 }
 
-/// Wraps `router` with every protection. Must run inside a Tokio runtime.
+/// Caps request bodies for `router` at `limit` bytes. Applied per group of routes,
+/// since media uploads need a much larger cap than everything else.
+pub fn limit_body(
+    router: Router<crate::state::Shared>,
+    limit: usize,
+) -> Router<crate::state::Shared> {
+    router
+        .layer(RequestBodyLimitLayer::new(limit))
+        .layer(axum::extract::DefaultBodyLimit::max(limit))
+}
+
+/// Wraps `router` with every protection except body limits (see [`limit_body`]).
+/// Must run inside a Tokio runtime.
 pub fn harden(router: Router, settings: &Security) -> Router {
     let mut headers = vec![
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
@@ -166,7 +181,6 @@ pub fn harden(router: Router, settings: &Security) -> Router {
                 .concurrency_limit(settings.max_concurrency)
                 .timeout(Duration::from_secs(settings.request_timeout)),
         )
-        .layer(RequestBodyLimitLayer::new(settings.body_limit))
         .layer(axum::middleware::map_response(json_payload_too_large))
         .layer(rate_limit(
             settings.rate_burst,

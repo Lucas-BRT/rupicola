@@ -10,6 +10,7 @@ pub fn settings() -> security::Security {
         rate_burst: 60,
         rate_refill_ms: 100,
         body_limit: 1024 * 1024,
+        blob_limit: 4 * 1024 * 1024,
         request_timeout: 30,
         max_concurrency: 16,
         behind_proxy: false,
@@ -30,7 +31,13 @@ pub async fn start_custom(
         .with_test_writer()
         .with_env_filter("rupicola_backend=debug")
         .try_init();
-    let state = state::AppState::new(db::open_memory().await, setup_code, open_setup).unwrap();
+    let state = state::AppState::new(
+        db::open_memory().await,
+        crate::blobs::Blobs::memory(),
+        setup_code,
+        open_setup,
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();

@@ -124,6 +124,178 @@ pub struct AuditEvent {
     pub occurred_at: i64,
 }
 
+/// A file already uploaded with `PUT /v1/blobs/{sha256}`, placed at `path` inside
+/// a capture.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct BlobRef {
+    pub path: String,
+    pub sha256: String,
+}
+
+/// Where and how a capture was taken. Every field is optional because backends
+/// report different things.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct Environment {
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    #[serde(default)]
+    pub scale: Option<f64>,
+    #[serde(default)]
+    pub color_scheme: Option<String>,
+    #[serde(default)]
+    pub reduced_motion: bool,
+    #[serde(default)]
+    pub locale: Option<String>,
+    #[serde(default)]
+    pub platform: Option<String>,
+    #[serde(default)]
+    pub renderer: Option<String>,
+    #[serde(default)]
+    pub browser: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureStatus {
+    Complete,
+    /// The capture could not finish; `blocker` says why.
+    Blocked,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Inspection {
+    Pending,
+    Reviewed,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct NewCheckpoint {
+    pub id: String,
+    #[serde(flatten)]
+    pub file: BlobRef,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct NewFrame {
+    #[serde(flatten)]
+    pub file: BlobRef,
+    pub target_ms: f64,
+    #[serde(default)]
+    pub video_ms: Option<f64>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct NewClip {
+    pub id: String,
+    #[serde(default)]
+    pub video: Option<BlobRef>,
+    #[serde(default)]
+    pub sheet: Option<BlobRef>,
+    #[serde(default)]
+    pub analysis: Option<BlobRef>,
+    #[serde(default)]
+    pub frames: Vec<NewFrame>,
+}
+
+/// `POST /v1/projects/{id}/captures`: describes a capture whose files were
+/// uploaded first.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct NewCapture {
+    pub scenario: String,
+    #[serde(default)]
+    pub revision: Option<String>,
+    pub status: CaptureStatus,
+    #[serde(default)]
+    pub blocker: Option<String>,
+    #[serde(default)]
+    pub environment: Environment,
+    #[serde(default)]
+    pub checkpoints: Vec<NewCheckpoint>,
+    #[serde(default)]
+    pub clips: Vec<NewClip>,
+}
+
+/// A stored media file; fetch its bytes from `GET /v1/artifacts/{id}`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct Artifact {
+    pub id: String,
+    pub path: String,
+    pub mime: String,
+    pub bytes: u64,
+    pub sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct Checkpoint {
+    pub id: String,
+    pub artifact: Artifact,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Frame {
+    pub artifact: Artifact,
+    pub target_ms: f64,
+    pub video_ms: Option<f64>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Clip {
+    pub id: String,
+    pub video: Option<Artifact>,
+    pub sheet: Option<Artifact>,
+    pub analysis: Option<Artifact>,
+    pub frames: Vec<Frame>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct Finding {
+    pub id: String,
+    pub note: String,
+    pub evidence_artifact_id: Option<String>,
+    pub author: Option<String>,
+    pub created_at: i64,
+}
+
+/// `POST /v1/captures/{id}/findings`: a review note, optionally pointing at one of
+/// the capture's artifacts.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NewFinding {
+    pub note: String,
+    #[serde(default)]
+    pub evidence_artifact_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Capture {
+    pub id: String,
+    pub project_id: String,
+    pub scenario: String,
+    pub revision: Option<String>,
+    pub status: CaptureStatus,
+    pub blocker: Option<String>,
+    pub inspection: Inspection,
+    pub environment: Environment,
+    pub created_at: i64,
+    pub checkpoints: Vec<Checkpoint>,
+    pub clips: Vec<Clip>,
+    pub findings: Vec<Finding>,
+}
+
+/// One row of `GET /v1/projects/{id}/captures`, newest first.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct CaptureSummary {
+    pub id: String,
+    pub scenario: String,
+    pub status: CaptureStatus,
+    pub inspection: Inspection,
+    pub created_at: i64,
+    /// Artifact id of the first checkpoint, for a thumbnail.
+    pub preview: Option<String>,
+}
+
 /// Body of every non-2xx API response.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct ErrorBody {

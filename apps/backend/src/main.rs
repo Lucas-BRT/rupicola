@@ -2,6 +2,8 @@
 //! It is the only process that touches the database and the media store.
 
 mod auth;
+mod blobs;
+mod captures;
 mod db;
 mod error;
 mod projects;
@@ -54,7 +56,7 @@ fn app(settings: &security::Security, state: state::Shared) -> Router {
         .route("/v1/sessions", routing::post(auth::sign_in))
         .route("/v1/setup", routing::post(auth::setup))
         .route_layer(sign_in_limit);
-    let routes = Router::new()
+    let api = Router::new()
         .route("/healthz", routing::get(health))
         .route("/v1/me", routing::get(auth::me))
         .route("/v1/sessions/current", routing::delete(auth::sign_out))
@@ -74,7 +76,23 @@ fn app(settings: &security::Security, state: state::Shared) -> Router {
             routing::put(projects::put_member).delete(projects::delete_member),
         )
         .route("/v1/projects/{id}/audit", routing::get(projects::audit_log))
-        .merge(credentials)
+        .route(
+            "/v1/projects/{id}/captures",
+            routing::get(captures::list).post(captures::create),
+        )
+        .route("/v1/captures/{id}", routing::get(captures::get))
+        .route(
+            "/v1/captures/{id}/findings",
+            routing::post(captures::add_finding),
+        )
+        .route("/v1/artifacts/{id}", routing::get(captures::artifact))
+        .merge(credentials);
+    let uploads = Router::new().route(
+        "/v1/blobs/{sha256}",
+        routing::put(captures::put_blob).head(captures::head_blob),
+    );
+    let routes = security::limit_body(api, settings.body_limit)
+        .merge(security::limit_body(uploads, settings.blob_limit))
         .fallback(|| async { ApiError::NotFound })
         .with_state(state);
     security::harden(routes, settings)

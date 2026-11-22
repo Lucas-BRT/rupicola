@@ -15,14 +15,17 @@ axum.workspace = true
 clap = { workspace = true, features = ["env"] }
 governor.workspace = true
 rupicola-api.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 subtle.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal"] }
-tower = { workspace = true, features = ["limit", "load-shed", "timeout"] }
+tower = { workspace = true, features = ["limit", "load-shed", "timeout", "util"] }
 tower-http = { workspace = true, features = [
     "catch-panic",
+    "fs",
     "limit",
     "request-id",
     "sensitive-headers",
@@ -37,7 +40,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 serde.workspace = true
-serde_json.workspace = true
 
 [lints]
 workspace = true
