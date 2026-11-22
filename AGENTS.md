@@ -14,10 +14,10 @@ Operational rules for AI agents working in this repository. Never invent files, 
 
 ## Local Dev vs Cloud
 - Do not install or start local `systemd` services (`rupicola.service` / `ferris-atelier.service`).
-- Test panel changes locally via `./panel/dev.sh {reload|stop|reset|status}` (isolated in `.rupicola/dev-data/`, `127.0.0.1:4731`) or `docker compose -f compose.local.yml up --build`.
+- Test panel changes locally via `./apps/panel/dev.sh {reload|stop|reset|status}` (isolated in `.rupicola/dev-data/`, `127.0.0.1:4731`) or `docker compose -f compose.local.yml up --build`.
 - Never overwrite `~/.local/share/rupicola/auth-token` from dev scripts.
 - Remote MCP: `rupicola mcp-bridge --server-url https://rupicola.lucasbrt.dev/mcp` (reads `~/.local/share/rupicola/auth-token` before `RUPICOLA_MCP_TOKEN`).
-- Server MCP endpoints (`panel/src/mcp.rs`): `POST /mcp` (global `machine_tokens`) and `POST /mcp/{project}` (`devices` + `machine_tokens`).
+- Server MCP endpoints (`apps/panel/src/mcp.rs`): `POST /mcp` (global `machine_tokens`) and `POST /mcp/{project}` (`devices` + `machine_tokens`).
 
 ## Mandatory Verification Before Reporting Done
 Run and observe passing output after your final edit:
