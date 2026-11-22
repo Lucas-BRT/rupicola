@@ -354,20 +354,73 @@ fn manifest(run: &str) -> Result<(PathBuf, Value)> {
     Ok((path, value))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the MCP dispatcher keeps tool names, argument decoding, and response shaping together"
-)]
-fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
-    let arg = |key: &str| {
-        args[key]
+/// Wraps text in the MCP tool-result envelope.
+fn text(output: &str) -> Value {
+    json!({"content":[{"type":"text","text":output}]})
+}
+
+/// One `tools/call` request: the tool's name and its JSON arguments. Each tool is
+/// a method, so the dispatcher stays a plain table.
+struct ToolCall<'a> {
+    name: &'a str,
+    args: &'a Value,
+}
+
+impl ToolCall<'_> {
+    /// A required string argument.
+    fn arg(&self, key: &str) -> Result<&str> {
+        self.args[key]
             .as_str()
             .ok_or_else(|| anyhow!("Expected string: {key}"))
-    };
-    let output = match name {
-        "project_context" => cli(&["design".into(), "open".into(), "--json".into()])?,
-        "service_health" => cli(&["doctor".into()])?,
-        "ui_scan" | "ui_discover" | "skill_check" => {
+    }
+
+    fn run(&self, preview: &mut Preview) -> Result<Value> {
+        match self.name {
+            "project_context" => Self::project_context(),
+            "service_health" => Self::service_health(),
+            "ui_scan" | "ui_discover" | "skill_check" => self.ui_scan(),
+            "design_record" => self.design_record(),
+            "preview_start" => self.preview_start(preview),
+            "preview_status" => Self::preview_status(preview),
+            "preview_stop" => Ok(Self::preview_stop(preview)),
+            "evidence_import" => self.evidence_import(),
+            "capture_cosmic" => self.capture_cosmic(),
+            "capture_run" => self.capture_run(),
+            "evidence_list" => Self::evidence_list(),
+            "capture_review" => self.capture_review(),
+            "artifact_read" => self.artifact_read(),
+            "propose_list" => self.propose_list(),
+            "propose_get" => self.propose_get(),
+            "propose_enrich" => self.propose_enrich(),
+            "propose_await" => self.propose_await(),
+            "probe_run" => self.probe_run(),
+            "problem_list" => self.problem_list(),
+            "problem_add" => self.problem_add(),
+            "problem_triage" => self.problem_triage(),
+            "problem_progress" => self.problem_progress(),
+            "fix_list" => self.fix_list(),
+            "fix_record" => self.fix_record(),
+            "storage_status" => self.storage_status(),
+            "storage_clean" => self.storage_clean(),
+            "storage_offload" => self.storage_offload(),
+            _ => bail!("Unknown tool"),
+        }
+    }
+
+    fn project_context() -> Result<Value> {
+        let output: String = cli(&["design".into(), "open".into(), "--json".into()])?;
+        Ok(text(&output))
+    }
+
+    fn service_health() -> Result<Value> {
+        let output: String = cli(&["doctor".into()])?;
+        Ok(text(&output))
+    }
+
+    fn ui_scan(&self) -> Result<Value> {
+        let args = self.args;
+        let name = self.name;
+        let output: String = {
             let command = match name {
                 "ui_scan" => "scan",
                 "ui_discover" => "discover",
@@ -379,8 +432,14 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 "--".into(),
                 args["path"].as_str().unwrap_or(".").into(),
             ])?
-        }
-        "design_record" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn design_record(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let mut command = vec!["design".into(), "add".into()];
             for key in [
                 "title",
@@ -399,8 +458,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
             }
             command.extend(["--".into(), arg("kind")?.into()]);
             cli(&command)?
-        }
-        "preview_start" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn preview_start(&self, preview: &mut Preview) -> Result<Value> {
+        let args = self.args;
+        let output: String = {
             if preview.0.is_some() {
                 bail!("Stop the existing preview first");
             }
@@ -455,21 +519,37 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
             };
             *preview = Preview(Some(child), Some(url.clone()));
             json!({"url":url,"fixture":args["demo"] == true}).to_string()
-        }
-        "preview_status" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn preview_status(preview: &mut Preview) -> Result<Value> {
+        let output: String = {
             if let Some(child) = preview.0.as_mut()
                 && child.try_wait()?.is_some()
             {
                 *preview = Preview::default();
             }
             json!({"url":preview.1}).to_string()
-        }
-        "preview_stop" => {
-            *preview = Preview::default();
-            "Preview stopped".into()
-        }
-        "evidence_import" => import_bundle(std::path::Path::new(arg("path")?))?.to_string(),
-        "capture_cosmic" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn preview_stop(preview: &mut Preview) -> Value {
+        *preview = Preview::default();
+        text("Preview stopped")
+    }
+
+    fn evidence_import(&self) -> Result<Value> {
+        let arg = |key: &str| self.arg(key);
+        let output: String = import_bundle(std::path::Path::new(arg("path")?))?.to_string();
+        Ok(text(&output))
+    }
+
+    fn capture_cosmic(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let (project_id, project_label) = service::detect_project()?;
             let coordinate = |key: &str, default| -> Result<u32> {
                 if args[key].is_null() {
@@ -498,8 +578,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
             )?;
             json!({"run":out.file_name().and_then(|name| name.to_str()),"manifest":capture})
                 .to_string()
-        }
-        "capture_run" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn capture_run(&self) -> Result<Value> {
+        let args = self.args;
+        let output: String = {
             let mut input: scenario::Scenario = serde_json::from_value(args["scenario"].clone())?;
             let (id, label) = service::detect_project()?;
             input.set_project(id, label);
@@ -514,8 +599,12 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
             )?;
             json!({"run":out.file_name().and_then(|name| name.to_str()), "manifest":capture})
                 .to_string()
-        }
-        "evidence_list" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn evidence_list() -> Result<Value> {
+        let output: String = {
             let dir = service::data()?.join("captures");
             let mut runs = Vec::new();
             if dir.exists() {
@@ -528,8 +617,14 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 }
             }
             json!(runs).to_string()
-        }
-        "capture_review" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn capture_review(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let (path, _) = manifest(arg("run")?)?;
             scenario::review(
                 &path,
@@ -537,8 +632,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 args["artifact"].as_str().map(PathBuf::from),
             )?;
             "Inspection recorded".into()
-        }
-        "artifact_read" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn artifact_read(&self) -> Result<Value> {
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let (path, value) = manifest(arg("run")?)?;
             let artifact = arg("artifact")?;
             let listed = value["checkpoints"]
@@ -580,8 +680,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 );
             }
             String::from_utf8(bytes)?
-        }
-        "propose_list" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn propose_list(&self) -> Result<Value> {
+        let args = self.args;
+        let output: String = {
             let project_id = match args["project"].as_str() {
                 Some(id) if proposal_record::safe_id(id) => id.to_owned(),
                 Some(_) => bail!("Invalid project ID"),
@@ -600,8 +705,14 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 "proposals": items,
                 "pending_dispatches": dispatches,
             }))?
-        }
-        "propose_get" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn propose_get(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let id = arg("id")?;
             if !proposal_record::safe_id(id) {
                 bail!("Invalid proposal ID");
@@ -629,8 +740,14 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 "structured_prompt": prompt,
                 "assets_dir": root.join(&p.id).join("assets"),
             }))?
-        }
-        "propose_enrich" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn propose_enrich(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let id = arg("id")?;
             if !proposal_record::safe_id(id) {
                 bail!("Invalid proposal ID");
@@ -723,50 +840,58 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
             p.status = proposal_record::Status::Proposed;
             proposal_record::write_proposal(&root, &p)?;
             format!("Enriched proposal {id}")
-        }
-        "propose_await" => {
-            let project_id = match args["project"].as_str() {
-                Some(p) if proposal_record::safe_id(p) => p.to_owned(),
-                Some(_) => bail!("Invalid project ID"),
-                None => service::detect_project()?.0,
-            };
-            let timeout = args["timeout_secs"]
-                .as_u64()
-                .unwrap_or(DEFAULT_DISPATCH_WAIT_SECS)
-                .min(MAX_DISPATCH_WAIT_SECS);
-            let root = service::data()?
-                .join(proposal_record::DIRECTORY)
-                .join(&project_id);
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout);
-            loop {
-                let mut list = proposal_record::dispatches(&root)?;
-                if let Some(dispatch) = list.pop() {
-                    let _ = std::fs::remove_file(
-                        root.join(proposal_record::DISPATCH_DIR)
-                            .join(format!("{}.json", dispatch.id)),
-                    );
-                    let proposal = proposal_record::read_proposal(
-                        &root.join(format!("{}.json", dispatch.proposal_id)),
-                    )
-                    .ok();
-                    return Ok(json!({
-                        "content": [{
-                            "type": "text",
-                            "text": serde_json::to_string_pretty(&json!({
-                                "dispatch": dispatch,
-                                "proposal": proposal,
-                                "assets_dir": root.join(&dispatch.proposal_id).join("assets"),
-                            }))?
-                        }]
-                    }));
-                }
-                if std::time::Instant::now() >= deadline {
-                    return Ok(json!({"content":[{"type":"text","text":"No pending dispatches"}]}));
-                }
-                std::thread::sleep(DISPATCH_POLL);
+        };
+        Ok(text(&output))
+    }
+
+    fn propose_await(&self) -> Result<Value> {
+        let args = self.args;
+        let project_id = match args["project"].as_str() {
+            Some(p) if proposal_record::safe_id(p) => p.to_owned(),
+            Some(_) => bail!("Invalid project ID"),
+            None => service::detect_project()?.0,
+        };
+        let timeout = args["timeout_secs"]
+            .as_u64()
+            .unwrap_or(DEFAULT_DISPATCH_WAIT_SECS)
+            .min(MAX_DISPATCH_WAIT_SECS);
+        let root = service::data()?
+            .join(proposal_record::DIRECTORY)
+            .join(&project_id);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout);
+        loop {
+            let mut list = proposal_record::dispatches(&root)?;
+            if let Some(dispatch) = list.pop() {
+                let _ = std::fs::remove_file(
+                    root.join(proposal_record::DISPATCH_DIR)
+                        .join(format!("{}.json", dispatch.id)),
+                );
+                let proposal = proposal_record::read_proposal(
+                    &root.join(format!("{}.json", dispatch.proposal_id)),
+                )
+                .ok();
+                return Ok(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string_pretty(&json!({
+                            "dispatch": dispatch,
+                            "proposal": proposal,
+                            "assets_dir": root.join(&dispatch.proposal_id).join("assets"),
+                        }))?
+                    }]
+                }));
             }
+            if std::time::Instant::now() >= deadline {
+                return Ok(json!({"content":[{"type":"text","text":"No pending dispatches"}]}));
+            }
+            std::thread::sleep(DISPATCH_POLL);
         }
-        "probe_run" => {
+    }
+
+    fn probe_run(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let mut command = vec![
                 "probe".into(),
                 "--json".into(),
@@ -791,8 +916,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 command.push("--video".into());
             }
             cli(&command)?
-        }
-        "problem_list" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn problem_list(&self) -> Result<Value> {
+        let args = self.args;
+        let output: String = {
             let mut command = vec!["problem".into(), "list".into(), "--json".into()];
             if let Some(p) = args["project"].as_str() {
                 command.push(format!("--project={p}"));
@@ -801,8 +931,14 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 command.push(format!("--status={s}"));
             }
             cli(&command)?
-        }
-        "problem_add" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn problem_add(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let mut command = vec![
                 "problem".into(),
                 "add".into(),
@@ -824,8 +960,14 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 }
             }
             cli(&command)?
-        }
-        "problem_triage" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn problem_triage(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let mut command = vec![
                 "problem".into(),
                 "triage".into(),
@@ -843,8 +985,14 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 }
             }
             cli(&command)?
-        }
-        "problem_progress" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn problem_progress(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let default_agent = format!("mcp-agent (PID {})", std::process::id());
             let agent = args["agent"].as_str().unwrap_or(&default_agent);
             let mut command = vec![
@@ -870,8 +1018,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 command.push(format!("--total-steps={tot}"));
             }
             cli(&command)?
-        }
-        "fix_list" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn fix_list(&self) -> Result<Value> {
+        let args = self.args;
+        let output: String = {
             let mut command = vec!["fix".into(), "list".into(), "--json".into()];
             if let Some(p) = args["project"].as_str() {
                 command.push(format!("--project={p}"));
@@ -880,8 +1033,14 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 command.push(format!("--status={s}"));
             }
             cli(&command)?
-        }
-        "fix_record" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn fix_record(&self) -> Result<Value> {
+        let args = self.args;
+        let arg = |key: &str| self.arg(key);
+        let output: String = {
             let mut command = vec![
                 "fix".into(),
                 "record".into(),
@@ -906,15 +1065,25 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 }
             }
             cli(&command)?
-        }
-        "storage_status" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn storage_status(&self) -> Result<Value> {
+        let args = self.args;
+        let output: String = {
             let mut command = vec!["storage".into(), "status".into(), "--json".into()];
             if let Some(p) = args["project"].as_str() {
                 command.push(format!("--project={p}"));
             }
             cli(&command)?
-        }
-        "storage_clean" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn storage_clean(&self) -> Result<Value> {
+        let args = self.args;
+        let output: String = {
             let mut command = vec!["storage".into(), "clean".into(), "--json".into()];
             for (k, flag) in [
                 ("mode", "--mode"),
@@ -930,8 +1099,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 command.push(format!("--keep-latest={kl}"));
             }
             cli(&command)?
-        }
-        "storage_offload" => {
+        };
+        Ok(text(&output))
+    }
+
+    fn storage_offload(&self) -> Result<Value> {
+        let args = self.args;
+        let output: String = {
             let mut command = vec!["storage".into(), "offload".into(), "--json".into()];
             for (k, flag) in [("run", "--run"), ("fix", "--fix"), ("project", "--project")] {
                 if let Some(v) = args[k].as_str() {
@@ -939,10 +1113,13 @@ fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
                 }
             }
             cli(&command)?
-        }
-        _ => bail!("Unknown tool"),
-    };
-    Ok(json!({"content":[{"type":"text","text":output}]}))
+        };
+        Ok(text(&output))
+    }
+}
+
+fn tool(name: &str, args: &Value, preview: &mut Preview) -> Result<Value> {
+    ToolCall { name, args }.run(preview)
 }
 
 struct SessionGuard(Option<PathBuf>);
