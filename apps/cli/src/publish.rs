@@ -6,7 +6,7 @@ use rupicola_api::{
     BlobRef, CaptureStatus, Environment, NewCapture, NewCheckpoint, NewClip, NewFrame,
 };
 use rupicola_client::Api;
-use rupicola_core::capture_manifest::{self, Manifest};
+use serde::Deserialize;
 use std::path::{Component, Path, PathBuf};
 
 /// Largest manifest read, in bytes.
@@ -14,6 +14,58 @@ const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 /// Manifest format this command understands.
 const MANIFEST_VERSION: u32 = 1;
 const MANIFEST_FILE: &str = "manifest.json";
+
+#[derive(Deserialize)]
+struct ManifestProject {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct ManifestEnvironment {
+    #[serde(default)]
+    color_scheme: String,
+    #[serde(default)]
+    reduced_motion: bool,
+    width: Option<u32>,
+    height: Option<u32>,
+    #[serde(default)]
+    renderer: String,
+}
+
+#[derive(Deserialize)]
+struct ManifestCheckpoint {
+    id: String,
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct ManifestFrame {
+    path: String,
+    target_ms: f64,
+    video_ms: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct ManifestClip {
+    id: String,
+    frames: Vec<ManifestFrame>,
+    analysis_path: Option<String>,
+    video_path: Option<String>,
+    sheet_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Manifest {
+    version: u32,
+    project: ManifestProject,
+    scenario: String,
+    revision: Option<String>,
+    status: String,
+    blocker: Option<String>,
+    environment: ManifestEnvironment,
+    checkpoints: Vec<ManifestCheckpoint>,
+    clips: Vec<ManifestClip>,
+}
 
 /// A capture directory on disk.
 pub struct Bundle {
@@ -82,7 +134,7 @@ impl Bundle {
         }
     }
 
-    fn environment(environment: &capture_manifest::Environment) -> Environment {
+    fn environment(environment: &ManifestEnvironment) -> Environment {
         Environment {
             width: environment.width,
             height: environment.height,
