@@ -73,6 +73,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+mod graph_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
