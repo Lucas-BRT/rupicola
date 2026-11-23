@@ -151,7 +151,33 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(load(&state, &id).await?)))
 }
 
-type SummaryRow = (String, String, String, String, String, String, i64);
+/// A `problems` row as listed.
+#[derive(sqlx::FromRow)]
+struct SummaryRow {
+    id: String,
+    title: String,
+    status: String,
+    severity: String,
+    origin: String,
+    route: String,
+    updated_at: i64,
+}
+
+impl TryFrom<SummaryRow> for ProblemSummary {
+    type Error = ApiError;
+
+    fn try_from(row: SummaryRow) -> Result<Self, ApiError> {
+        Ok(Self {
+            id: row.id,
+            title: row.title,
+            status: row.status.parse().map_err(anyhow::Error::from)?,
+            severity: row.severity.parse().map_err(anyhow::Error::from)?,
+            origin: row.origin.parse().map_err(anyhow::Error::from)?,
+            route: row.route,
+            updated_at: row.updated_at,
+        })
+    }
+}
 
 /// `GET /v1/projects/{id}/problems`
 pub async fn list(
@@ -170,17 +196,7 @@ pub async fn list(
     .fetch_all(&state.db)
     .await?;
     rows.into_iter()
-        .map(|(id, title, status, severity, origin, route, updated_at)| {
-            Ok(ProblemSummary {
-                id,
-                title,
-                status: status.parse().map_err(anyhow::Error::from)?,
-                severity: severity.parse().map_err(anyhow::Error::from)?,
-                origin: origin.parse().map_err(anyhow::Error::from)?,
-                route,
-                updated_at,
-            })
-        })
+        .map(ProblemSummary::try_from)
         .collect::<Result<Vec<_>, ApiError>>()
         .map(Json)
 }
@@ -268,47 +284,104 @@ pub async fn comment(
     Ok((StatusCode::CREATED, Json(comment)))
 }
 
-type ProblemRow = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<String>,
-    i64,
-    i64,
-);
+/// A `problems` row; its rules, evidence and comments live in their own tables.
+#[derive(sqlx::FromRow)]
+struct ProblemRow {
+    id: String,
+    project_id: String,
+    title: String,
+    status: String,
+    severity: String,
+    origin: String,
+    route: String,
+    viewport: String,
+    theme: String,
+    diagnosis: String,
+    proposed_solution: String,
+    author: Option<String>,
+    created_at: i64,
+    updated_at: i64,
+}
+
+/// A `problem_rules` row.
+#[derive(sqlx::FromRow)]
+struct RuleRow {
+    scope: String,
+    code: String,
+    title: String,
+}
+
+impl From<RuleRow> for Rule {
+    fn from(row: RuleRow) -> Self {
+        Self {
+            scope: row.scope,
+            code: row.code,
+            title: row.title,
+        }
+    }
+}
+
+/// A `problem_comments` row.
+#[derive(sqlx::FromRow)]
+struct CommentRow {
+    id: String,
+    author: Option<String>,
+    text: String,
+    created_at: i64,
+}
+
+impl From<CommentRow> for Comment {
+    fn from(row: CommentRow) -> Self {
+        Self {
+            id: row.id,
+            author: row.author,
+            text: row.text,
+            created_at: row.created_at,
+        }
+    }
+}
+
+impl ProblemRow {
+    /// Joins the row with its rules, evidence and comments into the API type.
+    fn into_problem(
+        self,
+        rules: Vec<RuleRow>,
+        evidence: Vec<String>,
+        comments: Vec<CommentRow>,
+    ) -> Result<Problem, ApiError> {
+        Ok(Problem {
+            id: self.id,
+            project_id: self.project_id,
+            title: self.title,
+            status: self.status.parse().map_err(anyhow::Error::from)?,
+            severity: self.severity.parse().map_err(anyhow::Error::from)?,
+            origin: self.origin.parse().map_err(anyhow::Error::from)?,
+            route: self.route,
+            viewport: self.viewport,
+            theme: self.theme,
+            diagnosis: self.diagnosis,
+            proposed_solution: self.proposed_solution,
+            rules: rules.into_iter().map(Rule::from).collect(),
+            evidence,
+            comments: comments.into_iter().map(Comment::from).collect(),
+            author: self.author,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        })
+    }
+}
 
 async fn load(state: &Shared, id: &str) -> Result<Problem, ApiError> {
-    let row: Option<ProblemRow> = sqlx::query_as(
-        "SELECT project_id, title, status, severity, origin, route, viewport, theme, diagnosis,
+    let row: ProblemRow = sqlx::query_as(
+        "SELECT id, project_id, title, status, severity, origin, route, viewport, theme, diagnosis,
            proposed_solution, author, created_at, updated_at
          FROM problems WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(&state.db)
-    .await?;
-    let (
-        project_id,
-        title,
-        status,
-        severity,
-        origin,
-        route,
-        viewport,
-        theme,
-        diagnosis,
-        proposed_solution,
-        author,
-        created_at,
-        updated_at,
-    ) = row.ok_or(ApiError::NotFound)?;
-    let rules: Vec<(String, String, String)> = sqlx::query_as(
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let rules: Vec<RuleRow> = sqlx::query_as(
         "SELECT scope, code, title FROM problem_rules WHERE problem_id = ?1 ORDER BY scope, code",
     )
     .bind(id)
@@ -320,43 +393,14 @@ async fn load(state: &Shared, id: &str) -> Result<Problem, ApiError> {
     .bind(id)
     .fetch_all(&state.db)
     .await?;
-    let comments: Vec<(String, Option<String>, String, i64)> = sqlx::query_as(
+    let comments: Vec<CommentRow> = sqlx::query_as(
         "SELECT id, author, text, created_at FROM problem_comments
          WHERE problem_id = ?1 ORDER BY created_at, id",
     )
     .bind(id)
     .fetch_all(&state.db)
     .await?;
-    Ok(Problem {
-        id: id.to_owned(),
-        project_id,
-        title,
-        status: status.parse().map_err(anyhow::Error::from)?,
-        severity: severity.parse().map_err(anyhow::Error::from)?,
-        origin: origin.parse().map_err(anyhow::Error::from)?,
-        route,
-        viewport,
-        theme,
-        diagnosis,
-        proposed_solution,
-        rules: rules
-            .into_iter()
-            .map(|(scope, code, title)| Rule { scope, code, title })
-            .collect(),
-        evidence,
-        comments: comments
-            .into_iter()
-            .map(|(id, author, text, created_at)| Comment {
-                id,
-                author,
-                text,
-                created_at,
-            })
-            .collect(),
-        author,
-        created_at,
-        updated_at,
-    })
+    row.into_problem(rules, evidence, comments)
 }
 
 #[cfg(test)]
