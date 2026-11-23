@@ -421,6 +421,8 @@ struct CaptureRow {
     inspection: String,
     environment: String,
     created_at: i64,
+    /// Set for a capture published as a record, whose environment has the record's shape.
+    digest: Option<String>,
 }
 
 /// A `capture_findings` row.
@@ -468,10 +470,10 @@ struct BlobRow {
     bytes: i64,
 }
 
-async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
+pub(crate) async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
     let capture: CaptureRow = sqlx::query_as(
         "SELECT project_id, scenario, revision, status, blocker, inspection, environment,
-               created_at FROM captures WHERE id = ?1",
+               created_at, digest FROM captures WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -542,7 +544,13 @@ async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
         status: capture.status.parse().unwrap_or(CaptureStatus::Complete),
         blocker: capture.blocker,
         inspection: capture.inspection.parse().unwrap_or(Inspection::Pending),
-        environment: serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?,
+        environment: if capture.digest.is_some() {
+            let recorded: rupicola_api::record::Environment =
+                serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?;
+            rupicola_api::Environment::from(&recorded)
+        } else {
+            serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?
+        },
         created_at: capture.created_at,
         checkpoints,
         clips,

@@ -74,6 +74,27 @@ pub async fn request_bytes(port: u16, head: String, body: Vec<u8>) -> String {
     .unwrap()
 }
 
+/// Uploads `data` to `project` through the streamed route; returns its digest.
+pub async fn stream_blob(port: u16, token: &str, project: &str, data: &[u8]) -> String {
+    use sha2::Digest as _;
+    let sha = format!("{:x}", sha2::Sha256::digest(data));
+    let response = request_bytes(
+        port,
+        format!(
+            "PUT /v1/projects/{project}/blobs/{sha} HTTP/1.1\r\nHost: test\r\n\
+             Authorization: Bearer {token}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            data.len()
+        ),
+        data.to_vec(),
+    )
+    .await;
+    assert!(
+        matches!(status(&response), StatusCode::OK | StatusCode::CREATED),
+        "{response}"
+    );
+    sha
+}
+
 /// Seconds a raw request waits for its answer.
 const RAW_READ_TIMEOUT_SECS: u64 = 10;
 

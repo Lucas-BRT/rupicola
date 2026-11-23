@@ -185,6 +185,33 @@ pub struct Environment {
     pub browser: Option<String>,
 }
 
+/// Thousandths in one unit, for the scales the capture record keeps as whole numbers.
+const MILLI: f64 = 1000.0;
+
+impl From<&record::Environment> for Environment {
+    /// The environment of a capture record, in the older shape the capture views still read.
+    fn from(env: &record::Environment) -> Self {
+        let display = env.display.clone().unwrap_or_default();
+        let appearance = env.appearance.clone().unwrap_or_default();
+        let software = env.software.clone().unwrap_or_default();
+        Self {
+            width: display.width,
+            height: display.height,
+            scale: display.scale_milli.map(|milli| f64::from(milli) / MILLI),
+            color_scheme: appearance.color_scheme,
+            reduced_motion: appearance.reduced_motion.unwrap_or_default(),
+            locale: appearance.locale,
+            platform: env
+                .platform
+                .as_ref()
+                .and_then(|platform| platform.family)
+                .map(|family| family.to_string()),
+            renderer: software.renderer,
+            browser: None,
+        }
+    }
+}
+
 text_enum! {
     CaptureStatus {
         Complete => "complete",

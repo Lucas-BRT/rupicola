@@ -14,6 +14,7 @@ mod limits;
 mod mcp;
 mod problems;
 mod projects;
+mod publish;
 mod security;
 mod settings;
 mod state;
@@ -124,6 +125,7 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
     let api = Router::new()
         .merge(design_system::routes())
         .merge(settings::routes())
+        .merge(publish::routes())
         .route("/setup", routing::get(auth::setup_status))
         .route("/me", routing::get(auth::me))
         .route("/sessions/current", routing::delete(auth::sign_out))
