@@ -1,8 +1,8 @@
-//! Capture commands: scenarios, review notes and matrices.
+//! The capture command.
 
 use crate::{
-    DEFAULT_MATRIX_MAX_RUNS, DEFAULT_MATRIX_TIMEOUT_SECS, EXIT_CLEAN, Result, backend::Backend,
-    bail, block_on, json, print_capture, publish::Destination, scenario, service, visual,
+    Result, backend::Backend, block_on, print_capture, publish::Destination, scenario, service,
+    visual,
 };
 use std::path::PathBuf;
 
@@ -59,126 +59,5 @@ impl CaptureArgs {
         let code = print_capture(&manifest, run.dir(), output_json)?;
         block_on(destination.publish(run.dir(), output_json))??;
         Ok(code)
-    }
-}
-
-#[derive(clap::Args)]
-pub struct CaptureReviewArgs {
-    /// Path to the run's manifest.json.
-    manifest: PathBuf,
-    /// Concrete observation from inspecting the available evidence.
-    #[arg(long)]
-    note: String,
-    /// Optional evidence artifact path relative to the manifest.
-    #[arg(long)]
-    evidence: Option<PathBuf>,
-}
-
-impl CaptureReviewArgs {
-    pub(super) fn run(self) -> Result<u8> {
-        let CaptureReviewArgs {
-            manifest,
-            note,
-            evidence,
-        } = self;
-        scenario::review(&manifest, note, evidence)?;
-        println!("{}: inspection recorded", manifest.display());
-        Ok(EXIT_CLEAN)
-    }
-}
-
-#[derive(clap::Args)]
-pub struct MatrixArgs {
-    /// Shell command; it receives `RUPICOLA_OUT` (PNG path), `RUPICOLA_STATE`, `RUPICOLA_THEME`, `RUPICOLA_SCALE`,
-    /// `RUPICOLA_TEXT_SCALE`, `RUPICOLA_SIZE`, `RUPICOLA_WIDTH`, `RUPICOLA_HEIGHT` and `RUPICOLA_LOCALE`.
-    #[arg(long)]
-    cmd: String,
-    #[arg(long)]
-    out: PathBuf,
-    #[arg(long, value_delimiter = ',', default_value = "default")]
-    states: Vec<String>,
-    #[arg(long, value_delimiter = ',', default_value = "light,dark")]
-    themes: Vec<String>,
-    #[arg(long, value_delimiter = ',', default_value = "1")]
-    scales: Vec<String>,
-    #[arg(long, value_delimiter = ',', default_value = "1")]
-    text_scales: Vec<String>,
-    #[arg(long, value_delimiter = ',', default_value = "800x600")]
-    sizes: Vec<String>,
-    #[arg(long, value_delimiter = ',', default_value = "en")]
-    locales: Vec<String>,
-    /// Refuse to run more combinations than this.
-    #[arg(long, default_value_t = DEFAULT_MATRIX_MAX_RUNS)]
-    max: usize,
-    #[arg(long, default_value_t = DEFAULT_MATRIX_TIMEOUT_SECS)]
-    timeout_secs: u64,
-    /// Print the planned combinations without running anything.
-    #[arg(long)]
-    dry_run: bool,
-    #[arg(long)]
-    json: bool,
-}
-
-impl MatrixArgs {
-    pub(super) fn run(self) -> Result<u8> {
-        let MatrixArgs {
-            cmd,
-            out,
-            states,
-            themes,
-            scales,
-            text_scales,
-            sizes,
-            locales,
-            max,
-            timeout_secs,
-            dry_run,
-            json: output_json,
-        } = self;
-        std::fs::create_dir_all(&out)?;
-        let spec = visual::MatrixSpec {
-            states,
-            themes,
-            scales,
-            text_scales,
-            sizes,
-            locales,
-        };
-        let mut entries = visual::matrix_plan(&spec, &out);
-        if entries.len() > max {
-            bail!(
-                "{} combinations exceed --max {max}; narrow the lists or raise the limit",
-                entries.len()
-            );
-        }
-        if !dry_run {
-            visual::matrix_run(
-                &mut entries,
-                &cmd,
-                std::time::Duration::from_secs(timeout_secs),
-            );
-            std::fs::write(
-                out.join("manifest.json"),
-                serde_json::to_string_pretty(&entries)?,
-            )?;
-        }
-        if output_json {
-            json(&entries)?;
-        } else {
-            for e in &entries {
-                println!(
-                    "{} {}",
-                    if dry_run {
-                        "plan"
-                    } else if e.ok {
-                        "ok  "
-                    } else {
-                        "FAIL"
-                    },
-                    e.name
-                );
-            }
-        }
-        Ok(u8::from(!dry_run && entries.iter().any(|e| !e.ok)))
     }
 }

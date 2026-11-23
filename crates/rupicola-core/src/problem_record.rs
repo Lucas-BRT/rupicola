@@ -1,11 +1,4 @@
-#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
-
-pub const DIRECTORY: &str = "problems";
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
@@ -208,25 +201,9 @@ pub struct Problem {
 /// [`TRUNCATED_TITLE_CHARS`] plus an ellipsis.
 const MAX_TITLE_CHARS: usize = 88;
 const TRUNCATED_TITLE_CHARS: usize = 85;
-/// Longest record id.
-const MAX_ID_LEN: usize = 80;
 /// Ids end in a three-digit counter that tells apart records created in the
 /// same millisecond by the same process.
 const ID_SEQUENCE_SPAN: u64 = 1000;
-
-#[must_use]
-pub fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= MAX_ID_LEN
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-}
-
-#[must_use]
-pub fn root(data_dir: &Path, project: &str) -> PathBuf {
-    data_dir.join(DIRECTORY).join(project)
-}
 
 pub fn next_id() -> (String, u64) {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -237,94 +214,6 @@ pub fn next_id() -> (String, u64) {
     let ms = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed) % ID_SEQUENCE_SPAN;
     (format!("{}-{}{:03}", ms, std::process::id(), seq), ms)
-}
-
-/// # Errors
-///
-/// Returns an error if the project ID is invalid or the existing record directory cannot be opened or inspected.
-pub fn entries(data_dir: &Path, project: &str) -> io::Result<Vec<Problem>> {
-    if !valid_id(project) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "invalid project id",
-        ));
-    }
-    let dir = root(data_dir, project);
-    let read = match fs::read_dir(&dir) {
-        Ok(read) => read,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e),
-    };
-    let mut out = Vec::new();
-    for entry in read {
-        let entry = entry?;
-        if entry.file_type()?.is_symlink() {
-            continue;
-        }
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("json") {
-            continue;
-        }
-        if let Ok(bytes) = fs::read(&path)
-            && let Ok(item) = serde_json::from_slice::<Problem>(&bytes)
-            && item.project_id == project
-            && valid_id(&item.id)
-        {
-            out.push(item);
-        }
-    }
-    out.sort_by(|a, b| {
-        b.created_at_ms
-            .cmp(&a.created_at_ms)
-            .then_with(|| b.id.cmp(&a.id))
-    });
-    Ok(out)
-}
-
-/// # Errors
-///
-/// Returns an error if an ID is invalid, the file cannot be read, the file is a symlink, the JSON is invalid, or the record IDs do not match.
-pub fn load(data_dir: &Path, project: &str, id: &str) -> io::Result<Problem> {
-    if !valid_id(project) || !valid_id(id) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "invalid identifier",
-        ));
-    }
-    let path = root(data_dir, project).join(format!("{id}.json"));
-    let meta = fs::symlink_metadata(&path)?;
-    if meta.file_type().is_symlink() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "symlink rejected",
-        ));
-    }
-    let item: Problem = serde_json::from_slice(&fs::read(&path)?)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    if item.id != id || item.project_id != project {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "id mismatch"));
-    }
-    Ok(item)
-}
-
-/// # Errors
-///
-/// Returns an error if an ID is invalid, serialization fails, or the record cannot be written.
-pub fn save(data_dir: &Path, problem: &Problem) -> io::Result<()> {
-    if !valid_id(&problem.project_id) || !valid_id(&problem.id) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "invalid identifier",
-        ));
-    }
-    let dir = root(data_dir, &problem.project_id);
-    fs::create_dir_all(&dir)?;
-    let target = dir.join(format!("{}.json", problem.id));
-    let tmp = dir.join(format!(".{}.{}.tmp", problem.id, std::process::id()));
-    let bytes = serde_json::to_vec_pretty(problem)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    fs::write(&tmp, bytes)?;
-    fs::rename(&tmp, &target)
 }
 
 #[must_use]

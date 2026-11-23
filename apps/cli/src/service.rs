@@ -8,7 +8,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const UNIT: &str = "rupicola.service";
 const LINK: &str = ".rupicola/project.toml";
 
 fn directory(variable: &str, fallback: &str) -> Result<PathBuf> {
@@ -146,82 +145,4 @@ pub fn output() -> Result<PathBuf> {
     Ok(root
         .join("captures")
         .join(format!("{time}-{}", std::process::id())))
-}
-
-fn unit_arg(path: &Path) -> Result<String> {
-    let text = path
-        .to_str()
-        .filter(|s| !s.chars().any(char::is_control))
-        .ok_or_else(|| anyhow!("Unsupported service path"))?;
-    Ok(format!(
-        "\"{}\"",
-        text.replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('%', "%%")
-    ))
-}
-
-fn systemctl(args: &[&str]) -> Result<()> {
-    let status = Command::new("systemctl")
-        .arg("--user")
-        .args(args)
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        bail!("systemctl --user {} exited with {status}", args.join(" "));
-    }
-}
-
-pub fn setup(print_unit: bool) -> Result<()> {
-    if !cfg!(target_os = "linux") {
-        bail!("Background setup currently supports Linux with systemd --user");
-    }
-    let panel = env::var_os("PATH")
-        .into_iter()
-        .flat_map(|path| env::split_paths(&path).collect::<Vec<_>>())
-        .map(|path| path.join("rupicola-panel"))
-        .find(|path| path.is_file())
-        .ok_or_else(|| anyhow!("Install rupicola-panel and add it to PATH"))?;
-    let executable = fs::canonicalize(panel)?;
-    let data = data()?;
-    let service = format!(
-        "[Unit]\nDescription=Rupicola evidence panel\n\n[Service]\nExecStart=:{} --captures {} --db {}\nRestart=on-failure\nUMask=0077\n\n[Install]\nWantedBy=default.target\n",
-        unit_arg(&executable)?,
-        unit_arg(&data.join("captures"))?,
-        unit_arg(&data.join("panel.db"))?
-    );
-    if print_unit {
-        print!("{service}");
-        return Ok(());
-    }
-    systemctl(&["list-jobs", "--no-legend"])?;
-    let unit = directory("XDG_CONFIG_HOME", ".config")?
-        .join("systemd/user")
-        .join(UNIT);
-    fs::create_dir_all(unit.parent().unwrap())?;
-    match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&unit)
-    {
-        Ok(mut file) => file.write_all(service.as_bytes())?,
-        Err(error)
-            if error.kind() == std::io::ErrorKind::AlreadyExists
-                && fs::read_to_string(&unit).is_ok_and(|s| s == service) => {}
-        Err(error) => return Err(error).with_context(|| format!("{}", unit.display())),
-    }
-    systemctl(&["daemon-reload"])?;
-    systemctl(&["enable", "--now", UNIT])?;
-    println!("Panel: http://127.0.0.1:4731");
-    Ok(())
-}
-
-pub fn doctor() -> Result<()> {
-    println!("Capture directory: {}", data()?.join("captures").display());
-    match project()? {
-        Some((id, label)) => println!("Project: {label} ({id})"),
-        None => println!("No project detected in the current directory"),
-    }
-    systemctl(&["is-active", UNIT])
 }

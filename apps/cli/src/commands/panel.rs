@@ -1,26 +1,11 @@
-//! Commands that talk to the panel or run its service.
+//! The command that runs the panel.
 
-use crate::{EXIT_CLEAN, Result, anyhow, service};
+use crate::{Result, anyhow};
 use std::ffi::OsString;
 
 #[derive(clap::Args)]
-pub struct SetupArgs {
-    /// Print the systemd unit without modifying the system.
-    #[arg(long)]
-    print_unit: bool,
-}
-
-impl SetupArgs {
-    pub(super) fn run(self) -> Result<u8> {
-        let SetupArgs { print_unit } = self;
-        service::setup(print_unit)?;
-        Ok(EXIT_CLEAN)
-    }
-}
-
-#[derive(clap::Args)]
 pub struct ServeArgs {
-    /// Options forwarded to rupicola-panel, including --captures, --db and --port.
+    /// Options forwarded to rupicola-panel, including --server-url, --db and --port.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     options: Vec<OsString>,
 }

@@ -10,10 +10,8 @@ pub mod domain;
 pub mod evals;
 pub mod fix_record;
 pub mod problem_record;
-pub mod proposal_record;
 pub mod scan;
 pub mod scenario;
-pub mod storage;
 pub mod visual;
 
 use anyhow::{Context, Result};

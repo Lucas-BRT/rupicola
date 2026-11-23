@@ -1,19 +1,12 @@
 mod backend;
 mod commands;
 use commands::Command;
-mod design;
-mod mcp;
 mod mcp_bridge;
-mod pipeline;
-mod propose;
 mod publish;
 mod service;
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
-use rupicola_core::{
-    FRAMEWORKS, TOPICS, capture, check, design_record, discover, fix_record, problem_record,
-    proposal_record, scan, scenario, storage, visual,
-};
+use rupicola_core::{FRAMEWORKS, TOPICS, capture, check, discover, scan, scenario, visual};
 use std::process::ExitCode;
 
 /// Process exit codes, documented in the README: success with nothing to
@@ -28,9 +21,6 @@ const DEFAULT_PALETTE_COLORS: usize = 8;
 /// Contact sheet layout unless told otherwise.
 const DEFAULT_SHEET_COLUMNS: usize = 4;
 const DEFAULT_SHEET_THUMB_WIDTH: u32 = 320;
-/// Desktop capture matrix: most combinations run, and seconds each may take.
-const DEFAULT_MATRIX_MAX_RUNS: usize = 48;
-const DEFAULT_MATRIX_TIMEOUT_SECS: u64 = 60;
 /// Ratios are printed as percentages.
 const PERCENT: f64 = 100.0;
 /// The CLI runs on a thread with a larger stack: the default main-thread stack

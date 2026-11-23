@@ -37,6 +37,10 @@ impl Remote {
     }
 }
 
+/// Server-defined JSON-RPC error codes the bridge uses for transport and HTTP failures.
+const JSONRPC_TRANSPORT_ERROR: i64 = -32000;
+const JSONRPC_HTTP_ERROR: i64 = -32001;
+
 /// Length of an auth token: 32 random bytes written as hex.
 const TOKEN_HEX_LEN: usize = 64;
 /// HTTP statuses the remote MCP endpoint answers with.
@@ -135,10 +139,10 @@ pub async fn serve(server_url: &str) -> Result<()> {
                 } else {
                     format!("Remote MCP returned HTTP {status}: {}", body.trim())
                 };
-                json!({"jsonrpc": "2.0", "id": id, "error": {"code": crate::mcp::JSONRPC_HTTP_ERROR, "message": msg}}).to_string()
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": JSONRPC_HTTP_ERROR, "message": msg}}).to_string()
             }),
             Err(error) => req_id.map(|id| {
-                json!({"jsonrpc": "2.0", "id": id, "error": {"code": crate::mcp::JSONRPC_TRANSPORT_ERROR, "message": error.to_string()}}).to_string()
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": JSONRPC_TRANSPORT_ERROR, "message": error.to_string()}}).to_string()
             }),
         };
         if let Some(answer) = answer {
