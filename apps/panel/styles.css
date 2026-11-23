@@ -1,5 +1,5 @@
 @import "tailwindcss" source(none);
-@import "./src/panel.css";
+@import "./assets/panel.css";
 @source "./src/**/*.rs";
 
 @theme inline {

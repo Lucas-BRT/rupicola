@@ -16,6 +16,6 @@ async fn styles(cx: &Cx) -> Result<([(http::HeaderName, &'static str); 1], &'sta
 async fn script(cx: &Cx) -> Result<([(http::HeaderName, &'static str); 1], &'static str)> {
     Ok((
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-        include_str!("../panel.js"),
+        include_str!("../../assets/panel.js"),
     ))
 }

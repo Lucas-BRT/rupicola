@@ -117,10 +117,7 @@ fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Resul
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py")
             && ![
-                "apps/panel/src/panel.js",
-                "apps/server/design/validator.cjs",
-                "apps/server/design/examples.js",
-                "apps/panel/tests/design-review.cjs",
+                "apps/panel/assets/panel.js",
                 "apps/panel/dev.sh",
                 "apps/site/assets/site.js",
                 "apps/site/assets/install.sh",
