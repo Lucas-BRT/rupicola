@@ -1,9 +1,11 @@
 use super::{
-    Account, Arc, AssetOption, ComparisonPair, Cx, Deserialize, FixRecord, FixReview, FixStatus,
-    FixStep, PageResult, Panel, Problem, ProblemStatus, Response, Role, StatusCode, auth, badge,
-    data_root, db_error, effective_after_url, fix_record, fix_status_badge, is_video_url, pages,
-    problem_record, redirect, storage, view,
+    Account, Arc, AssetOption, Cx, Deserialize, FixRecord, FixStatus, PageResult, Panel, Problem,
+    Response, Role, StatusCode, auth, badge, effective_after_url, fix_status_badge, is_video_url,
+    pages, redirect, view,
 };
+
+/// Verification recorded for a step written without one.
+const DEFAULT_VERIFICATION: &str = "Verified visually";
 
 #[allow(clippy::too_many_arguments)]
 #[expect(
@@ -20,7 +22,6 @@ pub fn render_fixes<'a>(
     fixes: &'a [FixRecord],
     problems: &'a [Problem],
     assets: &'a [AssetOption],
-    mcp_online: bool,
 ) -> topcoat::view::Child<'a> {
     let status_filter = filter.status.as_deref().unwrap_or("");
     let pending_count = fixes
@@ -325,7 +326,7 @@ pub fn render_fixes<'a>(
                                     <input name="comment" maxlength="1000" placeholder="Optional review note or requested adjustment…">
                                     <button class="button primary" type="submit" name="status" value="approved">"Approve Fix"</button>
                                     <button class="button" type="submit" name="status" value="changes-requested">
-                                        (if mcp_online { "Request Changes & Dispatch" } else { "Request Changes" })
+                                        "Request Changes"
                                     </button>
                                 </form>
                             </footer>
@@ -368,87 +369,74 @@ pub async fn create_fix_action(
     if title.is_empty() || summary.is_empty() {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let data = data_root(&panel);
-    let (id, now) = fix_record::next_id();
-    let problem_ids: Vec<String> = form
+    let problems: Vec<String> = form
         .problem_id
         .into_iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let tactics: Vec<String> = form
-        .tactics
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    let modified_files: Vec<String> = form
-        .files
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    let steps: Vec<FixStep> = form
+    let list = |text: &str| -> Vec<String> {
+        text.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+    let steps: Vec<rupicola_api::NewStep> = form
         .steps
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty())
-        .enumerate()
-        .map(|(idx, line)| {
+        .map(|line| {
             let parts: Vec<&str> = line.splitn(3, "::").collect();
             let (st_title, detail, verification) = match parts.as_slice() {
                 [a, b, c] => (a.trim(), b.trim(), c.trim()),
-                [a, b] => (a.trim(), b.trim(), "Verified visually"),
-                _ => (line, "", "Verified visually"),
+                [a, b] => (a.trim(), b.trim(), DEFAULT_VERIFICATION),
+                _ => (line, "", DEFAULT_VERIFICATION),
             };
-            FixStep {
-                index: idx + 1,
+            rupicola_api::NewStep {
                 title: st_title.into(),
                 detail: detail.into(),
                 verification: verification.into(),
-                evidence_url: None,
-                timestamp_ms: now,
+                evidence: None,
             }
         })
         .collect();
     let route = form.route.trim().to_string();
     let viewport = form.viewport.trim().to_string();
     let theme = form.theme.trim().to_string();
-    let record = FixRecord {
-        id: id.clone(),
-        project_id: project_id.clone(),
-        problem_ids: problem_ids.clone(),
-        title: title.into(),
-        summary: summary.into(),
-        status: FixStatus::PendingReview,
-        tactics,
-        modified_files,
-        comparisons: vec![ComparisonPair {
+    let (before, after) = (form.before_url.trim(), form.after_url.trim());
+    let comparisons = if before.is_empty() || after.is_empty() {
+        Vec::new()
+    } else {
+        vec![rupicola_api::Comparison {
             label: format!("{route} · {viewport} · {theme}"),
             route,
             viewport,
             theme,
-            before_url: form.before_url.trim().into(),
-            after_url: form.after_url.trim().into(),
-            diff_url: None,
+            before: crate::records::artifact_of(before).to_owned(),
+            after: crate::records::artifact_of(after).to_owned(),
+            diff: None,
             changed_ratio: None,
-        }],
-        steps,
-        reviews: Vec::new(),
-        author: account.handle,
-        created_at_ms: now,
-        updated_at_ms: now,
+        }]
     };
-    fix_record::save(&data, &record).map_err(db_error)?;
-    for pid in &problem_ids {
-        if let Ok(mut p) = problem_record::load(&data, &project_id, pid) {
-            p.status = ProblemStatus::Resolved;
-            p.linked_fix_id = Some(id.clone());
-            p.updated_at_ms = now;
-            let _ = problem_record::save(&data, &p);
-        }
-    }
-    Ok(redirect(&format!("/projects/{project_id}/fixes#fix-{id}")))
+    let new = rupicola_api::NewFix {
+        title: title.into(),
+        summary: summary.into(),
+        problems,
+        tactics: list(&form.tactics),
+        files: list(&form.files),
+        comparisons,
+        steps,
+    };
+    let fix = panel
+        .api
+        .create_fix(&account.session, &project_id, &new)
+        .await
+        .map_err(|e| auth::api_error(&e))?;
+    Ok(redirect(&format!(
+        "/projects/{project_id}/fixes#fix-{}",
+        fix.id
+    )))
 }
 
 #[derive(Deserialize)]
@@ -469,61 +457,21 @@ pub async fn review_fix_action(
     if auth::role(&panel, &account, &project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    review_fix(&panel, &account.handle, &project_id, &fix_id, form)?;
+    let outcome = form
+        .status
+        .trim()
+        .parse()
+        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    let review = rupicola_api::NewReview {
+        outcome,
+        comment: form.comment.unwrap_or_default().trim().to_owned(),
+    };
+    panel
+        .api
+        .review_fix(&account.session, &fix_id, &review)
+        .await
+        .map_err(|e| auth::api_error(&e))?;
     Ok(redirect(&format!(
         "/projects/{project_id}/fixes#fix-{fix_id}"
     )))
-}
-
-pub(crate) fn review_fix(
-    panel: &Panel,
-    actor: &str,
-    project_id: &str,
-    fix_id: &str,
-    form: ReviewFixForm,
-) -> PageResult<()> {
-    let data = data_root(panel);
-    let mut fix = fix_record::load(&data, project_id, fix_id).map_err(|_| StatusCode::NOT_FOUND)?;
-    let Some(status) = FixStatus::from_slug(form.status.trim()) else {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    };
-    let (_, now) = fix_record::next_id();
-    fix.status = status;
-    fix.updated_at_ms = now;
-    if let Some(c) = form
-        .comment
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-    {
-        fix.reviews.push(FixReview {
-            author: actor.into(),
-            action: status.slug().into(),
-            comment: c,
-            created_at_ms: now,
-        });
-    }
-    fix_record::save(&data, &fix).map_err(db_error)?;
-    for pid in &fix.problem_ids {
-        if let Ok(mut p) = problem_record::load(&data, project_id, pid) {
-            p.status = if status == FixStatus::ChangesRequested {
-                ProblemStatus::InProgress
-            } else {
-                ProblemStatus::Resolved
-            };
-            p.updated_at_ms = now;
-            let _ = problem_record::save(&data, &p);
-        }
-    }
-    if status == FixStatus::Approved {
-        let cfg = storage::load_config(&data);
-        if cfg.auto_policy == "on-fix-approved" && !cfg.bucket.trim().is_empty() {
-            let report = storage::analyze(&data, Some(project_id));
-            if let Some(fu) = report.by_fix.iter().find(|f| f.fix_id == fix_id) {
-                for rname in &fu.referenced_runs {
-                    let _ = storage::offload_run(&data, rname);
-                }
-            }
-        }
-    }
-    Ok(())
 }

@@ -39,8 +39,6 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(analyze_run_problems)
         .route(create_problem)
         .route(triage_problem)
-        .route(progress_problem)
-        .route(problems_status)
         .route(create_fix)
         .route(review_fix)
         .route(save_storage_config)
@@ -446,35 +444,6 @@ async fn triage_problem(
             form,
         )
         .await,
-    )
-}
-
-#[route(POST "/projects/{project}/problems/{problem}/progress")]
-async fn progress_problem(
-    cx: &Cx,
-    Form(form): Form<pipeline::ProgressProblemForm>,
-) -> Result<Response> {
-    respond(
-        cx,
-        pipeline::progress_problem_action(
-            panel(cx),
-            account(cx),
-            (
-                path_param::<Project>(cx).into(),
-                path_param::<Problem>(cx).into(),
-            ),
-            form,
-        )
-        .await,
-    )
-}
-
-#[route(GET "/projects/{project}/problems/status.json")]
-async fn problems_status(cx: &Cx) -> Result<Response> {
-    respond(
-        cx,
-        pipeline::problems_status_json(panel(cx), account(cx), path_param::<Project>(cx).into())
-            .await,
     )
 }
 

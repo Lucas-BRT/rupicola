@@ -79,6 +79,7 @@ mod media;
 mod pages;
 mod pipeline;
 mod proposes;
+mod records;
 mod records_index;
 mod routes;
 mod runs;

@@ -1,15 +1,11 @@
 use super::{
-    Arc, Body, Cx, Deserialize, FilePath, PageResult, Panel, PathBuf, Response, Run, StatusCode,
-    auth, db_error, design_record, fix_record, header, pages, problem_record, proposal_record,
-    redirect, storage, view,
+    Arc, Cx, Deserialize, FilePath, PageResult, Panel, PathBuf, Response, Run, StatusCode, auth,
+    db_error, design_record, fix_record, pages, problem_record, redirect, storage, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::{Account, Role};
-use fix_record::{ComparisonPair, FixRecord, FixReview, FixStatus, FixStep};
-use problem_record::{
-    EvidenceAsset, Problem, ProblemComment, ProblemOrigin, ProblemStatus, Severity, TaskExecution,
-    TaskStepLog, ViolatedRule,
-};
+use fix_record::{ComparisonPair, FixRecord, FixStatus};
+use problem_record::{Problem, ProblemStatus, Severity};
 
 pub struct AssetOption {
     pub run_key: String,
@@ -24,35 +20,6 @@ pub fn data_root(panel: &Panel) -> PathBuf {
         .design
         .parent()
         .map_or_else(|| PathBuf::from(".rupicola"), FilePath::to_path_buf)
-}
-
-pub fn sync_legacy_findings(panel: &Panel, project_id: &str, runs: &[&Run]) -> Vec<Problem> {
-    let data = data_root(panel);
-    let mut existing = problem_record::entries(&data, project_id).unwrap_or_default();
-    if existing.is_empty() {
-        for run in runs {
-            let manifest = &run.manifest;
-            if manifest.project.id != project_id {
-                continue;
-            }
-            for item in &manifest.findings {
-                let candidate = problem_record::infer_from_finding(
-                    project_id,
-                    &run.key,
-                    &item.note,
-                    item.evidence.as_deref(),
-                );
-                if existing.iter().any(|p| p.diagnosis == candidate.diagnosis) {
-                    continue;
-                }
-                if problem_record::save(&data, &candidate).is_ok() {
-                    existing.push(candidate);
-                }
-            }
-        }
-        existing.sort_by_key(|a| std::cmp::Reverse(a.created_at_ms));
-    }
-    existing
 }
 
 fn severity_badge(sev: Severity) -> BadgeVariant {
@@ -129,8 +96,8 @@ pub mod storage_view;
 pub use captures::{AnalyzeRunForm, analyze_run_action, render_captures};
 pub use fixes::{CreateFixForm, ReviewFixForm, create_fix_action, render_fixes, review_fix_action};
 pub use problems::{
-    CreateProblemForm, ProgressProblemForm, TriageProblemForm, create_problem_action,
-    problems_status_json, progress_problem_action, render_problems, triage_problem_action,
+    CreateProblemForm, TriageProblemForm, create_problem_action, render_problems,
+    triage_problem_action,
 };
 pub use storage_view::{
     StorageCleanForm, StorageConfigForm, StorageOffloadForm, clean_storage_action,

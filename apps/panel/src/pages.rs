@@ -1,7 +1,7 @@
 use super::{
     Account, Arc, BTreeMap, Checkpoint, Cx, Deserialize, Html, IntoResponse, PageResult, Panel,
-    Response, Run, StatusCode, auth, db_error, design_record, design_system, fix_record, fs, media,
-    pipeline, problem_record, proposal_record, proposes, redirect, runs, safe_name, storage, view,
+    Response, Run, StatusCode, auth, db_error, design_record, design_system, fs, media, pipeline,
+    proposes, records, redirect, runs, safe_name, storage, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
@@ -500,24 +500,41 @@ async fn project_view(
         }
     }
 
-    let problems_list = pipeline::sync_legacy_findings(&panel, &id, &related);
-    let fixes_list = fix_record::entries(&pipeline::data_root(&panel), &id).unwrap_or_default();
-    let mcp_online = proposal_record::mcp_session_active(&pipeline::data_root(&panel)).is_some();
+    let fix_count = panel
+        .api
+        .fixes(&account.session, &id)
+        .await
+        .map_err(|e| auth::api_error(&e))?
+        .len();
+    let fixes_list = if section == "fixes" || section == "problems" {
+        records::fixes(&panel, &account, &id).await?
+    } else {
+        Vec::new()
+    };
+    let problems_list = if matches!(section.as_str(), "problems" | "captures" | "fixes") {
+        records::problems(&panel, &account, &id, &all_assets, &fixes_list).await?
+    } else {
+        Vec::new()
+    };
+    let open_problems_count = panel
+        .api
+        .problems(&account.session, &id)
+        .await
+        .map_err(|e| auth::api_error(&e))?
+        .iter()
+        .filter(|problem| {
+            matches!(
+                problem.status,
+                rupicola_api::ProblemStatus::Open | rupicola_api::ProblemStatus::NeedsReprocess
+            )
+        })
+        .count();
 
     let (members, audit) = if section == "settings" && role == Role::Owner {
         access_lists(&panel, &account, &id).await?
     } else {
         (Vec::new(), Vec::new())
     };
-    let open_problems_count = problems_list
-        .iter()
-        .filter(|p| {
-            matches!(
-                p.status,
-                problem_record::ProblemStatus::Open | problem_record::ProblemStatus::NeedsReprocess
-            )
-        })
-        .count();
     let selected: Vec<_> = related
         .iter()
         .copied()
@@ -653,7 +670,7 @@ async fn project_view(
             <section class="studio-counts" aria-label="Project pipeline">
                 <a class="metric" href=(format!("{base}/captures"))><small>"Captures (" (all_assets.len()) " assets)"</small><strong>(related.len())</strong><span aria-hidden="true">"↗"</span></a>
                 <a class=(if open_problems_count > 0 { "metric featured" } else { "metric" }) href=(format!("{base}/problems"))><small>"Problems queue"</small><strong>(open_problems_count)</strong><span aria-hidden="true">"↗"</span></a>
-                <a class="metric" href=(format!("{base}/fixes"))><small>"Recorded fixes"</small><strong>(fixes_list.len())</strong><span aria-hidden="true">"↗"</span></a>
+                <a class="metric" href=(format!("{base}/fixes"))><small>"Recorded fixes"</small><strong>(fix_count)</strong><span aria-hidden="true">"↗"</span></a>
             </section>
             <section class="surface captures-ledger">
                 <div class="section-head">
@@ -687,7 +704,6 @@ async fn project_view(
                 &problems_list,
                 &all_assets,
                 records,
-                mcp_online,
             ))
         }
         if section == "fixes" {
@@ -701,7 +717,6 @@ async fn project_view(
                 &fixes_list,
                 &problems_list,
                 &all_assets,
-                mcp_online,
             ))
         }
         if let Some(report) = &storage_report {

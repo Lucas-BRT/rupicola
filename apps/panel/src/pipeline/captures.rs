@@ -1,7 +1,7 @@
 use super::{
     Account, Arc, AssetOption, BadgeVariant, Cx, Deserialize, PageResult, Panel, Problem,
-    ProblemStatus, Response, Role, Run, StatusCode, auth, badge, data_root, db_error, pages,
-    problem_record, redirect, view,
+    ProblemStatus, Response, Role, Run, StatusCode, auth, badge, pages, problem_record, redirect,
+    view,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -281,8 +281,7 @@ pub(crate) async fn analyze_run(
     project_id: &str,
     run_key: &str,
 ) -> PageResult<()> {
-    let data = data_root(panel);
-    let existing = problem_record::entries(&data, project_id).unwrap_or_default();
+    let existing = crate::records::problems(panel, account, project_id, &[], &[]).await?;
     let manifest = crate::runs::find(panel, account, run_key)
         .await
         .map(|run| run.manifest)
@@ -291,7 +290,7 @@ pub(crate) async fn analyze_run(
         .ok_or(StatusCode::NOT_FOUND)?;
     if manifest.findings.is_empty() {
         if let Some(first) = manifest.checkpoints.first() {
-            let mut candidate = problem_record::infer_from_finding(
+            let candidate = problem_record::infer_from_finding(
                 project_id,
                 run_key,
                 &format!(
@@ -304,12 +303,17 @@ pub(crate) async fn analyze_run(
                 ),
                 Some(&first.path),
             );
-            candidate.status = ProblemStatus::NeedsReprocess;
             if !existing
                 .iter()
                 .any(|problem| problem.diagnosis == candidate.diagnosis)
             {
-                problem_record::save(&data, &candidate).map_err(db_error)?;
+                crate::records::open_inferred(
+                    panel,
+                    account,
+                    &candidate,
+                    Some(rupicola_api::ProblemStatus::NeedsReprocess),
+                )
+                .await?;
             }
         }
     } else {
@@ -333,7 +337,7 @@ pub(crate) async fn analyze_run(
                 continue;
             }
             if !existing.iter().any(|p| p.diagnosis == candidate.diagnosis) {
-                problem_record::save(&data, &candidate).map_err(db_error)?;
+                crate::records::open_inferred(panel, account, &candidate, None).await?;
             }
         }
     }

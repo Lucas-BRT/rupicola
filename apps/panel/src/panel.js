@@ -267,34 +267,3 @@ for (const comp of document.querySelectorAll("[data-comparator]")) {
     });
   }
 }
-
-const liveQueue = document.querySelector("[data-problems-live]");
-if (liveQueue) {
-  const endpoint = liveQueue.dataset.problemsLive;
-  setInterval(async () => {
-    if (!document.querySelector('[data-tracker-active="true"]')) return;
-    try {
-      const res = await fetch(endpoint, { headers: { Accept: "application/json" } });
-      if (!res.ok) return;
-      const data = await res.json();
-      for (const p of data.problems ?? []) {
-        const tracker = document.querySelector(`[data-problem-tracker="${p.id}"]`);
-        if (!tracker || !p.execution) continue;
-        const exec = p.execution;
-        const agentEl = tracker.querySelector("[data-tracker-agent]");
-        const stageEl = tracker.querySelector("[data-tracker-stage]");
-        const metricsEl = tracker.querySelector("[data-tracker-metrics]");
-        const barEl = tracker.querySelector("[data-tracker-bar]");
-        const actEl = tracker.querySelector("[data-tracker-activity]");
-        if (agentEl) agentEl.textContent = exec.agent_id || "Unassigned · Waiting for agent to claim";
-        if (stageEl) stageEl.textContent = `STAGE: ${String(exec.stage || "queued").toUpperCase()}`;
-        if (metricsEl) metricsEl.textContent = `STEP ${exec.step_current} / ${exec.step_total} · ${exec.progress_pct}%`;
-        if (barEl) barEl.value = exec.progress_pct;
-        if (actEl) actEl.textContent = exec.current_activity || "";
-        if (p.status === "resolved") {
-          tracker.dataset.trackerActive = "false";
-        }
-      }
-    } catch {}
-  }, 2500);
-}
