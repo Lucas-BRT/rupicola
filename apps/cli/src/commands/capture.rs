@@ -45,7 +45,7 @@ impl CaptureArgs {
         } = self;
         let mut scenario = scenario::Scenario::load(&path)?;
         if out.is_none() {
-            let (id, label) = service::detect_project()?;
+            let service::ProjectName { id, label } = service::detect_project()?;
             scenario.set_project(id, label);
         }
         let run = destination.run_dir(out)?;

@@ -81,9 +81,18 @@ pub fn link(project: String) -> Result<()> {
     Ok(())
 }
 
-pub fn project() -> Result<Option<(String, String)>> {
+/// A project as the CLI names it: a stable key and a label.
+pub struct ProjectName {
+    pub id: String,
+    pub label: String,
+}
+
+pub fn project() -> Result<Option<ProjectName>> {
     if let Some(link) = linked()? {
-        return Ok(Some((link.project.clone(), link.project)));
+        return Ok(Some(ProjectName {
+            id: link.project.clone(),
+            label: link.project,
+        }));
     }
     let output = Command::new("git")
         .args([
@@ -120,10 +129,13 @@ pub fn project() -> Result<Option<(String, String)>> {
         .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
             (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
         });
-    Ok(Some((format!("git-{hash:016x}"), label)))
+    Ok(Some(ProjectName {
+        id: format!("git-{hash:016x}"),
+        label,
+    }))
 }
 
-pub fn detect_project() -> Result<(String, String)> {
+pub fn detect_project() -> Result<ProjectName> {
     project()?.ok_or_else(|| {
         anyhow!("Run inside a Git checkout, set a project with rupicola link, or provide --out")
     })
