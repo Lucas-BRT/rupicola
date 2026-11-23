@@ -126,6 +126,20 @@ rupicola capture settings.toml --video
 
 The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews, then publishes them to the backend named by `--server-url`, `RUPICOLA_SERVER_URL` or, failing both, the one `rupicola login` stored. Without a backend the capture stays in the directory given by `--out`. `rupicola whoami` shows who the stored token acts as and `rupicola logout` forgets it; the token stays valid on the backend until it is revoked from a signed-in session. In a Git checkout the project is detected from Git; `rupicola link PROJECT_ID` chooses an explicit ID. `rupicola publish DIR` uploads a capture made earlier.
 
+### Work with a backend from the terminal
+
+After `rupicola login`, the CLI reads and writes the backend's resources. Every command takes `--json`, and `--project` defaults to the project this checkout is linked to or Git detects.
+
+```sh
+rupicola projects [create ID --label NAME]
+rupicola captures [list|show ID|note ID TEXT]
+rupicola problems [list|show ID|create --file -|update ID --status S|comment ID TEXT]
+rupicola fixes [list|show ID|create --file F|step ID --file F|review ID --outcome O]
+rupicola design [list|add --file F]
+```
+
+`create`, `step` and `add` take the JSON of the API's `NewProblem`, `NewFix`, `NewStep` and `NewDesignEntry` (`--file -` reads standard input). Design systems are served by the API and the panel, not yet by the CLI.
+
 The backend (`apps/backend`) owns accounts, projects, captures, problems, fixes, design records and the media store. The Topcoat panel (`rupicola serve --server-url …`) and the CLI are clients of its API. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
 
 ## Agents: design context, problems and fixes
