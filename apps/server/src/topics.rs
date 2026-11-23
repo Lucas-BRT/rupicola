@@ -2,9 +2,11 @@
 //! captures under it. A capture filed under a topic belongs to the whole path above it.
 
 use crate::{
-    auth::{Principal, now_ms},
-    error::ApiError,
-    projects::{Access, access, audit, person},
+    domain::Access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    repositories::audit,
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -28,7 +30,7 @@ const STALE_MESSAGE: &str = "the topic changed since it was read; read it again"
 
 /// Who may do what: people by role; a capture device may read and file its captures.
 async fn allow(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     project: &str,
     role: Role,
@@ -43,7 +45,7 @@ async fn allow(
 
 /// The project a topic belongs to, after checking the caller's access.
 async fn topic_project(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     topic: &str,
     role: Role,
@@ -59,7 +61,7 @@ async fn topic_project(
 }
 
 /// One topic with its path and the captures filed directly under it.
-async fn one(state: &Shared, topic: &str) -> Result<Topic, ApiError> {
+async fn one(state: &crate::state::AppState, topic: &str) -> Result<Topic, ApiError> {
     let (id, parent_id, name, position, generation): (String, Option<String>, String, i64, i64) =
         sqlx::query_as(
             "SELECT id, parent_id, name, position, generation FROM topics WHERE id = ?1",
@@ -232,7 +234,7 @@ pub async fn rename(
     Json(form): Json<TopicRename>,
 ) -> Result<Json<Topic>, ApiError> {
     let project = topic_project(&state, &principal, &topic, Role::Reviewer, false).await?;
-    let actor = person(&principal)?.to_owned();
+    let actor = principal.person()?.to_owned();
     if !valid_topic_name(&form.name) {
         return Err(ApiError::invalid(
             "a topic name has 1 to 64 characters, no `/` and no spaces at the ends",
@@ -251,7 +253,7 @@ pub async fn rename(
     if changed == 0 {
         return Err(ApiError::Conflict(STALE_MESSAGE));
     }
-    audit(
+    audit::record(
         &state.db,
         Some(&project),
         &actor,
@@ -270,7 +272,7 @@ pub async fn move_to(
     Json(form): Json<TopicMove>,
 ) -> Result<Json<Topic>, ApiError> {
     let project = topic_project(&state, &principal, &topic, Role::Reviewer, false).await?;
-    let actor = person(&principal)?.to_owned();
+    let actor = principal.person()?.to_owned();
     if let Some(parent) = &form.parent_id {
         let owner: Option<String> =
             sqlx::query_scalar("SELECT project_id FROM topics WHERE id = ?1")
@@ -297,7 +299,7 @@ pub async fn move_to(
     if changed == 0 {
         return Err(ApiError::Conflict(STALE_MESSAGE));
     }
-    audit(&state.db, Some(&project), &actor, "Moved a topic").await?;
+    audit::record(&state.db, Some(&project), &actor, "Moved a topic").await?;
     Ok(Json(one(&state, &topic).await?))
 }
 
@@ -316,7 +318,7 @@ pub async fn remove(
     Query(removal): Query<Removal>,
 ) -> Result<StatusCode, ApiError> {
     let project = topic_project(&state, &principal, &topic, Role::Reviewer, false).await?;
-    let actor = person(&principal)?.to_owned();
+    let actor = principal.person()?.to_owned();
     let children: i64 = sqlx::query_scalar("SELECT count(*) FROM topics WHERE parent_id = ?1")
         .bind(&topic)
         .fetch_one(&state.db)
@@ -334,7 +336,7 @@ pub async fn remove(
     .bind(&topic)
     .execute(&state.db)
     .await?;
-    audit(&state.db, Some(&project), &actor, "Removed a topic").await?;
+    audit::record(&state.db, Some(&project), &actor, "Removed a topic").await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

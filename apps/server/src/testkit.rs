@@ -1,7 +1,10 @@
 //! Helpers for API tests: a real server on an in-memory database, spoken to over
 //! raw HTTP/1.1 so tests exercise every layer, middleware included.
 
-use crate::{db, routes::app, security, send, state};
+use crate::{
+    http::{app, security},
+    repositories as db, send, state,
+};
 use axum::http::StatusCode;
 use rupicola_api::{
     CaptureStatus,
@@ -174,7 +177,7 @@ pub async fn seed_account(state: &state::Shared, handle: &str, admin: bool) {
         "INSERT INTO accounts (handle, password_hash, admin, created_at) VALUES (?1, ?2, ?3, 0)",
     )
     .bind(handle)
-    .bind(crate::auth::hash(PASSWORD).unwrap())
+    .bind(crate::services::passwords::hash(PASSWORD).unwrap())
     .bind(admin)
     .execute(&state.db)
     .await

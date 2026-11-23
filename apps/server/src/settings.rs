@@ -2,10 +2,11 @@
 //! tightens them for the project. Setting nothing leaves the level above in charge.
 
 use crate::{
-    auth::{Principal, now_ms},
-    error::ApiError,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
     limits::LimitDefaults,
-    projects::{access, audit, person},
+    repositories::audit,
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -34,7 +35,7 @@ fn positive(value: LimitValue) -> Result<u64, ApiError> {
 
 /// Only an administrator changes the server; the name they act under.
 fn administrator(principal: &Principal) -> Result<&str, ApiError> {
-    let handle = person(principal)?;
+    let handle = principal.person()?;
     if principal.admin {
         Ok(handle)
     } else {
@@ -42,7 +43,7 @@ fn administrator(principal: &Principal) -> Result<&str, ApiError> {
     }
 }
 
-async fn server_view(state: &Shared) -> Result<Json<LimitSettings>, ApiError> {
+async fn server_view(state: &crate::state::AppState) -> Result<Json<LimitSettings>, ApiError> {
     Ok(Json(LimitSettings {
         set: LimitDefaults::stored(state, None)
             .await?
@@ -52,7 +53,10 @@ async fn server_view(state: &Shared) -> Result<Json<LimitSettings>, ApiError> {
     }))
 }
 
-async fn project_view(state: &Shared, project: &str) -> Result<Json<LimitSettings>, ApiError> {
+async fn project_view(
+    state: &crate::state::AppState,
+    project: &str,
+) -> Result<Json<LimitSettings>, ApiError> {
     Ok(Json(LimitSettings {
         set: LimitDefaults::stored(state, Some(project))
             .await?
@@ -95,7 +99,7 @@ pub async fn set_server(
     .bind(now_ms())
     .execute(&mut *tx)
     .await?;
-    audit(
+    audit::record(
         &mut *tx,
         None,
         &actor,
@@ -119,7 +123,7 @@ pub async fn reset_server(
         .bind(key.as_str())
         .execute(&mut *tx)
         .await?;
-    audit(&mut *tx, None, &actor, &format!("Reset the server's {key}")).await?;
+    audit::record(&mut *tx, None, &actor, &format!("Reset the server's {key}")).await?;
     tx.commit().await?;
     server_view(&state).await
 }
@@ -147,7 +151,7 @@ pub async fn set_project(
     access(&state, &principal, &project)
         .await?
         .require(Role::Owner)?;
-    let actor = person(&principal)?.to_owned();
+    let actor = principal.person()?.to_owned();
     let key = key(&raw)?;
     let value = positive(value)?;
     let allowed = state.limits.server(&state).await?.get(key);
@@ -171,7 +175,7 @@ pub async fn set_project(
     .bind(now_ms())
     .execute(&mut *tx)
     .await?;
-    audit(
+    audit::record(
         &mut *tx,
         Some(&project),
         &actor,
@@ -192,7 +196,7 @@ pub async fn reset_project(
     access(&state, &principal, &project)
         .await?
         .require(Role::Owner)?;
-    let actor = person(&principal)?.to_owned();
+    let actor = principal.person()?.to_owned();
     let key = key(&raw)?;
     let mut tx = state.db.begin().await?;
     sqlx::query("DELETE FROM project_settings WHERE project_id = ?1 AND key = ?2")
@@ -200,7 +204,7 @@ pub async fn reset_project(
         .bind(key.as_str())
         .execute(&mut *tx)
         .await?;
-    audit(&mut *tx, Some(&project), &actor, &format!("Reset {key}")).await?;
+    audit::record(&mut *tx, Some(&project), &actor, &format!("Reset {key}")).await?;
     tx.commit().await?;
     project_view(&state, &project).await
 }

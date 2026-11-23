@@ -5,9 +5,9 @@ mod browser;
 mod document;
 
 use crate::{
-    auth::{Principal, now_ms},
-    error::ApiError,
-    projects::access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -130,7 +130,10 @@ fn corrupt(error: impl Into<anyhow::Error>) -> ApiError {
 }
 
 /// The version of `project` that is adopted.
-async fn adopted(state: &Shared, project: &str) -> Result<Option<String>, ApiError> {
+async fn adopted(
+    state: &crate::state::AppState,
+    project: &str,
+) -> Result<Option<String>, ApiError> {
     Ok(
         sqlx::query_scalar("SELECT version_id FROM design_adoption WHERE project_id = ?1")
             .bind(project)
@@ -139,7 +142,7 @@ async fn adopted(state: &Shared, project: &str) -> Result<Option<String>, ApiErr
     )
 }
 
-async fn read(state: &Shared, project: &str, id: &str) -> Result<Stored, ApiError> {
+async fn read(state: &crate::state::AppState, project: &str, id: &str) -> Result<Stored, ApiError> {
     let row = sqlx::query(
         "SELECT parent_id, author, phase, generation, document, notes, report, frozen_screen
          FROM design_versions WHERE id = ?1 AND project_id = ?2",
@@ -169,7 +172,11 @@ async fn read(state: &Shared, project: &str, id: &str) -> Result<Stored, ApiErro
     })
 }
 
-async fn insert(state: &Shared, project: &str, version: &Stored) -> Result<(), ApiError> {
+async fn insert(
+    state: &crate::state::AppState,
+    project: &str,
+    version: &Stored,
+) -> Result<(), ApiError> {
     sqlx::query(
         "INSERT INTO design_versions
            (id, project_id, parent_id, author, phase, generation, name, document, notes, report,
@@ -196,7 +203,11 @@ const SAVE: &str = "UPDATE design_versions
     WHERE id = ?7 AND project_id = ?8 AND generation = ?9";
 
 /// Writes `version` if nobody changed it since it was read.
-async fn save(state: &Shared, project: &str, version: &Stored) -> Result<(), ApiError> {
+async fn save(
+    state: &crate::state::AppState,
+    project: &str,
+    version: &Stored,
+) -> Result<(), ApiError> {
     let written = sqlx::query(SAVE)
         .bind(&version.document.name)
         .bind(version.phase.as_str())
@@ -225,7 +236,7 @@ async fn save(state: &Shared, project: &str, version: &Stored) -> Result<(), Api
 }
 
 async fn require(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     project: &str,
     role: Role,
@@ -374,7 +385,7 @@ pub async fn act(
 
 /// Runs the browser checks on a draft and keeps the report with it.
 async fn validate_version(
-    state: &Shared,
+    state: &crate::state::AppState,
     project: &str,
     version: &mut Stored,
     active: Option<&str>,
@@ -451,7 +462,7 @@ fn review(version: &mut Stored, actor: &str, form: &SystemActionForm) -> Result<
 }
 
 async fn adopt(
-    state: &Shared,
+    state: &crate::state::AppState,
     project: &str,
     version: &mut Stored,
     actor: &str,

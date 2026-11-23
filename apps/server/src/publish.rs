@@ -3,10 +3,12 @@
 //! same id is refused.
 
 use crate::{
-    auth::{Principal, now_ms},
     blobs,
-    error::ApiError,
-    projects::{Access, access, audit},
+    domain::Access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    repositories::audit,
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -69,7 +71,11 @@ pub async fn put(
 
 /// Checks what only the server knows: the project's limits, the files it holds, and that the
 /// parents are its captures.
-async fn check(state: &Shared, project: &str, record: &CaptureRecord) -> Result<(), ApiError> {
+async fn check(
+    state: &crate::state::AppState,
+    project: &str,
+    record: &CaptureRecord,
+) -> Result<(), ApiError> {
     if record
         .members
         .iter()
@@ -145,7 +151,7 @@ async fn check(state: &Shared, project: &str, record: &CaptureRecord) -> Result<
 
 /// Writes the capture, its files, its parents, its screens and its facets in one transaction.
 async fn keep(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     project: &str,
     record: &CaptureRecord,
@@ -227,7 +233,7 @@ async fn keep(
         .await?;
     }
     let actor = principal.handle.as_deref().unwrap_or("device");
-    audit(
+    audit::record(
         &mut *tx,
         Some(project),
         actor,
@@ -298,7 +304,7 @@ mod tests {
         (port, state, [ana, bruno])
     }
 
-    async fn count(state: &Shared, sql: &str) -> i64 {
+    async fn count(state: &crate::state::AppState, sql: &str) -> i64 {
         sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_owned()))
             .fetch_one(&state.db)
             .await

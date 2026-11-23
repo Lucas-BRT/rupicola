@@ -1,26 +1,21 @@
 //! Rupicola server: the API server every client (web panel, CLI, desktop GUI) talks to.
 //! It is the only process that touches the database and the media store.
 
-mod auth;
 mod blobs;
 mod captures;
-mod credentials;
-mod db;
-mod design;
 mod design_system;
-mod error;
+mod domain;
 mod fixes;
+mod http;
 mod limits;
 mod lineage;
-mod mcp;
 mod problems;
-mod projects;
 mod publish;
 mod removal;
-mod routes;
+mod repositories;
 mod search;
-mod security;
 mod selections;
+mod services;
 mod settings;
 mod state;
 #[cfg(test)]
@@ -64,7 +59,7 @@ struct Args {
     #[arg(long)]
     healthcheck: bool,
     #[command(flatten)]
-    security: security::Security,
+    security: http::security::Security,
     #[command(flatten)]
     uploads: limits::UploadLimits,
     /// Whether any project may remove a capture that something cites; `never` overrides
@@ -77,7 +72,7 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     if args.healthcheck {
-        let response = fetch(args.port, routes::HEALTH_PATH).context("server is not reachable")?;
+        let response = fetch(args.port, http::HEALTH_PATH).context("server is not reachable")?;
         if status_code(&response) != Some(axum::http::StatusCode::OK) {
             bail!("healthcheck failed");
         }
@@ -114,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
     );
     axum::serve(
         listener,
-        routes::app(&args.security, state).into_make_service_with_connect_info::<SocketAddr>(),
+        http::app(&args.security, state).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown())
     .await
@@ -224,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn clients_over_the_burst_are_rate_limited() {
-        let port = start(security::Security {
+        let port = start(http::security::Security {
             rate_burst: SMALL_BURST,
             rate_refill_ms: NO_REFILL_MS,
             ..settings()
@@ -247,7 +242,7 @@ mod tests {
 
     #[tokio::test]
     async fn behind_a_proxy_the_last_forwarded_address_is_the_client() {
-        let port = start(security::Security {
+        let port = start(http::security::Security {
             rate_burst: SINGLE_REQUEST,
             rate_refill_ms: NO_REFILL_MS,
             behind_proxy: true,
@@ -273,7 +268,7 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_bodies_are_rejected_before_reaching_handlers() {
-        let port = start(security::Security {
+        let port = start(http::security::Security {
             body_limit: TINY_BODY_LIMIT,
             ..settings()
         })
@@ -360,7 +355,7 @@ mod tests {
         for bad in [
             None,
             Some("not-a-token"),
-            Some(&"0".repeat(crate::auth::HEX_SECRET_LEN)[..]),
+            Some(&"0".repeat(crate::domain::secret::HEX_SECRET_LEN)[..]),
         ] {
             let response = call(port, "GET", "/v1/me", bad, None).await;
             assert_eq!(status(&response), StatusCode::UNAUTHORIZED, "{response}");
@@ -422,7 +417,7 @@ mod tests {
     async fn password_guessing_is_rate_limited_per_client() {
         let port = start(settings()).await;
         let wrong = r#"{"handle":"ana","password":"wrong password here"}"#;
-        for _ in 0..routes::SIGN_IN_BURST {
+        for _ in 0..http::SIGN_IN_BURST {
             call(port, "POST", "/v1/sessions", None, Some(wrong)).await;
         }
         let limited = call(port, "POST", "/v1/sessions", None, Some(wrong)).await;

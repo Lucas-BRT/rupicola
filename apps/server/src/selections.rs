@@ -2,9 +2,10 @@
 //! as proof. A selection is never changed; a new proof is a new selection.
 
 use crate::{
-    auth::{Principal, now_ms},
-    error::ApiError,
-    projects::{Access, access},
+    domain::Access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    services::access::access,
     state::Shared,
 };
 use axum::{

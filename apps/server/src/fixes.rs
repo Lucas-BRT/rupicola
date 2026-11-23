@@ -1,10 +1,11 @@
 //! Fixes that answer problems: filing with before/after proof, steps and review.
 
 use crate::{
-    auth::{Principal, now_ms},
     captures::require_project_artifact,
-    error::ApiError,
-    projects::{Access, access},
+    domain::Access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -86,7 +87,7 @@ fn validate(form: &NewFix) -> Result<(), ApiError> {
 
 /// Project of a fix, checked against the caller's access.
 async fn fix_access(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     fix: &str,
     role: Role,
@@ -103,7 +104,7 @@ async fn fix_access(
 /// Fails unless the fix's problems and artifacts all belong to `project`; returns the
 /// distinct problem ids.
 async fn check_references<'a>(
-    state: &Shared,
+    state: &crate::state::AppState,
     project: &str,
     form: &'a NewFix,
 ) -> Result<BTreeSet<&'a str>, ApiError> {
@@ -234,7 +235,7 @@ pub async fn create(
         cite(&mut tx, &project, &id, &selection, role, position).await?;
     }
     let actor = principal.handle.as_deref().unwrap_or("device");
-    crate::projects::audit(
+    crate::repositories::audit::record(
         &mut *tx,
         Some(&project),
         actor,
@@ -496,7 +497,7 @@ pub async fn add_step(
     ))
 }
 
-async fn fix_project(state: &Shared, fix: &str) -> Result<String, ApiError> {
+async fn fix_project(state: &crate::state::AppState, fix: &str) -> Result<String, ApiError> {
     sqlx::query_scalar("SELECT project_id FROM fixes WHERE id = ?1")
         .bind(fix)
         .fetch_optional(&state.db)
@@ -554,7 +555,7 @@ pub async fn review(
         }
     }
     let actor = principal.handle.as_deref().unwrap_or("device");
-    crate::projects::audit(
+    crate::repositories::audit::record(
         &mut *tx,
         Some(&project),
         actor,
@@ -676,7 +677,7 @@ impl TryFrom<ReviewRow> for Review {
     }
 }
 
-async fn load(state: &Shared, id: &str) -> Result<Fix, ApiError> {
+async fn load(state: &crate::state::AppState, id: &str) -> Result<Fix, ApiError> {
     let row: FixRow = sqlx::query_as(
         "SELECT project_id, title, summary, status, author, created_at, updated_at
          FROM fixes WHERE id = ?1",

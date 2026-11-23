@@ -1,9 +1,10 @@
 //! Problems found in a project's interface: filing, triage and discussion.
 
 use crate::{
-    auth::{Principal, now_ms},
-    error::ApiError,
-    projects::{Access, access},
+    domain::Access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -75,7 +76,7 @@ fn validate(form: &NewProblem) -> Result<(), ApiError> {
 
 /// Project of a problem, checked against the caller's access.
 async fn problem_access(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     problem: &str,
     role: Role,
@@ -172,7 +173,7 @@ pub async fn create(
         cite(&mut tx, &project, &id, &selection, position).await?;
     }
     let actor = principal.handle.as_deref().unwrap_or("device");
-    crate::projects::audit(
+    crate::repositories::audit::record(
         &mut *tx,
         Some(&project),
         actor,
@@ -268,7 +269,7 @@ pub async fn update(
     .execute(&mut *tx)
     .await?;
     let actor = principal.handle.as_deref().unwrap_or("device");
-    crate::projects::audit(
+    crate::repositories::audit::record(
         &mut *tx,
         Some(&project),
         actor,
@@ -405,7 +406,7 @@ impl ProblemRow {
     }
 }
 
-async fn load(state: &Shared, id: &str) -> Result<Problem, ApiError> {
+async fn load(state: &crate::state::AppState, id: &str) -> Result<Problem, ApiError> {
     let row: ProblemRow = sqlx::query_as(
         "SELECT id, project_id, title, status, severity, origin, route, viewport, theme, diagnosis,
            proposed_solution, author, created_at, updated_at
@@ -467,7 +468,11 @@ async fn cite(
 }
 
 /// The selection, if it belongs to `project`.
-async fn project_selection(state: &Shared, project: &str, selection: &str) -> Result<(), ApiError> {
+async fn project_selection(
+    state: &crate::state::AppState,
+    project: &str,
+    selection: &str,
+) -> Result<(), ApiError> {
     let owner: Option<String> =
         sqlx::query_scalar("SELECT project_id FROM selections WHERE id = ?1")
             .bind(selection)

@@ -2,7 +2,7 @@
 //! timeout and concurrency limits, panic isolation, security headers, request ids
 //! and redaction of credentials from logs.
 
-use crate::error::ApiError;
+use crate::domain::ApiError;
 use axum::{
     Router,
     error_handling::HandleErrorLayer,

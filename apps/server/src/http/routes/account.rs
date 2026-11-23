@@ -1,6 +1,10 @@
 //! The signed-in account: `/me`, `/sessions`, and the routes that create or open one.
 
-use crate::{auth, credentials, security, state::Shared};
+use super::super::{
+    handlers::{account as auth, credentials},
+    security,
+};
+use crate::state::Shared;
 use axum::{Router, routing};
 
 /// Password guessing budget per client: a burst of attempts, then one more every

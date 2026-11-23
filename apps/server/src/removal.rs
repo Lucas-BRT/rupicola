@@ -3,9 +3,10 @@
 //! it leaves a tombstone so every citation still resolves.
 
 use crate::{
-    auth::{Principal, now_ms},
-    error::ApiError,
-    projects::{Access, access, person},
+    domain::Access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -37,7 +38,10 @@ pub enum CitedDeletion {
 }
 
 /// The project's policy as it stands, before the server's ceiling.
-async fn project_policy(state: &Shared, project: &str) -> Result<DeletionPolicy, ApiError> {
+async fn project_policy(
+    state: &crate::state::AppState,
+    project: &str,
+) -> Result<DeletionPolicy, ApiError> {
     let stored: Option<String> =
         sqlx::query_scalar("SELECT value FROM project_settings WHERE project_id = ?1 AND key = ?2")
             .bind(project)
@@ -52,7 +56,7 @@ async fn project_policy(state: &Shared, project: &str) -> Result<DeletionPolicy,
 
 /// The project of a live capture, after checking the caller may at least read it.
 async fn live_capture(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     capture: &str,
 ) -> Result<(String, Access), ApiError> {
@@ -70,7 +74,10 @@ async fn live_capture(
 }
 
 /// Everything that cites `capture`, each once, in a stable order.
-async fn cited_by(state: &Shared, capture: &str) -> Result<Vec<Citation>, ApiError> {
+async fn cited_by(
+    state: &crate::state::AppState,
+    capture: &str,
+) -> Result<Vec<Citation>, ApiError> {
     let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
         "WITH files AS (SELECT id FROM artifacts WHERE capture_id = ?1),
               chosen AS (SELECT DISTINCT selection_id FROM selection_items WHERE capture_id = ?1)
@@ -130,7 +137,12 @@ fn token(capture: &str, citations: &[Citation]) -> String {
 }
 
 /// Whether the caller may remove a capture with these citations under `policy`.
-fn allowed(state: &Shared, seen: Access, citations: &[Citation], policy: DeletionPolicy) -> bool {
+fn allowed(
+    state: &crate::state::AppState,
+    seen: Access,
+    citations: &[Citation],
+    policy: DeletionPolicy,
+) -> bool {
     match seen {
         Access::Device => false,
         Access::Person(role) if citations.is_empty() => role >= Role::Reviewer,
@@ -177,7 +189,7 @@ pub async fn remove(
     Json(form): Json<CaptureRemoval>,
 ) -> Result<StatusCode, ApiError> {
     let (project, seen) = live_capture(&state, &principal, &capture).await?;
-    let actor = person(&principal)?.to_owned();
+    let actor = principal.person()?.to_owned();
     let reason = form.reason.trim();
     if !(1..=MAX_REASON_CHARS).contains(&reason.chars().count()) {
         return Err(ApiError::invalid(format!(
@@ -268,7 +280,7 @@ pub async fn set_policy(
     access(&state, &principal, &project)
         .await?
         .require(Role::Owner)?;
-    let actor = person(&principal)?.to_owned();
+    let actor = principal.person()?.to_owned();
     let mut tx = state.db.begin().await?;
     sqlx::query(
         "INSERT INTO project_settings (project_id, key, value, generation, updated_by, updated_at)
@@ -284,7 +296,7 @@ pub async fn set_policy(
     .bind(now_ms())
     .execute(&mut *tx)
     .await?;
-    crate::projects::audit(
+    crate::repositories::audit::record(
         &mut *tx,
         Some(&project),
         &actor,

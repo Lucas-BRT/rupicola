@@ -2,10 +2,7 @@
 //! whether anything cites them, one page at a time, optionally with every capture in full.
 
 use crate::{
-    auth::Principal,
-    error::ApiError,
-    projects::{Access, access},
-    state::Shared,
+    domain::Access, domain::ApiError, domain::Principal, services::access::access, state::Shared,
 };
 use axum::{
     Json,

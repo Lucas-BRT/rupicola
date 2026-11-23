@@ -1,9 +1,9 @@
 //! Shared server state handed to every handler.
 
 use crate::{
-    auth::{Lockout, Passwords},
     blobs::Blobs,
     limits::LimitDefaults,
+    services::passwords::{Lockout, Passwords},
 };
 use anyhow::Context;
 use sqlx::SqlitePool;
@@ -51,7 +51,7 @@ impl AppState {
         let blobs = Blobs::disk(root.clone())
             .with_context(|| format!("cannot create {}", root.display()))?;
         Self::new(
-            crate::db::open(path).await?,
+            crate::repositories::open(path).await?,
             blobs,
             setup_code,
             open_setup,
@@ -76,7 +76,7 @@ impl AppState {
             blobs,
             passwords: Passwords::new()?,
             lockout: Lockout::default(),
-            setup_code: setup_code.map(crate::auth::digest),
+            setup_code: setup_code.map(crate::domain::secret::digest),
             open_setup,
             design_validation: tokio::sync::Semaphore::new(1),
             limits,

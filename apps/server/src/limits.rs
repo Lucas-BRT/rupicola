@@ -2,11 +2,8 @@
 //! server, and what an owner tightened for the project.
 
 use crate::{
-    auth::Principal,
-    error::ApiError,
-    projects::{Access, access},
-    security::Security,
-    state::Shared,
+    domain::Access, domain::ApiError, domain::Principal, http::security::Security,
+    services::access::access, state::Shared,
 };
 use axum::{
     Json,
@@ -86,7 +83,7 @@ impl LimitDefaults {
     /// # Errors
     ///
     /// When the settings cannot be read.
-    pub async fn server(&self, state: &Shared) -> Result<Limits, ApiError> {
+    pub async fn server(&self, state: &crate::state::AppState) -> Result<Limits, ApiError> {
         let mut limits = self.0.clone();
         for (key, value) in Self::stored(state, None).await? {
             limits.set(key, value);
@@ -100,7 +97,11 @@ impl LimitDefaults {
     /// # Errors
     ///
     /// When the settings cannot be read.
-    pub async fn effective(&self, state: &Shared, project: &str) -> Result<Limits, ApiError> {
+    pub async fn effective(
+        &self,
+        state: &crate::state::AppState,
+        project: &str,
+    ) -> Result<Limits, ApiError> {
         let mut limits = self.server(state).await?;
         for (key, value) in Self::stored(state, Some(project)).await? {
             limits.tighten(key, value);
@@ -114,7 +115,7 @@ impl LimitDefaults {
     ///
     /// When the settings cannot be read.
     pub async fn stored(
-        state: &Shared,
+        state: &crate::state::AppState,
         project: Option<&str>,
     ) -> Result<Vec<(LimitSetting, u64)>, ApiError> {
         let rows: Vec<(String, String)> = match project {
@@ -190,7 +191,7 @@ mod tests {
         json(&response)
     }
 
-    async fn store(state: &Shared, sql: &str) {
+    async fn store(state: &crate::state::AppState, sql: &str) {
         sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned()))
             .execute(&state.db)
             .await

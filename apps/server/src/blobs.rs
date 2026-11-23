@@ -1,7 +1,7 @@
 //! Content-addressed media store: every file is kept once, under its SHA-256.
 //! Disk in production; memory in tests.
 
-use crate::error::ApiError;
+use crate::domain::ApiError;
 use axum::{
     body::Body,
     extract::Request,
@@ -24,7 +24,7 @@ pub enum Blobs {
 
 /// Whether `sha256` is a lowercase hex SHA-256 digest, safe as a file name.
 pub fn valid_digest(sha256: &str) -> bool {
-    sha256.len() == crate::auth::HEX_SECRET_LEN
+    sha256.len() == crate::domain::secret::HEX_SECRET_LEN
         && sha256
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -404,7 +404,7 @@ impl BlobIndex {
         sha256: &str,
         bytes: u64,
     ) -> Result<(), ApiError> {
-        let now = crate::auth::now_ms();
+        let now = crate::domain::secret::now_ms();
         sqlx::query("INSERT OR IGNORE INTO blobs (sha256, bytes, created_at) VALUES (?1, ?2, ?3)")
             .bind(sha256)
             .bind(i64::try_from(bytes).map_err(anyhow::Error::from)?)

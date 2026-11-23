@@ -1,8 +1,17 @@
-//! SQLite connection pool and schema migrations.
+//! The SQLite adapter: the connection pool, the schema migrations, and one module
+//! per table group holding every query. Functions take any executor, so a use case
+//! can run several of them in one transaction.
 //!
 //! Migrations are the numbered `.sql` files in `apps/server/migrations/`, embedded
 //! at build time by `sqlx::migrate!` and recorded (with checksums) in
 //! `_sqlx_migrations`. Never edit a file that has shipped: add a new one.
+
+pub mod accounts;
+pub mod audit;
+pub mod credentials;
+pub mod design;
+pub mod projects;
+pub mod tokens;
 
 use anyhow::Context;
 use sqlx::{

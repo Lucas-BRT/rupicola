@@ -18,7 +18,8 @@ mod topics;
 #[cfg(test)]
 pub use account::SIGN_IN_BURST;
 
-use crate::{error::ApiError, mcp, security, state::Shared};
+use super::{mcp, security};
+use crate::{domain::ApiError, state::Shared};
 use axum::{Json, Router, routing};
 use rupicola_api::{Health, HealthStatus};
 use std::time::Duration;

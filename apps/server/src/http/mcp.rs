@@ -5,7 +5,11 @@
 //! in step.
 
 use crate::{
-    auth::Principal, captures, design, error::ApiError, fixes, problems, projects, state::Shared,
+    captures,
+    domain::{ApiError, Principal},
+    fixes, problems,
+    services::{design, projects},
+    state::Shared,
 };
 use axum::{
     Json,
@@ -122,13 +126,8 @@ impl Call {
     async fn run(self, state: Shared, principal: Principal) -> Result<Value, ApiError> {
         let state_arg = State(state.clone());
         match self {
-            Self::ProjectList {} => value(&projects::list(state_arg, principal).await?.0),
-            Self::ProjectCreate(form) => value(
-                &projects::create(state_arg, principal, Json(form))
-                    .await?
-                    .1
-                    .0,
-            ),
+            Self::ProjectList {} => value(&projects::list(&state, &principal).await?),
+            Self::ProjectCreate(form) => value(&projects::create(&state, &principal, form).await?),
             Self::CaptureList { project } => {
                 value(&captures::list(state_arg, principal, Path(project)).await?.0)
             }
@@ -168,14 +167,11 @@ impl Call {
                     .0,
             ),
             Self::DesignList { project } => {
-                value(&design::list(state_arg, principal, Path(project)).await?.0)
+                value(&design::list(&state, &principal, &project).await?)
             }
-            Self::DesignRecord { project, entry } => value(
-                &design::create(state_arg, principal, Path(project), Json(entry))
-                    .await?
-                    .1
-                    .0,
-            ),
+            Self::DesignRecord { project, entry } => {
+                value(&design::create(&state, &principal, &project, entry).await?)
+            }
             Self::FixList { project } => {
                 value(&fixes::list(state_arg, principal, Path(project)).await?.0)
             }
@@ -204,7 +200,7 @@ impl Call {
 /// A slice of an artifact as base64, with the media type and total size, so an agent can
 /// page through files it cannot fetch over HTTP.
 async fn read_artifact(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     id: &str,
     offset: u64,

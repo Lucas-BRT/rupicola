@@ -5,10 +5,11 @@
 //! describes the capture by referencing those digests.
 
 use crate::{
-    auth::{Principal, now_ms},
     blobs,
-    error::ApiError,
-    projects::{Access, access},
+    domain::Access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -302,7 +303,7 @@ pub async fn create(
         blobs::BlobIndex::record(&mut tx, &project, &item.file.sha256, *size).await?;
     }
     let actor = principal.handle.as_deref().unwrap_or("device");
-    crate::projects::audit(
+    crate::repositories::audit::record(
         &mut *tx,
         Some(&project),
         actor,
@@ -344,7 +345,7 @@ pub async fn list(
 
 /// The summaries of the live captures named in `ids`, newest first.
 pub(crate) async fn summaries(
-    state: &Shared,
+    state: &crate::state::AppState,
     ids: &[String],
 ) -> Result<Vec<CaptureSummary>, ApiError> {
     let rows: Vec<SummaryRow> = sqlx::query_as(
@@ -363,7 +364,7 @@ pub(crate) async fn summaries(
 
 /// Project of a capture, checked against the caller's access.
 async fn capture_access(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     capture: &str,
     role: Role,
@@ -379,7 +380,7 @@ async fn capture_access(
 
 /// Fails unless `artifact` is a file of one of `project`'s captures.
 pub async fn require_project_artifact(
-    state: &Shared,
+    state: &crate::state::AppState,
     project: &str,
     artifact: &str,
 ) -> Result<(), ApiError> {
@@ -493,7 +494,7 @@ struct BlobRow {
     bytes: i64,
 }
 
-pub(crate) async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
+pub(crate) async fn load(state: &crate::state::AppState, id: &str) -> Result<Capture, ApiError> {
     let capture: CaptureRow = sqlx::query_as(
         "SELECT project_id, scenario, revision, status, blocker, inspection, environment,
                created_at, digest, deleted_at, deleted_by, delete_reason
@@ -646,7 +647,7 @@ pub async fn add_finding(
 
 /// Digest, media type and size of an artifact, for readers of its project.
 pub async fn artifact_blob(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     id: &str,
 ) -> Result<(String, String, i64), ApiError> {

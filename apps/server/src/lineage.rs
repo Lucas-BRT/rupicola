@@ -2,9 +2,11 @@
 //! with; the lineage that holds now lives in `capture_parents`, and every edit leaves an event.
 
 use crate::{
-    auth::{Principal, now_ms},
-    error::ApiError,
-    projects::{Access, access, audit, person},
+    domain::Access,
+    domain::ApiError,
+    domain::{Principal, secret::now_ms},
+    repositories::audit,
+    services::access::access,
     state::Shared,
 };
 use axum::{
@@ -124,7 +126,7 @@ pub async fn graph(
 
 /// The files of a capture by path, and its environment facets by key.
 async fn contents(
-    state: &Shared,
+    state: &crate::state::AppState,
     capture: &str,
 ) -> Result<(BTreeMap<String, String>, BTreeMap<String, String>), ApiError> {
     let files: Vec<(String, String)> =
@@ -210,7 +212,7 @@ pub async fn compare(
 
 /// The project of a live capture, after checking the caller may act there as `role`.
 async fn project_of(
-    state: &Shared,
+    state: &crate::state::AppState,
     principal: &Principal,
     capture: &str,
     role: Role,
@@ -230,7 +232,7 @@ async fn project_of(
 }
 
 /// The lineage of `capture` as it stands.
-async fn load(state: &Shared, capture: &str) -> Result<Lineage, ApiError> {
+async fn load(state: &crate::state::AppState, capture: &str) -> Result<Lineage, ApiError> {
     let edges: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT parent_id, kind, origin FROM capture_parents WHERE capture_id = ?1
          ORDER BY position, parent_id",
@@ -300,7 +302,7 @@ pub async fn edit(
     Json(form): Json<ParentsEdit>,
 ) -> Result<Json<Lineage>, ApiError> {
     let project = project_of(&state, &principal, &capture, Role::Reviewer).await?;
-    let actor = person(&principal)?.to_owned();
+    let actor = principal.person()?.to_owned();
     let reason = check(&state, &project, &capture, &form).await?;
     let before: Vec<ParentRef> = load(&state, &capture)
         .await?
@@ -342,7 +344,7 @@ pub async fn edit(
     .bind(now_ms())
     .execute(&mut *tx)
     .await?;
-    audit(
+    audit::record(
         &mut *tx,
         Some(&project),
         &actor,
@@ -355,7 +357,7 @@ pub async fn edit(
 
 /// Checks an edit before anything is written; returns its trimmed reason.
 async fn check(
-    state: &Shared,
+    state: &crate::state::AppState,
     project: &str,
     capture: &str,
     form: &ParentsEdit,

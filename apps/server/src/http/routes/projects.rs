@@ -1,9 +1,10 @@
 //! `/projects`: the projects themselves and everything that belongs to one, under
 //! `/projects/{id}`.
 
+use super::super::handlers::{credentials, design, projects};
 use crate::{
-    captures, credentials, design, design_system, fixes, limits, problems, projects, publish,
-    removal, search, selections, settings, state::Shared, topics,
+    captures, design_system, fixes, limits, problems, publish, removal, search, selections,
+    settings, state::Shared, topics,
 };
 use axum::{Router, routing};
 

@@ -1,6 +1,7 @@
 //! `/tokens`: the signed-in account's API tokens.
 
-use crate::{credentials, state::Shared};
+use super::super::handlers::credentials;
+use crate::state::Shared;
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {
