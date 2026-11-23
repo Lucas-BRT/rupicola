@@ -9,6 +9,7 @@ pub mod credential;
 pub mod design;
 pub mod error;
 pub mod limits;
+pub mod lineage;
 pub mod principal;
 pub mod project;
 pub mod record;

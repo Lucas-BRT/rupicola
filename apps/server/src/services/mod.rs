@@ -8,6 +8,7 @@ pub mod captures;
 pub mod credentials;
 pub mod design;
 pub mod limits;
+pub mod lineage;
 pub mod passwords;
 pub mod projects;
 pub mod publish;

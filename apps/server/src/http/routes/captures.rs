@@ -1,7 +1,7 @@
 //! `/captures/{id}`: one capture, its lineage, its citations and its findings.
 
-use super::super::handlers::captures;
-use crate::{lineage, removal, state::Shared};
+use super::super::handlers::{captures, lineage};
+use crate::{removal, state::Shared};
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {

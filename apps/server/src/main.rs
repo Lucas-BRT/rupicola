@@ -6,7 +6,6 @@ mod design_system;
 mod domain;
 mod fixes;
 mod http;
-mod lineage;
 mod problems;
 mod removal;
 mod repositories;

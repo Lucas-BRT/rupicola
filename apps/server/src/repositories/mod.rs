@@ -12,6 +12,7 @@ pub mod blobs;
 pub mod captures;
 pub mod credentials;
 pub mod design;
+pub mod lineage;
 pub mod projects;
 pub mod records;
 pub mod settings;
