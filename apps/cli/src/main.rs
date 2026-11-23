@@ -4,7 +4,6 @@ mod design;
 mod mcp;
 mod mcp_bridge;
 mod pipeline;
-mod probe;
 mod propose;
 mod publish;
 mod service;
@@ -23,8 +22,6 @@ const EXIT_CLEAN: u8 = 0;
 const EXIT_ERROR: u8 = 1;
 const EXIT_FINDINGS: u8 = 2;
 const EXIT_UNSUPPORTED: u8 = 3;
-/// Pages a probe crawls unless told otherwise.
-const DEFAULT_MAX_PAGES: usize = 20;
 /// Colors a palette reports unless told otherwise.
 const DEFAULT_PALETTE_COLORS: usize = 8;
 /// Contact sheet layout unless told otherwise.

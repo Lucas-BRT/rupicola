@@ -235,15 +235,15 @@ pub fn render_home(panel_url: &str, public_url: &str) -> String {
       </div>
     </div>
     <div class="card">
-      <p class="eyebrow">Quick Probe</p>
-      <h2>Verify any local URL in one command</h2>
+      <p class="eyebrow">Quick Capture</p>
+      <h2>Capture a scripted flow in one command</h2>
       {}
     </div>
   </div>
 </section>"#,
         code_block(
             "Terminal",
-            "rupicola probe --url http://127.0.0.1:4732 --mode exhaustive --pages all --viewports 320x844,768x1024,1440x900 --themes dark,light --json",
+            "rupicola capture scenario.toml --server-url https://rupicola.example --json",
         )
     );
 
@@ -431,7 +431,7 @@ pub fn render_architecture(panel_url: &str) -> String {
   <div class="container grid-2">
     <article class="card">
       <h3><code>rupicola</code> (CLI &amp; Core)</h3>
-      <p class="muted">MSRV 1.85.0. Runs <code>discover</code>, <code>scan</code>, <code>probe</code>, <code>problem</code>, <code>fix</code>, <code>propose</code>, <code>design</code>, <code>storage</code>, <code>video</code>, and <code>audit</code>.</p>
+      <p class="muted">MSRV 1.85.0. Runs <code>discover</code>, <code>scan</code>, <code>capture</code>, <code>problem</code>, <code>fix</code>, <code>propose</code>, <code>design</code>, <code>storage</code>, <code>video</code>, and <code>audit</code>.</p>
     </article>
     <article class="card">
       <h3><code>rupicola-panel</code> (Review App)</h3>

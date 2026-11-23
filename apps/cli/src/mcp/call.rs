@@ -68,7 +68,6 @@ impl ToolCall<'_> {
             "propose_get" => self.propose_get(),
             "propose_enrich" => self.propose_enrich(),
             "propose_await" => self.propose_await(),
-            "probe_run" => self.probe_run(),
             "problem_list" => self.problem_list(),
             "problem_add" => self.problem_add(),
             "problem_triage" => self.problem_triage(),

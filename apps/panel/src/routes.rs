@@ -48,7 +48,6 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(save_storage_config)
         .route(clean_storage)
         .route(offload_storage)
-        .route(trigger_probe)
         .route(record_design)
         .route(design_version)
         .route(edit_design_version)
@@ -428,18 +427,6 @@ async fn proposal_asset(cx: &Cx) -> Result<Response> {
         )
         .await,
     )
-}
-
-#[route(POST "/projects/{project}/probe")]
-async fn trigger_probe(cx: &Cx, Form(form): Form<pages::ProbeForm>) -> Result<Response> {
-    let panel = panel(cx);
-    let account = account(cx);
-    let id: String = path_param::<Project>(cx).into();
-    let result =
-        tokio::task::spawn_blocking(move || pages::trigger_probe(&panel, &account, &id, form))
-            .await
-            .unwrap_or_else(|error| Err(super::db_error(error)));
-    respond(cx, result)
 }
 
 #[route(POST "/projects/{project}/design/record")]

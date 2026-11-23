@@ -11,7 +11,6 @@ use super::{
 )]
 pub fn render_captures<'a>(
     cx: &'a Cx,
-    panel: &'a Panel,
     account: &'a Account,
     role: Role,
     _project_id: &'a str,
@@ -110,41 +109,6 @@ pub fn render_captures<'a>(
                 <span aria-hidden="true">"↗"</span>
             </a>
         </section>
-
-        if role == Role::Owner {
-            <details class="surface panel-padding design-editor">
-                <summary>"Run inspection matrix (capture & analysis)"</summary>
-                <form class="stack-form" method="post" action=(format!("{base}/probe"))>
-                    <input type="hidden" name="csrf" value=(&account.csrf)>
-                    <label for="probe-url">"Target URL"</label>
-                    <input id="probe-url" name="url" type="url" required="" value=(&panel.origin) maxlength="512">
-                    <label for="probe-mode">"Inspection mode"</label>
-                    <select id="probe-mode" name="mode">
-                        <option value="page-check">"Page check (1/N pages · 1 viewport · D1)"</option>
-                        <option value="all-pages">"All pages (auto-crawl · 1 viewport · D1)"</option>
-                        <option value="responsive-matrix" selected="">"Responsive matrix (pages × N viewports × themes · D2)"</option>
-                        <option value="interaction-map">"Interaction map (selected pages × N viewports · D3)"</option>
-                        <option value="exhaustive">"Exhaustive (all pages × N viewports × full interaction map · D3)"</option>
-                    </select>
-                    <label for="probe-pages">"Pages (comma-separated routes or 'all')"</label>
-                    <input id="probe-pages" name="pages" value="all" maxlength="400">
-                    <label for="probe-viewports">"Viewports (comma-separated WxH or mobile,tablet,desktop)"</label>
-                    <input id="probe-viewports" name="viewports" value="320x844,768x1024,1440x900" maxlength="200">
-                    <label for="probe-themes">"Themes"</label>
-                    <select id="probe-themes" name="themes">
-                        <option value="dark,light" selected="">"Dark + Light"</option>
-                        <option value="dark">"Dark only"</option>
-                        <option value="light">"Light only"</option>
-                    </select>
-                    <label for="probe-pipeline">"Pipeline stage behavior"</label>
-                    <select id="probe-pipeline" name="pipeline">
-                        <option value="capture-and-analyze" selected="">"Capture + populate Problems queue automatically"</option>
-                        <option value="capture-only">"Capture assets only (analyze separately later)"</option>
-                    </select>
-                    <button class="button primary" type="submit">"Start matrix capture"</button>
-                </form>
-            </details>
-        }
 
         <div class="propose-toolbar">
             <div class="stage-viewports" role="group" aria-label="Capture view">

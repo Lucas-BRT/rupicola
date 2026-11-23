@@ -8,7 +8,7 @@ mod remote;
 
 use crate::{AuthAction, EXIT_CLEAN, Result, design, mcp, mcp_bridge, pipeline, propose, service};
 use analysis::{AuditArgs, CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs};
-use capture::{CaptureArgs, CaptureReviewArgs, MatrixArgs, ProbeArgs};
+use capture::{CaptureArgs, CaptureReviewArgs, MatrixArgs};
 use clap::Subcommand;
 use images::{DiffArgs, FramesArgs, PaletteArgs, SheetArgs, VideoArgs};
 use panel::{ServeArgs, SetupArgs};
@@ -72,8 +72,6 @@ pub enum Command {
         #[command(subcommand)]
         action: pipeline::StorageAction,
     },
-    /// Run a combinatorial UI inspection matrix (pages × viewports × themes × interaction depth).
-    Probe(ProbeArgs),
     /// Serve project evidence using the optional rupicola-panel executable.
     Serve(ServeArgs),
     /// Assemble PNG frames or a raw RGBA/BGRA stdin stream into a constant-framerate MP4 via ffmpeg.
@@ -128,7 +126,6 @@ impl Command {
             Self::Problem { action } => pipeline::run_problem(action),
             Self::Fix { action } => pipeline::run_fix(action),
             Self::Storage { action } => pipeline::run_storage(action),
-            Self::Probe(args) => args.run(),
             Self::Serve(args) => args.run(),
             Self::Video(args) => args.run(),
             Self::Palette(args) => args.run(),

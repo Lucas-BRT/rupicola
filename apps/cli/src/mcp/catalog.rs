@@ -123,12 +123,6 @@ pub(super) const TOOLS: &[(&str, &str, &[&str], &[&str])] = &[
         &["project", "timeout_secs"],
     ),
     (
-        "probe_run",
-        "Run a combinatorial UI inspection matrix (mode: page-check | all-pages | responsive-matrix | interaction-map | exhaustive)",
-        &["url"],
-        &["mode", "pages", "viewports", "themes", "max_pages", "video"],
-    ),
-    (
         "problem_list",
         "List problems in the project's triage queue",
         &[],

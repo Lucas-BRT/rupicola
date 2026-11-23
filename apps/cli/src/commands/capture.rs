@@ -1,9 +1,8 @@
-//! Capture commands: scenarios, COSMIC applets, review notes, probes and matrices.
+//! Capture commands: scenarios, review notes and matrices.
 
 use crate::{
-    DEFAULT_MATRIX_MAX_RUNS, DEFAULT_MATRIX_TIMEOUT_SECS, DEFAULT_MAX_PAGES, EXIT_CLEAN,
-    EXIT_ERROR, EXIT_FINDINGS, Result, bail, block_on, json, print_capture, probe,
-    publish::Destination, scenario, service, visual,
+    DEFAULT_MATRIX_MAX_RUNS, DEFAULT_MATRIX_TIMEOUT_SECS, EXIT_CLEAN, Result, bail, block_on, json,
+    print_capture, publish::Destination, scenario, service, visual,
 };
 use std::path::PathBuf;
 
@@ -81,98 +80,6 @@ impl CaptureReviewArgs {
         scenario::review(&manifest, note, evidence)?;
         println!("{}: inspection recorded", manifest.display());
         Ok(EXIT_CLEAN)
-    }
-}
-
-#[derive(clap::Args)]
-pub struct ProbeArgs {
-    /// Base HTTP(S) URL of the application under test.
-    #[arg(long)]
-    url: String,
-    #[arg(long, value_enum, default_value = "responsive-matrix")]
-    mode: probe::Mode,
-    /// "all" (auto-crawl) or comma-separated routes (e.g. /,/projects,/settings).
-    #[arg(long, default_value = "/")]
-    pages: String,
-    /// Comma-separated `WxH` or presets (mobile,tablet,laptop,desktop,wide).
-    #[arg(long, default_value = "")]
-    viewports: String,
-    /// Comma-separated themes (dark,light).
-    #[arg(long, default_value = "dark")]
-    themes: String,
-    #[arg(long, default_value_t = DEFAULT_MAX_PAGES)]
-    max_pages: usize,
-    #[arg(long)]
-    out: Option<PathBuf>,
-    #[arg(long)]
-    playwright_module: Option<PathBuf>,
-    #[arg(long)]
-    video: bool,
-    #[arg(long)]
-    dry_run: bool,
-    #[arg(long)]
-    json: bool,
-    #[command(flatten)]
-    destination: Destination,
-}
-
-impl ProbeArgs {
-    pub(super) fn run(self) -> Result<u8> {
-        let ProbeArgs {
-            url,
-            mode,
-            pages,
-            viewports,
-            themes,
-            max_pages,
-            out,
-            playwright_module,
-            video,
-            dry_run,
-            json,
-            destination,
-        } = self;
-        let run = destination.run_dir(out)?;
-        let summary = probe::run(probe::Config {
-            url,
-            mode,
-            pages,
-            viewports,
-            themes,
-            max_pages,
-            out: Some(run.dir().to_path_buf()),
-            playwright_module,
-            video,
-            dry_run,
-        })?;
-        if !dry_run {
-            block_on(destination.publish(&summary.output_dir, json))??;
-        }
-        if json {
-            println!("{}", serde_json::to_string_pretty(&summary)?);
-        } else {
-            println!(
-                "Probe {} ({}) -> {} ({} pages, {} viewports, {} checkpoints, {} clips, {} findings)",
-                summary.mode,
-                summary.depth,
-                summary.manifest_path.display(),
-                summary.pages.len(),
-                summary.viewports.len(),
-                summary.checkpoints,
-                summary.clips,
-                summary.findings_count
-            );
-            for f in &summary.findings {
-                println!("  - {}", f.note);
-            }
-        }
-        Ok(if summary.blocker.is_some() {
-            EXIT_ERROR
-        } else if summary.findings_count > 0 {
-            EXIT_FINDINGS
-        } else {
-            EXIT_CLEAN
-        })
     }
 }
 

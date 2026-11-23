@@ -80,7 +80,6 @@ rupicola discover /path/to/project --json
 rupicola scan /path/to/project --json
 rupicola scan page.rs --framework leptos --json
 rupicola check /path/to/rupicola --json
-rupicola probe --url http://127.0.0.1:3000 --mode exhaustive --pages all --viewports 320x844,768x1024,1440x900 --themes dark,light --json
 rupicola problem list --project my-app --json
 rupicola problem claim <problem-id> --agent codex-ui --activity "Inspecting evidence and violated norms"
 rupicola problem progress <problem-id> --agent codex-ui --stage verifying --step 3 --total-steps 4 --pct 80 --activity "Running Playwright matrix verification"
@@ -186,7 +185,7 @@ HTTPS capture publication does not sync the design register.
 The Topcoat web panel (`rupicola-panel`) organizes visual engineering into a structured pipeline per project:
 
 - **`Captures` (`/projects/{id}/captures`):** Unified research hub combining matrix runs, screenshots, contact sheets, and interaction recordings with a **Screen health** filter (`All captured screens`, `Clean / verified only`, `With problems only`, `Unanalyzed`), inline `Run inspection matrix` launcher (`page-check`, `all-pages`, `responsive-matrix`, `interaction-map`, `exhaustive`), and 1-click problem extraction (`Extract problems` / `Flag problem`).
-- **`Problems` (`/projects/{id}/problems`):** Structured triage queue linking captured evidence assets, violated **Global Norms** (`SKILL.md` / `reference/`) and **Project Design Norms**, root-cause diagnosis, proposed solution, and a live **Agent & Task Execution Tracker** (`AGENT`, `STAGE`, `STEP X / Y · Z%`, `<progress>` bar, activity log, and `2.5s` live polling via `/projects/{id}/problems/status.json`). Problems marked `Intentional` or `False positive` are automatically suppressed in subsequent probes.
+- **`Problems` (`/projects/{id}/problems`):** Structured triage queue linking captured evidence assets, violated **Global Norms** (`SKILL.md` / `reference/`) and **Project Design Norms**, root-cause diagnosis, proposed solution, and a live **Agent & Task Execution Tracker** (`AGENT`, `STAGE`, `STEP X / Y · Z%`, `<progress>` bar, activity log, and `2.5s` live polling via `/projects/{id}/problems/status.json`). Problems marked `Intentional` or `False positive` are automatically suppressed in subsequent captures.
 - **`Fixes` (`/projects/{id}/fixes`):** Interactive Before/After verification workbench supporting both static screenshots (`.png`) and motion recordings (`.mp4` / `.webm`) across **`Split Slider`**, **`Side by Side`**, **`Video Player (Slow-Mo 1× / 0.5× / 0.25×)`**, and **`Pixel Diff`**, plus applied tactics, modified files, intermediate steps timeline, and user approval (`Approve Fix` / `Request Changes`).
 - **`Design` (`/projects/{id}/design`):** The project design register, versioned systems, interactive screen templates, and proposals. The old Proposes list redirects to Design; existing HTML previews and attachments keep their URLs.
 

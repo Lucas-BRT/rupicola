@@ -1,7 +1,7 @@
-//! Captures, evidence and probes.
+//! Captures and evidence.
 
 use super::bundle::import_bundle;
-use super::call::{ToolCall, cli, manifest, text};
+use super::call::{ToolCall, manifest, text};
 use crate::{scenario, service};
 use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -116,38 +116,6 @@ impl ToolCall<'_> {
                 );
             }
             String::from_utf8(bytes)?
-        };
-        Ok(text(&output))
-    }
-
-    pub(super) fn probe_run(&self) -> Result<Value> {
-        let args = self.args;
-        let arg = |key: &str| self.arg(key);
-        let output: String = {
-            let mut command = vec![
-                "probe".into(),
-                "--json".into(),
-                format!("--url={}", arg("url")?),
-            ];
-            if let Some(m) = args["mode"].as_str() {
-                command.push(format!("--mode={m}"));
-            }
-            if let Some(p) = args["pages"].as_str() {
-                command.push(format!("--pages={p}"));
-            }
-            if let Some(v) = args["viewports"].as_str() {
-                command.push(format!("--viewports={v}"));
-            }
-            if let Some(t) = args["themes"].as_str() {
-                command.push(format!("--themes={t}"));
-            }
-            if let Some(mp) = args["max_pages"].as_u64() {
-                command.push(format!("--max-pages={mp}"));
-            }
-            if args["video"].as_bool().unwrap_or(false) {
-                command.push("--video".into());
-            }
-            cli(&command)?
         };
         Ok(text(&output))
     }

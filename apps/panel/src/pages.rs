@@ -1,8 +1,8 @@
 use super::{
     Account, Arc, BTreeMap, Checkpoint, Connection, Cx, Deserialize, Html, IntoResponse, Manifest,
-    PageResult, Panel, PathBuf, Response, Run, StatusCode, TransactionBehavior, Value, auth,
-    capture_store, db_error, design_record, design_system, fix_record, fs, media, pipeline,
-    problem_record, proposal_record, proposes, read_index, redirect, safe_name, storage, view,
+    PageResult, Panel, Response, Run, StatusCode, TransactionBehavior, Value, auth, capture_store,
+    db_error, design_record, design_system, fix_record, fs, media, pipeline, problem_record,
+    proposal_record, proposes, read_index, redirect, safe_name, storage, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
@@ -673,7 +673,6 @@ async fn project_view(
         if section == "captures" {
             (pipeline::render_captures(
                 cx,
-                &panel,
                 &account,
                 role,
                 &id,
@@ -1576,108 +1575,4 @@ async fn save_design(
         serde_json::to_value(entry).map_err(db_error)?,
     )?;
     Ok(entry_id)
-}
-
-#[derive(Deserialize)]
-pub struct ProbeForm {
-    csrf: String,
-    url: String,
-    mode: String,
-    pages: String,
-    viewports: String,
-    themes: String,
-    pipeline: Option<String>,
-}
-
-pub fn trigger_probe(
-    panel: &Panel,
-    account: &Account,
-    id: &str,
-    form: ProbeForm,
-) -> PageResult<Response> {
-    auth::check_csrf(account, &form.csrf)?;
-    if !account.owner {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    if !safe_name(id) {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    let url = form.url.trim().to_owned();
-    if (!url.starts_with("http://") && !url.starts_with("https://")) || url.len() > 512 {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    let mode = match form.mode.as_str() {
-        "page-check" | "all-pages" | "responsive-matrix" | "interaction-map" | "exhaustive" => {
-            form.mode
-        }
-        _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
-    };
-    let root = panel
-        .roots
-        .first()
-        .cloned()
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(db_error)?
-        .as_millis();
-    let run_name = format!("probe-{ts}");
-    let out_dir = root.join(&run_name);
-    let pages = form.pages.trim().to_owned();
-    let viewports = form.viewports.trim().to_owned();
-    let themes = form.themes.trim().to_owned();
-    let auto_analyze = form.pipeline.as_deref() != Some("capture-only");
-    let project_id = id.to_owned();
-
-    std::thread::spawn(move || {
-        let candidates = [
-            std::env::current_exe()
-                .ok()
-                .map(|p| p.with_file_name("rupicola")),
-            Some(PathBuf::from("./target/debug/rupicola")),
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo/bin/rupicola")),
-        ];
-        let Some(bin) = candidates.into_iter().flatten().find(|p| p.is_file()) else {
-            return;
-        };
-        let _ = std::process::Command::new(&bin)
-            .args([
-                "probe",
-                "--url",
-                &url,
-                "--mode",
-                &mode,
-                "--pages",
-                if pages.is_empty() { "/" } else { &pages },
-                "--viewports",
-                &viewports,
-                "--themes",
-                if themes.is_empty() { "dark" } else { &themes },
-                "--out",
-            ])
-            .arg(&out_dir)
-            .status();
-        let manifest_path = out_dir.join("manifest.json");
-        if let Ok(bytes) = fs::read(&manifest_path)
-            && let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(&bytes)
-        {
-            val["project"] = serde_json::json!({ "id": project_id, "label": project_id });
-            if let Ok(updated) = serde_json::to_vec_pretty(&val) {
-                let _ = fs::write(&manifest_path, updated);
-            }
-        }
-        if auto_analyze {
-            let _ = std::process::Command::new(&bin)
-                .args([
-                    "problem",
-                    "analyze-run",
-                    &run_name,
-                    "--project",
-                    &project_id,
-                ])
-                .status();
-        }
-    });
-
-    Ok(redirect(&format!("/projects/{id}/captures")))
 }
