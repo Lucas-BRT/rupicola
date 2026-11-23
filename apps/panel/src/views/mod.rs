@@ -1,7 +1,12 @@
 //! Markup. A view takes the data a page needs, already loaded, and returns HTML; it calls no
 //! backend and changes nothing.
 
+pub mod credential;
+pub mod dashboard;
 pub mod project;
+pub mod projects;
+pub mod run;
+pub mod settings;
 
 use crate::Run;
 use crate::components::badge::{BadgeVariant, badge};
