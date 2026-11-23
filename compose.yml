@@ -25,6 +25,8 @@ services:
       RUPICOLA_BEHIND_PROXY: "true"
     volumes:
       - rupicola-backend-data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.rupicola-backend.rule=Host(`${RUPICOLA_DOMAIN}`) && (PathPrefix(`/v1`) || Path(`/mcp`))"
@@ -62,11 +64,8 @@ services:
       HOST: "0.0.0.0"
       PORT: "4731"
       XDG_DATA_HOME: "/data"
-      RUPICOLA_DB: "/data/panel.db"
       RUPICOLA_PUBLIC_ORIGIN: "${RUPICOLA_PUBLIC_ORIGIN}"
       RUPICOLA_SERVER_URL: "http://backend:4730"
-    volumes:
-      - rupicola-data:/data
     tmpfs:
       - /tmp:size=64m,mode=1777
     read_only: true
@@ -120,6 +119,7 @@ services:
       - dokploy-network
 
 volumes:
+  # Kept until the data of the old panel is converted into the backend (see the conversion script).
   rupicola-data:
   rupicola-backend-data:
 

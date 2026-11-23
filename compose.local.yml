@@ -16,6 +16,8 @@ services:
       RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
     volumes:
       - rupicola-backend-data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     read_only: true
     cap_drop:
       - ALL
@@ -43,10 +45,7 @@ services:
       HOST: "0.0.0.0"
       PORT: "4731"
       XDG_DATA_HOME: "/data"
-      RUPICOLA_DB: "/data/panel.db"
       RUPICOLA_SERVER_URL: "http://backend:4730"
-    volumes:
-      - rupicola-local-data:/data
     tmpfs:
       - /tmp:size=64m,mode=1777
     read_only: true
@@ -62,5 +61,4 @@ services:
       start_period: 10s
 
 volumes:
-  rupicola-local-data:
   rupicola-backend-data:
