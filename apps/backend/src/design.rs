@@ -20,49 +20,42 @@ const MAX_NOTE_CHARS: usize = 8000;
 /// Longest surface or reference, in characters.
 const MAX_LABEL_CHARS: usize = 512;
 
-type Row = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    i64,
-);
+/// A `design_entries` row.
+#[derive(sqlx::FromRow)]
+struct Row {
+    id: String,
+    kind: String,
+    status: String,
+    title: String,
+    note: String,
+    surface: Option<String>,
+    supersedes: Option<String>,
+    reference: Option<String>,
+    evidence: Option<String>,
+    author: Option<String>,
+    created_at: i64,
+}
 
-fn entry_of(row: Row) -> Result<DesignEntry, ApiError> {
-    let (
-        id,
-        kind,
-        status,
-        title,
-        note,
-        surface,
-        supersedes,
-        reference,
-        evidence,
-        author,
-        created_at,
-    ) = row;
-    Ok(DesignEntry {
-        id,
-        entry: NewDesignEntry {
-            kind: kind.parse().map_err(anyhow::Error::from)?,
-            status: status.parse().map_err(anyhow::Error::from)?,
-            title,
-            note,
-            surface,
-            supersedes,
-            reference,
-            evidence,
-        },
-        author,
-        created_at,
-    })
+impl TryFrom<Row> for DesignEntry {
+    type Error = ApiError;
+
+    fn try_from(row: Row) -> Result<Self, ApiError> {
+        Ok(Self {
+            id: row.id,
+            entry: NewDesignEntry {
+                kind: row.kind.parse().map_err(anyhow::Error::from)?,
+                status: row.status.parse().map_err(anyhow::Error::from)?,
+                title: row.title,
+                note: row.note,
+                surface: row.surface,
+                supersedes: row.supersedes,
+                reference: row.reference,
+                evidence: row.evidence,
+            },
+            author: row.author,
+            created_at: row.created_at,
+        })
+    }
 }
 
 fn validate(form: &NewDesignEntry) -> Result<(), ApiError> {
@@ -105,7 +98,7 @@ pub async fn list(
     .fetch_all(&state.db)
     .await?;
     rows.into_iter()
-        .map(entry_of)
+        .map(DesignEntry::try_from)
         .collect::<Result<Vec<_>, _>>()
         .map(Json)
 }
@@ -176,7 +169,7 @@ pub async fn create(
     .bind(&id)
     .fetch_one(&state.db)
     .await?;
-    Ok((StatusCode::CREATED, Json(entry_of(row)?)))
+    Ok((StatusCode::CREATED, Json(row.try_into()?)))
 }
 
 #[cfg(test)]
