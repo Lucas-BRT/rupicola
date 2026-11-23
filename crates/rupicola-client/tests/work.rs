@@ -8,8 +8,8 @@ use axum::{
     routing::any,
 };
 use rupicola_api::{
-    FixStatus, NewComment, NewFix, NewProblem, NewReview, NewStep, ProblemOrigin, ProblemPatch,
-    ProblemStatus, Severity,
+    DesignKind, DesignStatus, FixStatus, NewComment, NewDesignEntry, NewFix, NewProblem, NewReview,
+    NewStep, ProblemOrigin, ProblemPatch, ProblemStatus, Severity,
 };
 use rupicola_client::{Api, HttpApi};
 use serde_json::{Value, json};
@@ -56,7 +56,18 @@ async fn stub(
     seen.lock()
         .unwrap()
         .push(format!("{method} {path} {token}"));
-    let body = if path.ends_with("/problems") && method == Method::GET {
+    let body = if path.ends_with("/design") {
+        let entry = json!({
+            "id": "design-1", "kind": "tactic", "status": "adopted", "title": TITLE,
+            "note": "", "surface": null, "supersedes": null, "reference": null,
+            "evidence": null, "author": null, "created_at": 0
+        });
+        if method == Method::GET {
+            json!([entry])
+        } else {
+            entry
+        }
+    } else if path.ends_with("/problems") && method == Method::GET {
         json!([{
             "id": PROBLEM, "title": TITLE, "status": "open", "severity": "major",
             "origin": "user-reported", "route": "/", "updated_at": 0
@@ -146,6 +157,18 @@ async fn problem_and_fix_calls_reach_their_routes() {
         comment: String::new(),
     };
     api.review_fix(TOKEN, FIX, &review).await.unwrap();
+    assert_eq!(api.design(TOKEN, PROJECT).await.unwrap()[0].id, "design-1");
+    let entry = NewDesignEntry {
+        kind: DesignKind::Tactic,
+        status: DesignStatus::Adopted,
+        title: TITLE.to_owned(),
+        note: String::new(),
+        surface: None,
+        supersedes: None,
+        reference: None,
+        evidence: None,
+    };
+    api.add_design(TOKEN, PROJECT, &entry).await.unwrap();
     let bearer = format!("Bearer {TOKEN}");
     let expected = [
         format!("GET /v1/projects/{PROJECT}/problems {bearer}"),
@@ -158,6 +181,8 @@ async fn problem_and_fix_calls_reach_their_routes() {
         format!("POST /v1/projects/{PROJECT}/fixes {bearer}"),
         format!("POST /v1/fixes/{FIX}/steps {bearer}"),
         format!("POST /v1/fixes/{FIX}/reviews {bearer}"),
+        format!("GET /v1/projects/{PROJECT}/design {bearer}"),
+        format!("POST /v1/projects/{PROJECT}/design {bearer}"),
     ];
     assert_eq!(*seen.lock().unwrap(), expected);
 }

@@ -8,10 +8,10 @@ mod http;
 
 use async_trait::async_trait;
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Comment, Credentials, Finding, Fix, FixSummary,
-    IssuedInvite, Me, Member, NewCapture, NewComment, NewFinding, NewFix, NewInvite, NewProblem,
-    NewProject, NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
-    Redeem, Register, SessionToken, Setup, Step,
+    AuditEvent, Capture, CaptureSummary, Comment, Credentials, DesignEntry, Finding, Fix,
+    FixSummary, IssuedInvite, Me, Member, NewCapture, NewComment, NewDesignEntry, NewFinding,
+    NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PasswordChange, Problem,
+    ProblemPatch, ProblemSummary, Project, Redeem, Register, SessionToken, Setup, Step,
 };
 
 pub use error::{ClientError, Result};
@@ -121,6 +121,17 @@ pub trait Api: Send + Sync {
 
     /// Adds a comment to a problem.
     async fn comment_problem(&self, token: &str, id: &str, form: &NewComment) -> Result<Comment>;
+
+    /// The design records of `project`, newest first.
+    async fn design(&self, token: &str, project: &str) -> Result<Vec<DesignEntry>>;
+
+    /// Records a design brief, direction, tactic or decision on `project`.
+    async fn add_design(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewDesignEntry,
+    ) -> Result<DesignEntry>;
 
     /// The fixes of `project`.
     async fn fixes(&self, token: &str, project: &str) -> Result<Vec<FixSummary>>;

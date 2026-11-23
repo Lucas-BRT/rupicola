@@ -2,10 +2,11 @@ use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Comment, Credentials, Finding, Fix, FixSummary,
-    IssuedInvite, Me, Member, NewCapture, NewComment, NewFinding, NewFix, NewInvite, NewProblem,
-    NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch, ProblemSummary,
-    Project, Redeem, Register, SessionToken, Setup, SetupStatus, Step,
+    AuditEvent, Capture, CaptureSummary, Comment, Credentials, DesignEntry, Finding, Fix,
+    FixSummary, IssuedInvite, Me, Member, NewCapture, NewComment, NewDesignEntry, NewFinding,
+    NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem,
+    ProblemPatch, ProblemSummary, Project, Redeem, Register, SessionToken, Setup, SetupStatus,
+    Step,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -261,6 +262,32 @@ impl Api for HttpApi {
             self.request(
                 Method::POST,
                 &format!("/problems/{id}/comments"),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn design(&self, token: &str, project: &str) -> Result<Vec<DesignEntry>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/design"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn add_design(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewDesignEntry,
+    ) -> Result<DesignEntry> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{project}/design"),
                 Some(token),
             )
             .json(form),
