@@ -84,6 +84,7 @@ pub async fn create_problem_action(
         proposed_solution: solution.into(),
         rules,
         evidence,
+        selections: Vec::new(),
     };
     panel
         .api

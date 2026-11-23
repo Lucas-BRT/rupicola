@@ -12,8 +12,8 @@ use axum::{
     http::StatusCode,
 };
 use rupicola_api::{
-    Comment, NewComment, NewProblem, Problem, ProblemPatch, ProblemStatus, ProblemSummary, Role,
-    Rule, Severity,
+    Comment, NewComment, NewProblem, NewSelection, Problem, ProblemPatch, ProblemStatus,
+    ProblemSummary, Role, Rule, Selection, SelectionItem, SelectionMark, Severity,
 };
 use std::collections::HashSet;
 
@@ -27,6 +27,10 @@ const MAX_LABEL_CHARS: usize = 256;
 const MAX_RULES: usize = 32;
 /// Evidence artifacts one problem may cite.
 const MAX_EVIDENCE: usize = 64;
+/// Selections a new problem may bring.
+const MAX_SELECTIONS: usize = 16;
+/// The label of the selection a problem's evidence files become.
+const EVIDENCE_LABEL: &str = "Evidence";
 
 /// Bounds on text fields, as an error message when one is out of range.
 fn check_len(field: &str, value: &str, max: usize, required: bool) -> Result<(), ApiError> {
@@ -57,9 +61,13 @@ fn validate(form: &NewProblem) -> Result<(), ApiError> {
     ] {
         check_len(field, value, MAX_LABEL_CHARS, false)?;
     }
-    if form.rules.len() > MAX_RULES || form.evidence.len() > MAX_EVIDENCE {
+    if form.rules.len() > MAX_RULES
+        || form.evidence.len() > MAX_EVIDENCE
+        || form.selections.len() > MAX_SELECTIONS
+    {
         return Err(ApiError::invalid(format!(
-            "a problem takes at most {MAX_RULES} rules and {MAX_EVIDENCE} evidence files"
+            "a problem takes at most {MAX_RULES} rules, {MAX_EVIDENCE} evidence files and \
+             {MAX_SELECTIONS} selections"
         )));
     }
     Ok(())
@@ -94,10 +102,36 @@ pub async fn create(
         person @ Access::Person(_) => person.require(Role::Reviewer)?,
     }
     validate(&form)?;
-    let evidence: HashSet<&str> = form.evidence.iter().map(String::as_str).collect();
-    for artifact in &evidence {
-        crate::captures::require_project_artifact(&state, &project, artifact).await?;
+    let mut seen = HashSet::new();
+    let mut anchors = Vec::new();
+    for artifact in form.evidence.iter().filter(|a| seen.insert(a.as_str())) {
+        let capture: String = sqlx::query_scalar(
+            "SELECT a.capture_id FROM artifacts a JOIN captures c ON c.id = a.capture_id
+             WHERE a.id = ?1 AND c.project_id = ?2 AND c.deleted_at IS NULL",
+        )
+        .bind(artifact)
+        .bind(&project)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(ApiError::invalid(
+            "the evidence must be files of this project's captures",
+        ))?;
+        anchors.push(SelectionItem {
+            capture,
+            artifact: Some(artifact.clone()),
+            path: None,
+            mark: SelectionMark::Proof,
+            fragment: None,
+        });
     }
+    let mut proofs = Vec::new();
+    if !anchors.is_empty() {
+        proofs.push(NewSelection {
+            label: EVIDENCE_LABEL.to_owned(),
+            items: anchors,
+        });
+    }
+    proofs.extend(form.selections.iter().cloned());
     let id = uuid::Uuid::now_v7().to_string();
     let now = now_ms();
     let mut tx = state.db.begin().await?;
@@ -132,12 +166,10 @@ pub async fn create(
         .execute(&mut *tx)
         .await?;
     }
-    for artifact in &evidence {
-        sqlx::query("INSERT INTO problem_evidence (problem_id, artifact_id) VALUES (?1, ?2)")
-            .bind(&id)
-            .bind(artifact)
-            .execute(&mut *tx)
-            .await?;
+    for (position, proof) in proofs.iter().enumerate() {
+        let selection =
+            crate::selections::keep(&mut tx, &project, principal.handle.as_deref(), proof).await?;
+        cite(&mut tx, &project, &id, &selection, position).await?;
     }
     let actor = principal.handle.as_deref().unwrap_or("device");
     crate::projects::audit(
@@ -347,6 +379,7 @@ impl ProblemRow {
         self,
         rules: Vec<RuleRow>,
         evidence: Vec<String>,
+        selections: Vec<Selection>,
         comments: Vec<CommentRow>,
     ) -> Result<Problem, ApiError> {
         Ok(Problem {
@@ -363,6 +396,7 @@ impl ProblemRow {
             proposed_solution: self.proposed_solution,
             rules: rules.into_iter().map(Rule::from).collect(),
             evidence,
+            selections,
             comments: comments.into_iter().map(Comment::from).collect(),
             author: self.author,
             created_at: self.created_at,
@@ -387,12 +421,20 @@ async fn load(state: &Shared, id: &str) -> Result<Problem, ApiError> {
     .bind(id)
     .fetch_all(&state.db)
     .await?;
-    let evidence: Vec<String> = sqlx::query_scalar(
-        "SELECT artifact_id FROM problem_evidence WHERE problem_id = ?1 ORDER BY artifact_id",
+    let cited: Vec<String> = sqlx::query_scalar(
+        "SELECT selection_id FROM problem_selections WHERE problem_id = ?1 ORDER BY position",
     )
     .bind(id)
     .fetch_all(&state.db)
     .await?;
+    let selections = crate::selections::load(&state.db, &cited).await?;
+    let mut evidence: Vec<String> = selections
+        .iter()
+        .flat_map(Selection::proof)
+        .map(str::to_owned)
+        .collect();
+    evidence.sort();
+    evidence.dedup();
     let comments: Vec<CommentRow> = sqlx::query_as(
         "SELECT id, author, text, created_at FROM problem_comments
          WHERE problem_id = ?1 ORDER BY created_at, id",
@@ -400,7 +442,106 @@ async fn load(state: &Shared, id: &str) -> Result<Problem, ApiError> {
     .bind(id)
     .fetch_all(&state.db)
     .await?;
-    row.into_problem(rules, evidence, comments)
+    row.into_problem(rules, evidence, selections, comments)
+}
+
+/// Makes `problem` cite `selection`, at `position` among its selections.
+async fn cite(
+    tx: &mut sqlx::SqliteConnection,
+    project: &str,
+    problem: &str,
+    selection: &str,
+    position: usize,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO problem_selections (project_id, problem_id, selection_id, position)
+         VALUES (?1, ?2, ?3, ?4)",
+    )
+    .bind(project)
+    .bind(problem)
+    .bind(selection)
+    .bind(i64::try_from(position).map_err(anyhow::Error::from)?)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+/// The routes that make a problem cite a selection, or stop citing it.
+pub fn routes() -> axum::Router<Shared> {
+    axum::Router::new().route(
+        "/problems/{id}/selections/{selection}",
+        axum::routing::put(cite_selection).delete(uncite_selection),
+    )
+}
+
+/// The selection, if it belongs to `project`.
+async fn project_selection(state: &Shared, project: &str, selection: &str) -> Result<(), ApiError> {
+    let owner: Option<String> =
+        sqlx::query_scalar("SELECT project_id FROM selections WHERE id = ?1")
+            .bind(selection)
+            .fetch_optional(&state.db)
+            .await?;
+    if owner.as_deref() == Some(project) {
+        Ok(())
+    } else {
+        Err(ApiError::NotFound)
+    }
+}
+
+/// `PUT /v1/problems/{id}/selections/{selection}`: the problem cites one more selection.
+pub async fn cite_selection(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path((id, selection)): Path<(String, String)>,
+) -> Result<Json<Problem>, ApiError> {
+    let project = problem_access(&state, &principal, &id, Role::Reviewer).await?;
+    project_selection(&state, &project, &selection).await?;
+    let mut tx = state.db.begin().await?;
+    let next: i64 = sqlx::query_scalar(
+        "SELECT coalesce(max(position) + 1, 0) FROM problem_selections WHERE problem_id = ?1",
+    )
+    .bind(&id)
+    .fetch_one(&mut *tx)
+    .await?;
+    cite(
+        &mut tx,
+        &project,
+        &id,
+        &selection,
+        usize::try_from(next).unwrap_or_default(),
+    )
+    .await?;
+    touch(&mut tx, &id).await?;
+    tx.commit().await?;
+    Ok(Json(load(&state, &id).await?))
+}
+
+/// `DELETE /v1/problems/{id}/selections/{selection}`: the problem stops citing a selection,
+/// which stays.
+pub async fn uncite_selection(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path((id, selection)): Path<(String, String)>,
+) -> Result<Json<Problem>, ApiError> {
+    problem_access(&state, &principal, &id, Role::Reviewer).await?;
+    let mut tx = state.db.begin().await?;
+    sqlx::query("DELETE FROM problem_selections WHERE problem_id = ?1 AND selection_id = ?2")
+        .bind(&id)
+        .bind(&selection)
+        .execute(&mut *tx)
+        .await?;
+    touch(&mut tx, &id).await?;
+    tx.commit().await?;
+    Ok(Json(load(&state, &id).await?))
+}
+
+async fn touch(tx: &mut sqlx::SqliteConnection, problem: &str) -> Result<(), ApiError> {
+    sqlx::query("UPDATE problems SET updated_at = ?2 WHERE id = ?1")
+        .bind(problem)
+        .bind(now_ms())
+        .execute(&mut *tx)
+        .await?;
+    Ok(())
 }
 
 #[cfg(test)]

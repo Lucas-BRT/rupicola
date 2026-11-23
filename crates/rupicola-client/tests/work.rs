@@ -29,7 +29,7 @@ fn problem() -> Value {
     json!({
         "id": PROBLEM, "project_id": PROJECT, "title": TITLE, "status": "open",
         "severity": "major", "origin": "user-reported", "route": "/", "viewport": "",
-        "theme": "", "diagnosis": "", "proposed_solution": "", "rules": [], "evidence": [],
+        "theme": "", "diagnosis": "", "proposed_solution": "", "rules": [], "evidence": [], "selections": [],
         "comments": [], "author": null, "created_at": 0, "updated_at": 0
     })
 }
@@ -132,6 +132,7 @@ async fn work_calls_reach_their_routes() {
         proposed_solution: String::new(),
         rules: vec![],
         evidence: vec![],
+        selections: Vec::new(),
     };
     api.create_problem(TOKEN, PROJECT, &form).await.unwrap();
     let patch = ProblemPatch {

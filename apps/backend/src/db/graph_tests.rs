@@ -10,6 +10,8 @@ const DEMO: &str = "demo";
 const OTHER: &str = "other";
 /// The last migration before the capture graph.
 const BEFORE_GRAPH: i64 = 5;
+/// The last migration before problem evidence became selections.
+const BEFORE_EVIDENCE_MOVED: i64 = 6;
 
 fn sha(digit: char) -> String {
     digit.to_string().repeat(64)
@@ -131,6 +133,61 @@ async fn blobs_are_filled_in_from_the_files_already_stored() {
     .await
     .unwrap();
     assert_eq!(known, 0, "a project does not know another project's blob");
+}
+
+#[tokio::test]
+async fn problem_evidence_becomes_a_selection_the_problem_cites() {
+    let options = SqliteConnectOptions::new()
+        .in_memory(true)
+        .foreign_keys(true);
+    let db = SqlitePoolOptions::new()
+        .min_connections(1)
+        .max_connections(1)
+        .idle_timeout(None)
+        .max_lifetime(None)
+        .connect_with(options)
+        .await
+        .unwrap();
+    MIGRATOR.run_to(BEFORE_EVIDENCE_MOVED, &db).await.unwrap();
+    run(
+        &db,
+        &format!(
+            "INSERT INTO projects VALUES ('{DEMO}', 'Demo', 0);
+             {} {} {} {}
+             INSERT INTO problem_evidence VALUES ('p1', 'a1');
+             INSERT INTO problem_evidence VALUES ('p1', 'a2');",
+            capture("c1", DEMO),
+            artifact("a1", "c1", "checkpoints/home.png", 'a'),
+            artifact("a2", "c1", "checkpoints/menu.png", 'b'),
+            problem("p1", DEMO),
+        ),
+    )
+    .await;
+    MIGRATOR.run(&db).await.unwrap();
+    let cited: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT s.label, i.artifact_id, i.mark FROM problem_selections ps
+         JOIN selections s ON s.id = ps.selection_id
+         JOIN selection_items i ON i.selection_id = s.id
+         WHERE ps.problem_id = 'p1' ORDER BY i.position",
+    )
+    .fetch_all(&db)
+    .await
+    .unwrap();
+    let proof = |artifact: &str| {
+        (
+            "Evidence".to_owned(),
+            artifact.to_owned(),
+            "proof".to_owned(),
+        )
+    };
+    assert_eq!(cited, [proof("a1"), proof("a2")]);
+    let gone: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'problem_evidence'",
+    )
+    .fetch_optional(&db)
+    .await
+    .unwrap();
+    assert_eq!(gone, None);
 }
 
 #[tokio::test]
@@ -538,9 +595,9 @@ async fn the_questions_the_graph_exists_to_answer_use_indexes() {
             "SELECT selection_id FROM selection_items WHERE capture_id = 'c1'",
         ),
         (
-            "who cites a file as problem evidence",
-            "problem_evidence",
-            "SELECT problem_id FROM problem_evidence WHERE artifact_id = 'a1'",
+            "who cites a file",
+            "selection_items",
+            "SELECT selection_id FROM selection_items WHERE artifact_id = 'a1'",
         ),
         (
             "who compares against a file",
@@ -566,12 +623,12 @@ async fn the_questions_the_graph_exists_to_answer_use_indexes() {
         assert!(!scans_the_table, "{what} scans {table}:\n{steps}");
     }
     // The check must be able to fail: without its index the same question is a scan.
-    run(&db, "DROP INDEX idx_problem_evidence_artifact").await;
+    run(&db, "DROP INDEX idx_selection_items_artifact").await;
     // A different literal, so the connection's cache of prepared statements cannot answer.
     let steps = plan(
         &db,
-        "SELECT problem_id FROM problem_evidence WHERE artifact_id = 'a2'",
+        "SELECT selection_id FROM selection_items WHERE artifact_id = 'a2'",
     )
     .await;
-    assert!(steps.starts_with("SCAN problem_evidence"), "{steps}");
+    assert!(steps.starts_with("SCAN selection_items"), "{steps}");
 }

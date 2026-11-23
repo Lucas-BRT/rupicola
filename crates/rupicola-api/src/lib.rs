@@ -14,6 +14,7 @@ mod limits;
 mod lineage;
 mod problems;
 pub mod record;
+mod selections;
 mod topics;
 pub use design::*;
 pub use design_system::*;
@@ -21,6 +22,7 @@ pub use fixes::*;
 pub use limits::*;
 pub use lineage::*;
 pub use problems::*;
+pub use selections::*;
 pub use text_enum::UnknownValue;
 pub use topics::*;
 

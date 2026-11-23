@@ -272,6 +272,7 @@ pub async fn open_inferred(
             .iter()
             .map(|asset| artifact_of(&asset.asset_path).to_owned())
             .collect(),
+        selections: Vec::new(),
     };
     let created = panel
         .api
@@ -361,6 +362,7 @@ mod tests {
             proposed_solution: String::new(),
             rules: vec![],
             evidence: vec![ARTIFACT.to_owned(), OTHER_ARTIFACT.to_owned()],
+            selections: vec![],
             comments: vec![],
             author: None,
             created_at: SECOND_MS,

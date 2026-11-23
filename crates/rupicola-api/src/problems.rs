@@ -58,8 +58,12 @@ pub struct NewProblem {
     pub proposed_solution: String,
     #[serde(default)]
     pub rules: Vec<Rule>,
+    /// Files that show the problem, by artifact id; they become one selection of proof.
     #[serde(default)]
     pub evidence: Vec<String>,
+    /// Selections that show the problem, made with it.
+    #[serde(default)]
+    pub selections: Vec<crate::NewSelection>,
 }
 
 /// `PATCH /v1/problems/{id}`: triage. Absent fields stay as they are.
@@ -101,8 +105,10 @@ pub struct Problem {
     pub diagnosis: String,
     pub proposed_solution: String,
     pub rules: Vec<Rule>,
-    /// Artifact ids.
+    /// The artifact ids every selection holds up as proof, each once.
     pub evidence: Vec<String>,
+    /// The selections the problem cites.
+    pub selections: Vec<crate::Selection>,
     pub comments: Vec<Comment>,
     pub author: Option<String>,
     pub created_at: i64,

@@ -17,6 +17,7 @@ mod problems;
 mod projects;
 mod publish;
 mod security;
+mod selections;
 mod settings;
 mod state;
 #[cfg(test)]
@@ -113,6 +114,18 @@ fn app(settings: &security::Security, state: state::Shared) -> Router {
     .merge(security::harden(uploads, settings, UPLOAD_BACKSTOP))
 }
 
+/// The routes the feature modules declare themselves.
+fn modules() -> Router<state::Shared> {
+    Router::new()
+        .merge(design_system::routes())
+        .merge(settings::routes())
+        .merge(publish::routes())
+        .merge(lineage::routes())
+        .merge(topics::routes())
+        .merge(selections::routes())
+        .merge(problems::routes())
+}
+
 /// Version 1 of the API, with paths relative to [`rupicola_api::PREFIX`].
 fn v1(settings: &security::Security) -> Router<state::Shared> {
     // Password guessing gets a much smaller budget than ordinary API use.
@@ -125,11 +138,7 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .route("/invites/redeem", routing::post(credentials::redeem))
         .route_layer(sign_in_limit);
     let api = Router::new()
-        .merge(design_system::routes())
-        .merge(settings::routes())
-        .merge(publish::routes())
-        .merge(lineage::routes())
-        .merge(topics::routes())
+        .merge(modules())
         .route("/setup", routing::get(auth::setup_status))
         .route("/me", routing::get(auth::me))
         .route("/sessions/current", routing::delete(auth::sign_out))
