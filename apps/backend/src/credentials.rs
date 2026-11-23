@@ -39,23 +39,6 @@ fn clean_label(label: &str) -> Result<String, ApiError> {
     }
 }
 
-fn kind_text(kind: TokenKind) -> &'static str {
-    match kind {
-        TokenKind::Session => "session",
-        TokenKind::Machine => "machine",
-        TokenKind::Device => "device",
-    }
-}
-
-fn parse_kind(text: &str) -> Option<TokenKind> {
-    match text {
-        "session" => Some(TokenKind::Session),
-        "machine" => Some(TokenKind::Machine),
-        "device" => Some(TokenKind::Device),
-        _ => None,
-    }
-}
-
 /// A `tokens` row, as shown to its owner.
 #[derive(sqlx::FromRow)]
 struct CredentialRow {
@@ -73,7 +56,7 @@ impl CredentialRow {
     fn into_credential(self) -> Option<Credential> {
         Some(Credential {
             id: self.digest,
-            kind: parse_kind(&self.kind)?,
+            kind: self.kind.parse().ok()?,
             label: self.label,
             project_id: self.project_id,
             created_at: self.created_at,
@@ -135,7 +118,7 @@ async fn issue(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(&credential.id)
-    .bind(kind_text(kind))
+    .bind(kind.as_str())
     .bind(handle)
     .bind(project)
     .bind(&credential.label)

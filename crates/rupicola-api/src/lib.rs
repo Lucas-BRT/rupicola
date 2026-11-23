@@ -72,16 +72,16 @@ pub struct SessionToken {
     pub expires_at: i64,
 }
 
-/// What a credential is for.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TokenKind {
-    /// A signed-in person, from the panel, CLI or desktop app.
-    Session,
-    /// An agent or script acting for one person across their projects.
-    Machine,
-    /// A capture device bound to one project.
-    Device,
+text_enum! {
+    /// What a credential is for.
+    TokenKind {
+        /// A signed-in person, from the panel, CLI or desktop app.
+        Session => "session",
+        /// An agent or script acting for one person across their projects.
+        Machine => "machine",
+        /// A capture device bound to one project.
+        Device => "device",
+    }
 }
 
 /// `GET /v1/me`: who the presented credential belongs to.
