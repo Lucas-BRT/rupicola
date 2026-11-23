@@ -28,7 +28,7 @@ stylesheet is embedded in the binary.
 ## Shared server
 
 Run one panel instance behind an HTTPS reverse proxy on the same host. Mount
-private persistent storage for the database and uploads. Run under a dedicated
+private persistent storage for the database. Run under a dedicated
 service user that owns those directories, with a restrictive file mode and
 access to only the capture roots it needs. Configure the proxy to preserve the
 public Host header, allow requests up to 64 MiB and rate-limit sign-in and
@@ -42,19 +42,18 @@ exists, remove the environment secret from the service configuration.
 rupicola serve \
   --public-origin https://atelier.example.org \
   --db /srv/rupicola/panel.db \
-  --uploads /srv/rupicola/captures \
   --port 4731
 ```
 
 The upstream binds to loopback. Terminate TLS at the proxy and keep the upstream
 private. Back up the Turso database and capture directories together. The run
 index can be rebuilt. Accounts, memberships and access records live in the
-database. Machine uploads are stored on the host filesystem.
+database.
 
 In **Project settings**, create a Reader or Reviewer invitation. Share its code
 and the registration URL through a private channel. Codes expire after 24 hours.
 Readers can open the project's evidence. Reviewers can also record inspection
-notes. The owner manages projects, access and machine credentials. A member with an account can redeem a new invitation under **Settings → Join a project**.
+notes. The owner manages projects and access. A member with an account can redeem a new invitation under **Settings → Join a project**.
 
 For password recovery, stop the panel service and reset the account from the host:
 
@@ -83,14 +82,11 @@ The container runs as non-root `10001:10001` with a read-only root filesystem, `
 
 ## Publish from another machine
 
-Create a publishing credential in **Project settings → Machines**. Store it
-securely as `RUPICOLA_PUBLISH_TOKEN` on the capture machine and run:
+The panel does not take uploads. Publish captures to the backend with the CLI:
 
 ```sh
-rupicola-panel publish path/to/capture --server https://atelier.example.org
+rupicola capture scenario.toml --server-url https://atelier.example.org
+rupicola publish path/to/capture --server-url https://atelier.example.org
 ```
 
-The publisher requires curl. It sends the manifest and only its declared
-artifacts, with a limit of 40 MiB of media per run. The destination must match
-the manifest's project. Identical retries reuse the run. Uploaded runs start
-with inspection pending. Revoking a credential prevents subsequent uploads.
+Both use the token stored by `rupicola auth set-token`. Uploaded runs start with inspection pending.

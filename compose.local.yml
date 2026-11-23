@@ -38,8 +38,6 @@ services:
       XDG_DATA_HOME: "/data"
       RUPICOLA_DB: "/data/panel.db"
       RUPICOLA_CAPTURES: "/data/captures"
-      RUPICOLA_UPLOADS: "/data/uploads"
-      RUPICOLA_MCP_WRITE: "${RUPICOLA_MCP_WRITE:-0}"
       RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
     volumes:
       - rupicola-local-data:/data

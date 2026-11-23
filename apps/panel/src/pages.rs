@@ -511,10 +511,10 @@ async fn project_view(
     let fixes_list = fix_record::entries(&pipeline::data_root(&panel), &id).unwrap_or_default();
     let mcp_online = proposal_record::mcp_session_active(&pipeline::data_root(&panel)).is_some();
 
-    let (members, devices, audit) = if section == "settings" && role == Role::Owner {
+    let (members, audit) = if section == "settings" && role == Role::Owner {
         access_lists(&panel, &id).await?
     } else {
-        (Vec::new(), Vec::new(), Vec::new())
+        (Vec::new(), Vec::new())
     };
     let open_problems_count = problems_list
         .iter()
@@ -838,30 +838,6 @@ async fn project_view(
                             <button class="button" type="submit">"Create invitation"</button>
                         </form>
                     </section>
-                    <section class="surface panel-padding">
-                        <h3>"Machines"</h3>
-                        if panel.uploads.is_none() {
-                            <p class="muted">"Enable a managed upload directory to publish captures from another machine."</p>
-                        } else {
-                            if devices.is_empty() { <p class="muted">"No publishing credentials."</p> }
-                            for item in &devices {
-                                <form method="post" action=(format!("{base}/settings")) class="entry">
-                                    <input type="hidden" name="csrf" value=(&account.csrf)>
-                                    <input type="hidden" name="action" value="revoke-device">
-                                    <input type="hidden" name="value" value=(&item.key)>
-                                    <span><strong>(&item.label)</strong><small>(&item.detail)</small></span>
-                                    <button class="button" type="submit">"Revoke"</button>
-                                </form>
-                            }
-                            <form method="post" action=(format!("{base}/settings")) class="stack-form">
-                                <input type="hidden" name="csrf" value=(&account.csrf)>
-                                <input type="hidden" name="action" value="device">
-                                <label for="device-label">"Machine name"</label>
-                                <input id="device-label" name="value" required="" maxlength="100">
-                                <button class="button" type="submit">"Create publishing credential"</button>
-                            </form>
-                        }
-                    </section>
                 </div>
                 <section class="surface panel-padding">
                     <h3>"Recent activity"</h3>
@@ -901,25 +877,21 @@ async fn query_access_items(
     Ok(items)
 }
 
-async fn access_lists(
-    panel: &Panel,
-    id: &str,
-) -> PageResult<(Vec<AccessItem>, Vec<AccessItem>, Vec<AccessItem>)> {
+async fn access_lists(panel: &Panel, id: &str) -> PageResult<(Vec<AccessItem>, Vec<AccessItem>)> {
     let db = panel.index.lock().await;
-    let mut groups = Vec::new();
-    for sql in [
+    let members = query_access_items(
+        &db,
         "SELECT handle, role, handle FROM members WHERE project = ? ORDER BY handle",
-        "SELECT label, CASE WHEN last_seen IS NULL THEN 'Awaiting first upload' ELSE 'Has published' END, digest FROM devices WHERE project = ? ORDER BY created DESC",
+        id,
+    )
+    .await?;
+    let audit = query_access_items(
+        &db,
         "SELECT event, actor, CAST(occurred * 1000 AS TEXT) FROM audit WHERE project = ? ORDER BY id DESC LIMIT 30",
-    ] {
-        groups.push(query_access_items(&db, sql, id).await?);
-    }
-    let mut groups = groups.into_iter();
-    Ok((
-        groups.next().unwrap(),
-        groups.next().unwrap(),
-        groups.next().unwrap(),
-    ))
+        id,
+    )
+    .await?;
+    Ok((members, audit))
 }
 
 #[derive(Deserialize)]
@@ -930,7 +902,6 @@ pub struct ProjectAction {
 }
 
 pub(crate) async fn update_project_access(
-    panel: &Panel,
     db: &turso::Connection,
     actor: &str,
     id: &str,
@@ -941,11 +912,6 @@ pub(crate) async fn update_project_access(
     let digest = auth::digest(&secret);
     let value = value.trim();
     let (sql, params, event) = match action {
-        "device" if panel.uploads.is_some() && !value.is_empty() && value.len() <= 400 => (
-            "INSERT INTO devices VALUES (?, ?, ?, ?, NULL)",
-            Vec::from(turso::params![digest, id, value.to_owned(), auth::now()]),
-            "Machine credential created",
-        ),
         "invite" if matches!(value, "reader" | "reviewer") => (
             "INSERT INTO invites VALUES (?, ?, ?, ?)",
             Vec::from(turso::params![
@@ -955,11 +921,6 @@ pub(crate) async fn update_project_access(
                 auth::now() + 86400
             ]),
             "Invitation created",
-        ),
-        "revoke-device" => (
-            "DELETE FROM devices WHERE digest = ? AND project = ?",
-            Vec::from(turso::params![value.to_owned(), id]),
-            "Machine credential revoked",
         ),
         "revoke-member" => (
             "DELETE FROM members WHERE handle = ? AND project = ?",
@@ -1003,7 +964,7 @@ pub async fn project_action(
     .await
     .map_err(db_error)?;
     let secret =
-        update_project_access(&panel, &db, &account.handle, &id, &form.action, &form.value).await?;
+        update_project_access(&db, &account.handle, &id, &form.action, &form.value).await?;
     drop(db);
     if form.action.starts_with("revoke-") {
         return Ok(redirect(&url));
@@ -1011,15 +972,10 @@ pub async fn project_action(
     let cx = &Cx::default();
     let content = shell!(cx, "Copy credential", account, panel, "projects", {
         <nav class="breadcrumbs" aria-label="Breadcrumb"><a href=(&url)>"Project settings"</a></nav>
-        <h1>(if form.action == "invite" { "Invitation created" } else { "Machine credential created" })</h1>
+        <h1>"Invitation created"</h1>
         <section class="surface panel-padding credential-slip">
-            if form.action == "invite" {
-                <p>"Share the code and the registration URL with the invitee. The code expires in 24 hours."</p>
-                <p><code>(format!("{}/register", panel.origin))</code></p>
-            } else {
-                <p>"Save this credential securely. It authorizes publishing captures for this project."</p>
-                <p><code>(format!("{}/api/publish/{id}", panel.origin))</code></p>
-            }
+            <p>"Share the code and the registration URL with the invitee. The code expires in 24 hours."</p>
+            <p><code>(format!("{}/register", panel.origin))</code></p>
             <label for="secret">"Copy this code now"</label>
             <input id="secret" class="secret" readonly="" value=(&secret)>
             <p><a class="button" href=(&url)>"Return to settings"</a></p>
@@ -1031,37 +987,21 @@ pub async fn project_action(
         .map_err(db_error)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the settings view keeps its form markup together"
-)]
 pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<String>> {
-    let (session_count, tokens) = {
+    let session_count: i64 = {
         let db = panel.index.lock().await;
-        let count: i64 = db
-            .query(
-                "SELECT COUNT(*) FROM sessions WHERE handle = ? AND expires > ?",
-                Vec::from(turso::params![account.handle.clone(), auth::now()]),
-            )
-            .await
-            .map_err(db_error)?
-            .next()
-            .await
-            .map_err(db_error)?
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
-            .get(0)
-            .map_err(db_error)?;
-        let tokens = if account.owner {
-            query_access_items(
-                &db,
-                "SELECT label, CASE WHEN last_seen IS NULL THEN 'Awaiting first publish' ELSE 'Active' END, digest FROM machine_tokens WHERE owner = ? ORDER BY created DESC",
-                account.handle.as_str(),
-            )
-            .await?
-        } else {
-            Vec::new()
-        };
-        (count, tokens)
+        db.query(
+            "SELECT COUNT(*) FROM sessions WHERE handle = ? AND expires > ?",
+            Vec::from(turso::params![account.handle.clone(), auth::now()]),
+        )
+        .await
+        .map_err(db_error)?
+        .next()
+        .await
+        .map_err(db_error)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .get(0)
+        .map_err(db_error)?
     };
     let cx = &Cx::default();
     let content = shell!(cx, "Settings", account, panel, "settings", {
@@ -1112,32 +1052,6 @@ pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<St
                     <p>(if panel.secure { "Cloud workspace" } else { "Local workspace" })</p>
                     <p><code>(&panel.origin)</code></p>
                     <p class="muted">(panel.roots.len()) (if panel.roots.len() == 1 { " capture directory configured" } else { " capture directories configured" })</p>
-                    <p class="muted">(if panel.uploads.is_some() { "Publication enabled" } else { "Publication disabled" })</p>
-                </section>
-                <section class="surface panel-padding">
-                    <h2>"Global machine tokens"</h2>
-                    if panel.uploads.is_none() {
-                        <p class="muted">"Enable a managed upload directory to publish captures from any project."</p>
-                    } else {
-                        <p class="muted">"Authorizes publishing captures and auto-creating new projects across all repos from this machine."</p>
-                        if tokens.is_empty() { <p class="muted">"No global machine tokens."</p> }
-                        for item in &tokens {
-                            <form method="post" action="/settings/tokens" class="entry">
-                                <input type="hidden" name="csrf" value=(&account.csrf)>
-                                <input type="hidden" name="action" value="revoke">
-                                <input type="hidden" name="value" value=(&item.key)>
-                                <span><strong>(&item.label)</strong><small>(&item.detail)</small></span>
-                                <button class="button" type="submit">"Revoke"</button>
-                            </form>
-                        }
-                        <form method="post" action="/settings/tokens" class="stack-form">
-                            <input type="hidden" name="csrf" value=(&account.csrf)>
-                            <input type="hidden" name="action" value="create">
-                            <label for="global-machine-label">"Machine name"</label>
-                            <input id="global-machine-label" name="value" required="" maxlength="100" placeholder="notebook">
-                            <button class="button primary" type="submit">"Create global machine token"</button>
-                        </form>
-                    }
                 </section>
             }
         </div>
@@ -1159,63 +1073,6 @@ pub async fn account_action(
     .await
     .map_err(db_error)?;
     Ok(redirect("/settings"))
-}
-
-pub async fn machine_tokens_action(
-    panel: Arc<Panel>,
-    account: Account,
-    form: ProjectAction,
-) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
-    if !account.owner {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    let value = form.value.trim();
-    match form.action.as_str() {
-        "create" if panel.uploads.is_some() && !value.is_empty() && value.len() <= 100 => {
-            let secret = auth::token();
-            let digest = auth::digest(&secret);
-            {
-                let db = panel.index.lock().await;
-                db.execute(
-                    "INSERT INTO machine_tokens (digest, owner, label, created, last_seen) VALUES (?, ?, ?, ?, NULL)",
-                    Vec::from(turso::params![
-                        digest,
-                        account.handle.clone(),
-                        value.to_owned(),
-                        auth::now()
-                    ]),
-                )
-                .await
-                .map_err(db_error)?;
-            }
-            let cx = &Cx::default();
-            let content = shell!(cx, "Global machine token", account, panel, "settings", {
-                <section class="surface panel-padding">
-                    <h2>"Global machine token"</h2>
-                    <p>"Save this credential securely. It authorizes publishing captures and auto-creating projects for your account."</p>
-                    <p><code>(format!("{}/api/publish/<project>", panel.origin))</code></p>
-                    <pre class="credential">(secret)</pre>
-                    <p><a class="button" href="/settings">"Return to settings"</a></p>
-                </section>
-            });
-            auth::page(cx, content)
-                .await?
-                .into_response(cx)
-                .map_err(db_error)
-        }
-        "revoke" => {
-            let db = panel.index.lock().await;
-            db.execute(
-                "DELETE FROM machine_tokens WHERE digest = ? AND owner = ?",
-                [value, account.handle.as_str()],
-            )
-            .await
-            .map_err(db_error)?;
-            Ok(redirect("/settings"))
-        }
-        _ => Err(StatusCode::UNPROCESSABLE_ENTITY),
-    }
 }
 
 #[derive(Deserialize)]
@@ -1438,44 +1295,6 @@ pub async fn record_design(
         format!("/projects/{id}/design")
     };
     Ok(redirect(&target))
-}
-
-pub(crate) async fn record_design_mcp(
-    panel: &Panel,
-    project: &str,
-    actor: &str,
-    form: DesignForm,
-) -> PageResult<String> {
-    if !safe_name(project) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    let runs = read_index(panel).await.map_err(db_error)?;
-    let label = {
-        let db = panel.index.lock().await;
-        let mut rows = db
-            .query("SELECT label FROM projects WHERE id=?", [project])
-            .await
-            .map_err(db_error)?;
-        rows.next()
-            .await
-            .map_err(db_error)?
-            .map(|row| row.get::<String>(0))
-            .transpose()
-            .map_err(db_error)?
-    }
-    .or_else(|| {
-        design_record::project(&panel.design.join(project))
-            .ok()
-            .filter(|record| record.id == project)
-            .map(|record| record.label)
-    })
-    .or_else(|| {
-        runs.iter()
-            .find(|run| run.project_id == project)
-            .map(|run| run.project.clone())
-    })
-    .ok_or(StatusCode::NOT_FOUND)?;
-    save_design(panel, project, actor, &label, &runs, form).await
 }
 
 async fn save_design(

@@ -44,14 +44,6 @@ pub async fn init(db: &Connection) -> Result<(), BoxError> {
         CREATE TABLE IF NOT EXISTS invites (
             digest TEXT PRIMARY KEY, project TEXT NOT NULL, role TEXT NOT NULL, expires INTEGER NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS devices (
-            digest TEXT PRIMARY KEY, project TEXT NOT NULL, label TEXT NOT NULL, created INTEGER NOT NULL,
-            last_seen INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS machine_tokens (
-            digest TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, created INTEGER NOT NULL,
-            last_seen INTEGER
-        );
         CREATE TABLE IF NOT EXISTS audit (
             id INTEGER PRIMARY KEY, project TEXT NOT NULL, actor TEXT NOT NULL, event TEXT NOT NULL,
             occurred INTEGER NOT NULL
@@ -112,9 +104,6 @@ pub async fn authenticate(
         path,
         "/panel.css" | "/panel.js" | "/login" | "/register" | "/healthz"
     ) {
-        return Ok(None);
-    }
-    if path.starts_with("/api/publish/") || path == "/mcp" || path.starts_with("/mcp/") {
         return Ok(None);
     }
     let Some(id) = cookie(headers, "rp_session") else {

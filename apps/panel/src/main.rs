@@ -76,8 +76,6 @@ mod capture_store;
 mod components;
 mod db;
 mod design_system;
-mod ingest;
-mod mcp;
 mod media;
 mod pages;
 mod pipeline;
@@ -109,9 +107,6 @@ struct Args {
     /// Public HTTPS origin when running behind a reverse proxy (or `RUPICOLA_PUBLIC_ORIGIN`).
     #[arg(long)]
     public_origin: Option<String>,
-    /// Managed directory for incoming captures (or `RUPICOLA_UPLOADS`). Required in cloud mode.
-    #[arg(long)]
-    uploads: Option<PathBuf>,
     /// Run a self-contained health probe against the local listener and exit.
     #[arg(long)]
     healthcheck: bool,
@@ -119,12 +114,6 @@ struct Args {
 
 #[derive(clap::Subcommand)]
 enum Action {
-    /// Send a capture to the shared panel using `RUPICOLA_PUBLISH_TOKEN`.
-    Publish {
-        run: PathBuf,
-        #[arg(long)]
-        server: String,
-    },
     /// Reset a password from the machine hosting the panel.
     Recover { username: String },
 }
@@ -140,11 +129,8 @@ struct Panel {
     bootstrap: Option<String>,
     dummy_password: String,
     password_work: Arc<tokio::sync::Semaphore>,
-    upload_work: Arc<tokio::sync::Semaphore>,
     design_validation: tokio::sync::Semaphore,
-    mcp_write: bool,
     login_attempts: Mutex<BTreeMap<String, (u32, i64)>>,
-    uploads: Option<PathBuf>,
     blobs: blobs::Blobs,
     /// [`capture_store::root_key`] of each entry in `roots`, in the same order.
     root_keys: Vec<String>,
@@ -193,9 +179,6 @@ async fn main() -> Result<(), BoxError> {
         return Err("healthcheck failed".into());
     }
 
-    if let Some(Action::Publish { run, server }) = args.action.as_ref() {
-        return ingest::send(run, server);
-    }
     let db_path = std::env::var_os("RUPICOLA_DB")
         .map(PathBuf::from)
         .unwrap_or(args.db);
@@ -260,24 +243,10 @@ async fn main() -> Result<(), BoxError> {
         return Err("RUPICOLA_SETUP_CODE must contain at least 32 characters".into());
     }
     let owner_exists = auth::owner_exists(&index).await?;
-    let raw_uploads = args.uploads.or_else(|| {
-        std::env::var("RUPICOLA_UPLOADS")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .map(PathBuf::from)
-    });
-    if secure && (raw_uploads.is_none() || (!owner_exists && bootstrap.is_none())) {
-        return Err(
-            "cloud mode needs --uploads (or RUPICOLA_UPLOADS) and RUPICOLA_SETUP_CODE for initial registration".into(),
-        );
+    if secure && !owner_exists && bootstrap.is_none() {
+        return Err("cloud mode needs RUPICOLA_SETUP_CODE for initial registration".into());
     }
-    let uploads = raw_uploads
-        .map(|path| {
-            fs::create_dir_all(&path)?;
-            fs::canonicalize(path)
-        })
-        .transpose()?;
-    let mut roots = if let Some(env_cap) = std::env::var("RUPICOLA_CAPTURES")
+    let roots = if let Some(env_cap) = std::env::var("RUPICOLA_CAPTURES")
         .ok()
         .filter(|s| !s.trim().is_empty())
     {
@@ -287,15 +256,6 @@ async fn main() -> Result<(), BoxError> {
     } else {
         args.captures
     };
-    if let Some(path) = &uploads {
-        if roots
-            .iter()
-            .any(|root| fs::canonicalize(root).is_ok_and(|root| root == *path))
-        {
-            return Err("use a dedicated --uploads directory separate from --captures".into());
-        }
-        roots.push(path.clone());
-    }
     let data_dir = db_path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -327,11 +287,8 @@ async fn main() -> Result<(), BoxError> {
         bootstrap: bootstrap.as_deref().map(auth::digest),
         dummy_password: auth::password_hash(&auth::token())?,
         password_work: Arc::new(tokio::sync::Semaphore::new(4)),
-        upload_work: Arc::new(tokio::sync::Semaphore::new(2)),
         design_validation: tokio::sync::Semaphore::new(1),
-        mcp_write: std::env::var("RUPICOLA_MCP_WRITE").as_deref() == Ok("1"),
         login_attempts: Mutex::new(BTreeMap::new()),
-        uploads,
         blobs,
     });
     let app = routes::router(panel);

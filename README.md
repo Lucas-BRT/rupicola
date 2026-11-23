@@ -216,7 +216,7 @@ Security posture for open-internet multi-device deployments:
 - **Zero raw host port exposure in `compose.yml`:** traffic enters exclusively through Traefik over TLS (`dokploy-network`, container port `4731`).
 - **Bootstrap & Auth hardening:** `RUPICOLA_PUBLIC_ORIGIN` (`https://...`) requires `RUPICOLA_SETUP_CODE` (>= 32 chars, SHA-256 constant-time check) for initial owner creation. Passwords use **Argon2id** with sliding-window rate-limiting (8 failed attempts / 5 min lockout), concurrency semaphore (`429 Too Many Requests`), constant-time dummy verification against user enumeration, `HttpOnly; SameSite=Lax; Secure` session cookies, strict `Host` and `Origin` header pinning, per-session CSRF tokens, and authenticated web password rotation (`Settings → Change password`).
 - **Container hardening:** runs as non-root `uid 10001:10001` (`rupicola`) with `read_only: true`, `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 128`, `mem_limit: 512m`, and a native self-contained `./rupicola-panel --healthcheck` probe.
-- **Multi-device capture publishing:** generate per-machine credentials in `Project settings → Machines` and publish from any workstation or CI runner with `RUPICOLA_PUBLISH_TOKEN=<token> rupicola-panel publish <run-dir> --server https://atelier.example.com`.
+- **Multi-device capture publishing:** publish from any workstation or CI runner with `rupicola capture <scenario> --server-url https://atelier.example.com` or `rupicola publish <run-dir> --server-url https://atelier.example.com`, using the token stored by `rupicola auth set-token`.
 
 ## Development
 
@@ -261,9 +261,7 @@ The repository is private. No project license has been assigned.
 
 ### Hosted MCP for Codex
 
-Use a project device token issued in the hosted panel. Keep the bearer in
-`RUPICOLA_MCP_TOKEN` in the environment that launches Codex. Replace the local
-`command` and `args` configuration with:
+The backend serves MCP at `POST /mcp`, authenticated with any bearer token it issues: a signed-in session, a machine token or a project device token. `rupicola mcp-bridge --server-url https://YOUR-RUPICOLA-HOST` bridges it to stdio with the token stored by `rupicola auth set-token` (or `RUPICOLA_MCP_TOKEN`). A client that speaks HTTP can also be pointed at the endpoint, keeping the bearer in `RUPICOLA_MCP_TOKEN` in the environment that launches it:
 
 ```toml
 [mcp_servers.rupicola]
@@ -271,47 +269,4 @@ url = "https://YOUR-RUPICOLA-HOST/mcp"
 bearer_token_env_var = "RUPICOLA_MCP_TOKEN"
 ```
 
-Restart Codex after the panel version with this endpoint is deployed.
-The stateless endpoint lists published captures, problems, and fixes for the
-token's project. It checks the token on every request. Revoke the device in
-the panel to disable access. Device tokens also authorize the existing capture
-publish API for their project. The hosted MCP defaults to read access. Set `RUPICOLA_MCP_WRITE=1` on the panel host to expose write tools to owner machine tokens on `/mcp`. Project devices and non-owner tokens remain read-only. `problem_create` and `fix_create` require a `project`, a stable retry `key`, and a `record`. A repeated key returns the existing record. Use published, same-project `/media/…` URLs for evidence. Fixes enter pending review and leave the status of linked Problems unchanged.
-
-Write access also exposes `problem_analyze`, `problem_triage`, `problem_progress`, `fix_review`, `capture_review`, `propose_create`, `propose_enrich`, `propose_review`, `project_create`, `design_record`, `design_system_action`, and `design_system_edit`. Use `design_system_get` to obtain the current generation. Owner tokens can edit, validate, submit, comment, approve, request changes and adopt. Review and adoption require the version and current generation. Use `capture_publish` for capture bundles up to 64 MiB including the JSON-RPC envelope, subject to the publishing API’s media limits.
-
-
-Use `design_system_preview` for rendered HTML and `design_system_proof` with
-`proof: "version/name"` for a validation screenshot. Use `propose_asset_read`
-with `asset: "proposal_id/filename"` to read a declared attachment or preview,
-and `propose_dispatch_list` to inspect up to 25 queued requests without consuming
-them. Proof and proposal asset responses are capped at 4 MiB of base64.
-
-`storage_status` includes storage totals and usage by run and Fix.
-`storage_run_action` requires owner write access. It offloads a single capture
-to the configured bucket or deletes a single unpinned capture under the panel's
-storage directory.
-
-`project_rename` changes the display label while retaining the project ID.
-`project_access` lists members, devices and recent audit events, issues
-project invites or device credentials, and revokes access. Both tools require
-owner write access. Treat newly issued credentials as secrets.
-
-Use `artifact_read_chunk` with `chunk: "0:/media/…"` to read larger declared
-capture artifacts. Repeat with the returned `next_offset` until it is null.
-
-`storage_config` reads the panel-wide bucket configuration and replaces it
-when called with a full `config` object. It requires owner write access.
-Set mounted filesystem paths in the panel.
-
-`project_merge_preview` accepts `source` and `target` project IDs and requires
-owner write access. It reports project file inventory, capture counts, and
-database records and overlaps. It leaves both projects untouched.
-
-`project_merge_apply` merges a registered source into a registered target,
-including capture manifests, JSON records, proposal assets and dispatches.
-Media URLs and record IDs are preserved. Active proposal sessions and
-conflicting files block execution. Set `revoke_source_access: true` to revoke
-source invites, device credentials and memberships during the merge. Target
-access stays intact. By default, incompatible source access blocks execution.
-Retry an interrupted merge with the same IDs to resume its capture journal. Use
-`project_merge_preview` first to review both projects.
+The endpoint is stateless and checks the token on every request. It exposes `project_list`, `project_create`, `capture_list`, `capture_get`, `capture_review`, `artifact_read`, `problem_list`, `problem_get`, `problem_create`, `problem_triage`, `problem_comment`, `fix_list`, `fix_get`, `fix_create`, `fix_step` and `fix_review`. The panel no longer serves MCP, so the tools that only it offered (design records and the design system, proposals, storage, project rename, access and merge, and `capture_publish`) are unavailable until they move to the backend. Tokens are issued by the backend's API (`POST /v1/tokens` for a machine, `POST /v1/projects/{id}/devices` for a project device) until the panel offers them again.

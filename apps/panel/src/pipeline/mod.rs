@@ -126,15 +126,12 @@ pub mod fixes;
 pub mod problems;
 pub mod storage_view;
 
-pub(crate) use captures::analyze_run;
 pub use captures::{AnalyzeRunForm, analyze_run_action, render_captures};
-pub(crate) use fixes::review_fix;
 pub use fixes::{CreateFixForm, ReviewFixForm, create_fix_action, render_fixes, review_fix_action};
 pub use problems::{
     CreateProblemForm, ProgressProblemForm, TriageProblemForm, create_problem_action,
     problems_status_json, progress_problem_action, render_problems, triage_problem_action,
 };
-pub(crate) use problems::{progress_problem, triage_problem};
 pub use storage_view::{
     StorageCleanForm, StorageConfigForm, StorageOffloadForm, clean_storage_action,
     offload_storage_action, render_storage, save_storage_config_action,

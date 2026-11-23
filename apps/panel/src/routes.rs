@@ -1,6 +1,6 @@
 use super::{
     Account, Arc, Body, Cx, IntoResponse, PageResult, Panel, Request, Response, Router, StatusCode,
-    auth, design_system, header, ingest, mcp, media, pages, pipeline, proposes, status,
+    auth, design_system, header, media, pages, pipeline, proposes, status,
 };
 use topcoat::{
     Result,
@@ -55,7 +55,6 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(design_proof)
         .route(settings)
         .route(account_action)
-        .route(machine_tokens)
         .route(change_password)
         .route(accept_invitation)
         .route(healthz)
@@ -68,9 +67,6 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(inspect)
         .route(artifact)
         .route(artifact_by_id)
-        .route(publish)
-        .route(global_mcp)
-        .route(remote_mcp)
         .route(styles)
         .route(script)
         .build()
@@ -213,14 +209,6 @@ async fn account_action(cx: &Cx, Form(form): Form<auth::Csrf>) -> Result<Respons
     )
 }
 
-#[route(POST "/settings/tokens")]
-async fn machine_tokens(cx: &Cx, Form(form): Form<pages::ProjectAction>) -> Result<Response> {
-    respond(
-        cx,
-        pages::machine_tokens_action(panel(cx), account(cx), form).await,
-    )
-}
-
 #[route(POST "/settings/password")]
 async fn change_password(cx: &Cx, Form(form): Form<pages::PasswordChangeForm>) -> Result<Response> {
     respond(
@@ -332,20 +320,6 @@ async fn artifact_by_id(cx: &Cx) -> Result<Response> {
             panel(cx),
             path_param::<ArtifactId>(cx).into(),
             request,
-        )
-        .await,
-    )
-}
-
-#[route(POST "/api/publish/{project}")]
-async fn publish(cx: &Cx, body: Body) -> Result<Response> {
-    respond(
-        cx,
-        ingest::publish(
-            panel(cx),
-            path_param::<Project>(cx).into(),
-            request::headers(cx).clone(),
-            body,
         )
         .await,
     )
@@ -600,28 +574,6 @@ async fn offload_storage(
     .await
     .unwrap_or_else(|error| Err(super::db_error(error)));
     respond(cx, result)
-}
-
-#[route(POST "/mcp")]
-async fn global_mcp(cx: &Cx, body: Body) -> Result<Response> {
-    respond(
-        cx,
-        mcp::handle_global(panel(cx), request::headers(cx), body).await,
-    )
-}
-
-#[route(POST "/mcp/{project}")]
-async fn remote_mcp(cx: &Cx, body: Body) -> Result<Response> {
-    respond(
-        cx,
-        mcp::handle(
-            panel(cx),
-            path_param::<Project>(cx).into(),
-            request::headers(cx),
-            body,
-        )
-        .await,
-    )
 }
 
 #[route(POST "/projects/{project}/design/version")]

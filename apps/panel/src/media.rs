@@ -69,17 +69,6 @@ async fn serve(
     Ok(response)
 }
 
-pub fn resolve_artifact(
-    dir: std::path::PathBuf,
-    manifest: &Manifest,
-    file: &str,
-) -> PageResult<std::path::PathBuf> {
-    if !declared(manifest, file) {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    resolve_checked_path(dir, file)
-}
-
 pub(crate) fn resolve_checked_path(
     dir: std::path::PathBuf,
     file: &str,
