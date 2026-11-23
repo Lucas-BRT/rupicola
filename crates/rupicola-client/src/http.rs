@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
     AuditEvent, Capture, Credentials, IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject,
-    PREFIX, Project, Redeem, Register, SessionToken, Setup, SetupStatus,
+    PREFIX, PasswordChange, Project, Redeem, Register, SessionToken, Setup, SetupStatus,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -105,6 +105,21 @@ impl Api for HttpApi {
         Self::send(self.request(Method::DELETE, "/sessions/current", Some(token)))
             .await
             .map(|_| ())
+    }
+
+    async fn sign_out_others(&self, token: &str) -> Result<()> {
+        Self::send(self.request(Method::DELETE, "/sessions/others", Some(token)))
+            .await
+            .map(|_| ())
+    }
+
+    async fn change_password(&self, token: &str, form: &PasswordChange) -> Result<()> {
+        Self::send(
+            self.request(Method::PUT, "/me/password", Some(token))
+                .json(form),
+        )
+        .await
+        .map(|_| ())
     }
 
     async fn me(&self, token: &str) -> Result<Me> {

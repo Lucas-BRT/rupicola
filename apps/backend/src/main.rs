@@ -100,6 +100,8 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .route("/setup", routing::get(auth::setup_status))
         .route("/me", routing::get(auth::me))
         .route("/sessions/current", routing::delete(auth::sign_out))
+        .route("/sessions/others", routing::delete(auth::sign_out_others))
+        .route("/me/password", routing::put(auth::change_password))
         .route(
             "/projects",
             routing::get(projects::list).post(projects::create),
@@ -460,6 +462,57 @@ mod tests {
             let response = call(port, "GET", "/v1/me", bad, None).await;
             assert_eq!(status(&response), StatusCode::UNAUTHORIZED, "{response}");
         }
+    }
+
+    #[tokio::test]
+    async fn changing_the_password_ends_the_other_sessions_and_checks_the_current_one() {
+        let port = start(settings()).await;
+        call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
+        let first = token_of(&call(port, "POST", "/v1/sessions", None, Some(OWNER)).await);
+        let second = token_of(&call(port, "POST", "/v1/sessions", None, Some(OWNER)).await);
+
+        let wrong = r#"{"current":"not the password","new":"another long password"}"#;
+        let refused = call(port, "PUT", "/v1/me/password", Some(&first), Some(wrong)).await;
+        assert_eq!(
+            status(&refused),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{refused}"
+        );
+        let short = r#"{"current":"correct horse battery","new":"short"}"#;
+        let refused = call(port, "PUT", "/v1/me/password", Some(&first), Some(short)).await;
+        assert_eq!(
+            status(&refused),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{refused}"
+        );
+
+        let change = r#"{"current":"correct horse battery","new":"another long password"}"#;
+        let changed = call(port, "PUT", "/v1/me/password", Some(&first), Some(change)).await;
+        assert_eq!(status(&changed), StatusCode::NO_CONTENT, "{changed}");
+        let kept = call(port, "GET", "/v1/me", Some(&first), None).await;
+        assert_eq!(status(&kept), StatusCode::OK, "{kept}");
+        let ended = call(port, "GET", "/v1/me", Some(&second), None).await;
+        assert_eq!(status(&ended), StatusCode::UNAUTHORIZED, "{ended}");
+
+        let old = call(port, "POST", "/v1/sessions", None, Some(OWNER)).await;
+        assert_eq!(status(&old), StatusCode::UNAUTHORIZED, "{old}");
+        let new = r#"{"handle":"ana","password":"another long password"}"#;
+        let signed_in = call(port, "POST", "/v1/sessions", None, Some(new)).await;
+        assert_eq!(status(&signed_in), StatusCode::CREATED, "{signed_in}");
+    }
+
+    #[tokio::test]
+    async fn signing_out_the_others_keeps_the_current_session() {
+        let port = start(settings()).await;
+        call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
+        let first = token_of(&call(port, "POST", "/v1/sessions", None, Some(OWNER)).await);
+        let second = token_of(&call(port, "POST", "/v1/sessions", None, Some(OWNER)).await);
+        let out = call(port, "DELETE", "/v1/sessions/others", Some(&first), None).await;
+        assert_eq!(status(&out), StatusCode::NO_CONTENT, "{out}");
+        let kept = call(port, "GET", "/v1/me", Some(&first), None).await;
+        assert_eq!(status(&kept), StatusCode::OK, "{kept}");
+        let ended = call(port, "GET", "/v1/me", Some(&second), None).await;
+        assert_eq!(status(&ended), StatusCode::UNAUTHORIZED, "{ended}");
     }
 
     #[tokio::test]

@@ -14,7 +14,7 @@ use axum::{
     extract::{FromRequestParts, State},
     http::{StatusCode, header, request::Parts},
 };
-use rupicola_api::{Credentials, Me, SessionToken, Setup, SetupStatus, TokenKind};
+use rupicola_api::{Credentials, Me, PasswordChange, SessionToken, Setup, SetupStatus, TokenKind};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use subtle::ConstantTimeEq;
@@ -306,6 +306,69 @@ pub async fn me(principal: Principal) -> Json<Me> {
         admin: principal.admin,
         project: principal.project,
     })
+}
+
+/// The handle of a signed-in person, for the routes only a person may use.
+fn signed_in_handle(principal: &Principal) -> Result<&str, ApiError> {
+    match (&principal.kind, principal.handle.as_deref()) {
+        (TokenKind::Session, Some(handle)) => Ok(handle),
+        _ => Err(ApiError::Forbidden),
+    }
+}
+
+/// `PUT /v1/me/password`: change the signed-in person's password and end their other
+/// sessions. Machine tokens and the current session stay valid.
+pub async fn change_password(
+    State(state): State<Shared>,
+    principal: Principal,
+    Json(form): Json<PasswordChange>,
+) -> Result<StatusCode, ApiError> {
+    let handle = signed_in_handle(&principal)?.to_owned();
+    if let Some(retry_after) = state.lockout.retry_after(&handle).await {
+        return Err(ApiError::TooManyRequests { retry_after });
+    }
+    if !PASSWORD_LEN.contains(&form.new.len()) {
+        return Err(account_rules());
+    }
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT password_hash FROM accounts WHERE handle = ?1")
+            .bind(&handle)
+            .fetch_optional(&state.db)
+            .await?;
+    if !state.passwords.verify(stored, form.current).await? {
+        state.lockout.fail(&handle).await;
+        return Err(ApiError::invalid("the current password is incorrect"));
+    }
+    state.lockout.clear(&handle).await;
+    let password = state.passwords.hash(form.new).await?;
+    let mut tx = state.db.begin().await?;
+    sqlx::query("UPDATE accounts SET password_hash = ?1 WHERE handle = ?2")
+        .bind(&password)
+        .bind(&handle)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tokens WHERE kind = 'session' AND handle = ?1 AND digest <> ?2")
+        .bind(&handle)
+        .bind(&principal.digest)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    tracing::info!(handle, "changed a password");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /v1/sessions/others`: end every other session of the signed-in person.
+pub async fn sign_out_others(
+    State(state): State<Shared>,
+    principal: Principal,
+) -> Result<StatusCode, ApiError> {
+    let handle = signed_in_handle(&principal)?;
+    sqlx::query("DELETE FROM tokens WHERE kind = 'session' AND handle = ?1 AND digest <> ?2")
+        .bind(handle)
+        .bind(&principal.digest)
+        .execute(&state.db)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `GET /v1/setup`: whether the first administrator still has to be created.

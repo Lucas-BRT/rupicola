@@ -47,6 +47,13 @@ pub struct Setup {
     pub code: Option<String>,
 }
 
+/// `PUT /v1/me/password`: change the signed-in person's password. Their other sessions end.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct PasswordChange {
+    pub current: String,
+    pub new: String,
+}
+
 /// `GET /v1/setup`: whether the first administrator still has to be created, so a client
 /// knows whether to offer sign-in or setup.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]

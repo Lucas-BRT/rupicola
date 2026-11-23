@@ -8,8 +8,8 @@ use axum::{
 };
 use rupicola_api::{
     AuditEvent, Capture, CaptureStatus, Credentials, Environment, ErrorBody, Inspection, Invite,
-    IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject, Project, Redeem, Role,
-    SessionToken, SetupStatus, TokenKind,
+    IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject, PasswordChange, Project, Redeem,
+    Role, SessionToken, SetupStatus, TokenKind,
 };
 use rupicola_client::{Api, ClientError, HttpApi, McpReply};
 use sha2::{Digest, Sha256};
@@ -91,6 +91,7 @@ fn new_capture() -> NewCapture {
 
 const INVITE_CODE: &str = "invite-code";
 const AUDIT_EVENT: &str = "member-added";
+const WRONG_PASSWORD_MESSAGE: &str = "the current password is incorrect";
 
 /// Stub of the member, audit and invitation routes; each answers with what it was asked
 /// for, so a test can tell the path reached it.
@@ -139,6 +140,24 @@ fn access_routes() -> Router {
                     },
                 })
             }),
+        )
+        .route(
+            "/v1/me/password",
+            put(|Json(form): Json<PasswordChange>| async move {
+                if form.current == PASSWORD {
+                    Ok(StatusCode::NO_CONTENT)
+                } else {
+                    Err(error(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "invalid",
+                        WRONG_PASSWORD_MESSAGE,
+                    ))
+                }
+            }),
+        )
+        .route(
+            "/v1/sessions/others",
+            delete(|| async { StatusCode::NO_CONTENT }),
         )
         .route(
             "/v1/invites/redeem",
@@ -383,4 +402,19 @@ async fn an_invitation_is_issued_and_redeemed() {
         .err(),
         Some(ClientError::Forbidden)
     );
+}
+
+#[tokio::test]
+async fn the_password_is_changed_and_other_sessions_can_be_ended() {
+    let (api, _) = serve().await;
+    let change = |current: &str| PasswordChange {
+        current: current.to_owned(),
+        new: "another long password".to_owned(),
+    };
+    api.change_password(TOKEN, &change(PASSWORD)).await.unwrap();
+    assert_eq!(
+        api.change_password(TOKEN, &change("wrong")).await.err(),
+        Some(ClientError::Invalid(WRONG_PASSWORD_MESSAGE.to_owned()))
+    );
+    api.sign_out_others(TOKEN).await.unwrap();
 }

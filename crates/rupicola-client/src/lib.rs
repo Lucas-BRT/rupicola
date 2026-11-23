@@ -9,7 +9,7 @@ mod http;
 use async_trait::async_trait;
 use rupicola_api::{
     AuditEvent, Capture, Credentials, IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject,
-    Project, Redeem, Register, SessionToken, Setup,
+    PasswordChange, Project, Redeem, Register, SessionToken, Setup,
 };
 
 pub use error::{ClientError, Result};
@@ -40,6 +40,17 @@ pub trait Api: Send + Sync {
     async fn register(&self, form: &Register) -> Result<SessionToken>;
 
     async fn sign_out(&self, token: &str) -> Result<()>;
+
+    /// Ends every other session of the person `token` belongs to.
+    async fn sign_out_others(&self, token: &str) -> Result<()>;
+
+    /// Changes the password of the person `token` belongs to; their other sessions end.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Invalid`] when the current password is wrong or the new one is not
+    /// acceptable.
+    async fn change_password(&self, token: &str, form: &PasswordChange) -> Result<()>;
 
     /// Who `token` belongs to.
     async fn me(&self, token: &str) -> Result<Me>;
