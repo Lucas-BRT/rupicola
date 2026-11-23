@@ -333,7 +333,8 @@ pub async fn list(
         "SELECT c.id, c.scenario, c.status, c.inspection, c.created_at,
            (SELECT a.id FROM artifacts a WHERE a.capture_id = c.id AND a.role = 'checkpoint'
             ORDER BY a.position LIMIT 1) AS preview
-         FROM captures c WHERE c.project_id = ?1 ORDER BY c.created_at DESC, c.id DESC",
+         FROM captures c WHERE c.project_id = ?1 AND c.deleted_at IS NULL
+         ORDER BY c.created_at DESC, c.id DESC",
     )
     .bind(&project)
     .fetch_all(&state.db)
@@ -442,6 +443,9 @@ struct CaptureRow {
     created_at: i64,
     /// Set for a capture published as a record, whose environment has the record's shape.
     digest: Option<String>,
+    deleted_at: Option<i64>,
+    deleted_by: Option<String>,
+    delete_reason: Option<String>,
 }
 
 /// A `capture_findings` row.
@@ -492,7 +496,8 @@ struct BlobRow {
 pub(crate) async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
     let capture: CaptureRow = sqlx::query_as(
         "SELECT project_id, scenario, revision, status, blocker, inspection, environment,
-               created_at, digest FROM captures WHERE id = ?1",
+               created_at, digest, deleted_at, deleted_by, delete_reason
+         FROM captures WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -555,6 +560,11 @@ pub(crate) async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> 
     .bind(id)
     .fetch_all(&state.db)
     .await?;
+    let deleted = capture.deleted_at.map(|at| rupicola_api::Tombstone {
+        at,
+        by: capture.deleted_by.clone().unwrap_or_default(),
+        reason: capture.delete_reason.clone().unwrap_or_default(),
+    });
     Ok(Capture {
         id: id.to_owned(),
         project_id: capture.project_id,
@@ -574,6 +584,7 @@ pub(crate) async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> 
         checkpoints,
         clips,
         findings: findings.into_iter().map(Finding::from).collect(),
+        deleted,
     })
 }
 

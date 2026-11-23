@@ -16,6 +16,7 @@ mod mcp;
 mod problems;
 mod projects;
 mod publish;
+mod removal;
 mod security;
 mod selections;
 mod settings;
@@ -74,6 +75,10 @@ struct Args {
     security: security::Security,
     #[command(flatten)]
     uploads: limits::UploadLimits,
+    /// Whether any project may remove a capture that something cites; `never` overrides
+    /// every project's policy.
+    #[arg(long, env = "RUPICOLA_CITED_DELETION", value_enum, default_value_t)]
+    cited_deletion: removal::CitedDeletion,
 }
 
 /// Every route, wrapped in the request hardening from [`security`].
@@ -125,6 +130,7 @@ fn modules() -> Router<state::Shared> {
         .merge(selections::routes())
         .merge(problems::routes())
         .merge(fixes::routes())
+        .merge(removal::routes())
 }
 
 /// Version 1 of the API, with paths relative to [`rupicola_api::PREFIX`].
@@ -261,6 +267,10 @@ async fn main() -> anyhow::Result<()> {
         limits::LimitDefaults::new(&args.security, &args.uploads),
     )
     .await?;
+    state.cited_deletion.store(
+        args.cited_deletion == removal::CitedDeletion::Allow,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     let listener = tokio::net::TcpListener::bind((args.bind, args.port))
         .await
         .with_context(|| format!("cannot listen on {}:{}", args.bind, args.port))?;

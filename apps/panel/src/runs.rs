@@ -211,6 +211,7 @@ mod tests {
                 author: Some("ana".to_owned()),
                 created_at: 8,
             }],
+            deleted: None,
         }
     }
 

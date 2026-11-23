@@ -23,6 +23,8 @@ services:
       RUPICOLA_UPLOAD_TIMEOUT: "${RUPICOLA_UPLOAD_TIMEOUT:-600}"
       RUPICOLA_UPLOAD_IDLE: "${RUPICOLA_UPLOAD_IDLE:-30}"
       RUPICOLA_REQUEST_TIMEOUT: "${RUPICOLA_REQUEST_TIMEOUT:-30}"
+      # `never` stops every project from removing a capture that something cites.
+      RUPICOLA_CITED_DELETION: "${RUPICOLA_CITED_DELETION:-allow}"
     volumes:
       - rupicola-backend-data:/data
     tmpfs:

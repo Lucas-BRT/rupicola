@@ -25,6 +25,8 @@ pub struct AppState {
     pub design_validation: tokio::sync::Semaphore,
     /// What uploads may be before any setting changes it.
     pub limits: LimitDefaults,
+    /// Whether the server lets any project remove a cited capture.
+    pub cited_deletion: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -78,6 +80,7 @@ impl AppState {
             open_setup,
             design_validation: tokio::sync::Semaphore::new(1),
             limits,
+            cited_deletion: std::sync::atomic::AtomicBool::new(true),
         }))
     }
 }

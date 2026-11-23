@@ -184,6 +184,7 @@ fn capture(id: &str) -> Capture {
         checkpoints: vec![],
         clips: vec![],
         findings: vec![],
+        deleted: None,
     }
 }
 
@@ -323,6 +324,7 @@ fn upload_routes(uploads: Arc<AtomicUsize>) -> Router {
                         checkpoints: vec![],
                         clips: vec![],
                         findings: vec![],
+                        deleted: None,
                     })
                 },
             ),

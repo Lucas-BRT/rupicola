@@ -14,6 +14,7 @@ mod limits;
 mod lineage;
 mod problems;
 pub mod record;
+mod removal;
 mod selections;
 mod topics;
 pub use design::*;
@@ -22,6 +23,7 @@ pub use fixes::*;
 pub use limits::*;
 pub use lineage::*;
 pub use problems::*;
+pub use removal::*;
 pub use selections::*;
 pub use text_enum::UnknownValue;
 pub use topics::*;
@@ -344,6 +346,9 @@ pub struct Capture {
     pub checkpoints: Vec<Checkpoint>,
     pub clips: Vec<Clip>,
     pub findings: Vec<Finding>,
+    /// Set when the capture was removed; what cited it still resolves.
+    #[serde(default)]
+    pub deleted: Option<Tombstone>,
 }
 
 /// One row of `GET /v1/projects/{id}/captures`, newest first.
