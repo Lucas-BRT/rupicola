@@ -3,7 +3,10 @@
 
 use crate::{Account, Panel, auth};
 use http::StatusCode;
-use rupicola_api::{Capture, CaptureSummary, DesignEntry, FixSummary, ProblemSummary, Project};
+use rupicola_api::{
+    Capture, CaptureSummary, DesignEntry, FixSummary, ProblemSummary, Project, SystemList,
+    SystemVersion,
+};
 use std::sync::Arc;
 use topcoat::context::{Cx, context, memoize};
 
@@ -80,34 +83,52 @@ pub async fn design(cx: &Cx, project: &str) -> Result<Vec<DesignEntry>, Failure>
         .map_err(|e| auth::api_error(&e))
 }
 
+/// The design-system versions of `project`, and which is adopted.
+#[memoize]
+pub async fn design_systems(cx: &Cx, project: &str) -> Result<SystemList, Failure> {
+    let (panel, account) = api(cx);
+    panel
+        .api
+        .design_systems(&account.session, project)
+        .await
+        .map_err(|e| auth::api_error(&e))
+}
+
+/// One design-system version.
+#[memoize]
+pub async fn design_system(cx: &Cx, project: &str, id: &str) -> Result<SystemVersion, Failure> {
+    let (panel, account) = api(cx);
+    panel
+        .api
+        .design_system(&account.session, project, id)
+        .await
+        .map_err(|e| auth::api_error(&e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{auth::Account, db};
+    use crate::auth::Account;
     use rupicola_client::MockApi;
-    use tokio::sync::{Mutex, Semaphore};
 
     const SESSION: &str = "session";
 
-    fn panel(api: MockApi, index: turso::Connection) -> Arc<Panel> {
+    fn panel(api: MockApi) -> Arc<Panel> {
         Arc::new(Panel {
-            index: Mutex::new(index),
             origin: String::new(),
             localhost_origin: String::new(),
             host: String::new(),
             secure: false,
             api: Arc::new(api),
-            design_validation: Semaphore::new(1),
         })
     }
 
     #[tokio::test]
     async fn the_backend_is_asked_once_for_what_a_request_reads_twice() {
-        let (_dir, index) = db::test_db().await;
         let mut api = MockApi::new();
         api.expect_projects().times(1).returning(|_| Ok(vec![]));
         api.expect_captures().times(2).returning(|_, _| Ok(vec![]));
-        let cx = Cx::default().with(panel(api, index)).with(Account {
+        let cx = Cx::default().with(panel(api)).with(Account {
             handle: "ada".to_owned(),
             owner: false,
             session: SESSION.to_owned(),

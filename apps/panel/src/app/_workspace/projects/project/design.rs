@@ -9,9 +9,7 @@ mod version;
 use super::{current, tab_metadata};
 use crate::app::fail;
 use crate::views::project::Tab;
-use crate::{
-    app::panel, design_system, project::Filter, records, views::project::design::design_tab,
-};
+use crate::{project::Filter, records, systems, views::project::design::design_tab};
 use topcoat::{
     Result,
     context::Cx,
@@ -30,7 +28,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
         Some("screens") => "screens",
         _ => "records",
     };
-    let studio = design_system::load(&panel(cx), &project.id, filter.version.as_deref())
+    let studio = systems::load(cx, &project.id, filter.version.as_deref())
         .await
         .map_err(fail)?;
     Ok(view! {

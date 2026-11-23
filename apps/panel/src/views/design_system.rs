@@ -1,5 +1,6 @@
-use crate::design_system::{HeadingStyle, Outcome, Phase, Studio, Version};
+use crate::systems::Studio;
 use crate::{Account, auth::Role};
+use rupicola_api::{HeadingStyle, Outcome, SystemPhase as Phase, SystemVersion as Version};
 use topcoat::context::Cx;
 use topcoat::{
     Result,
@@ -30,7 +31,7 @@ pub async fn design_studio(
             }
         </nav>
         if tab == "records" {
-            if let Some(active) = &studio.active {
+            if let Some(active) = &studio.list.active {
                 <p><a href=(version_url(base, "system", active))>"Open adopted design system"</a></p>
             }
         } else {
@@ -44,14 +45,14 @@ pub async fn design_studio(
                         </form>
                     }
                 </div>
-                if studio.items.is_empty() {
+                if studio.list.items.is_empty() {
                     <p class="muted">"No design system yet."</p>
                 } else {
                     <ul class="version-list">
-                        for (id, name, phase) in &studio.items {
+                        for item in &studio.list.items {
                             <li>
-                                <a href=(version_url(base, tab, id)) if studio.selected.as_ref().is_some_and(|version| &version.id == id) { aria-current="page" }>(name)</a>
-                                <small>(if studio.active.as_ref() == Some(id) { "Adopted" } else { phase.label() })</small>
+                                <a href=(version_url(base, tab, &item.id)) if studio.selected.as_ref().is_some_and(|version| version.id == item.id) { aria-current="page" }>(&item.name)</a>
+                                <small>(if studio.list.active.as_ref() == Some(&item.id) { "Adopted" } else { item.phase.label() })</small>
                             </li>
                         }
                     </ul>
@@ -61,9 +62,9 @@ pub async fn design_studio(
                 if tab == "system" {
                     document(account: account, base: base, role: role, version: version)
                 } else if tab == "screens" {
-                    screens(account: account, base: base, role: role, version: version, active: studio.active.as_deref())
+                    screens(account: account, base: base, role: role, version: version)
                 } else {
-                    proposal(account: account, base: base, role: role, version: version, active: studio.active.as_deref())
+                    proposal(account: account, base: base, role: role, version: version, active: studio.list.active.as_deref())
                 }
             }
         }
@@ -185,10 +186,9 @@ async fn screens(
     base: &str,
     role: Role,
     version: &Version,
-    active: Option<&str>,
 ) -> Result<impl View> {
     let preview = format!("{base}/design/preview/{}", version.id);
-    let ready = version.ready(active);
+    let ready = version.ready;
     Ok(view! {
         <section class="surface panel-padding design-studio">
             <div class="design-studio-head">
@@ -229,7 +229,7 @@ async fn screens(
                 }
                 <div class="actions">
                     for shot in &report.shots {
-                        <a href=(format!("{base}/design/proof/{}/{}", version.id, shot.name)) target="_blank" rel="noreferrer">(&shot.name)</a>
+                        <a href=(format!("{base}/design/proof/{}/{shot}", version.id)) target="_blank" rel="noreferrer">(shot)</a>
                     }
                 </div>
             } else {
@@ -262,7 +262,7 @@ async fn proposal(
                 }
             </p>
             if role == Role::Owner {
-                review_form(account: account, base: base, version: version, adopted: adopted, active: active)
+                review_form(account: account, base: base, version: version, adopted: adopted)
             }
             if !version.notes.is_empty() {
                 <h3>"Review history"</h3>
@@ -287,14 +287,13 @@ async fn review_form(
     base: &str,
     version: &Version,
     adopted: bool,
-    active: Option<&str>,
 ) -> Result<impl View> {
     Ok(view! {
         <form class="stack-form" method="post" action=(format!("{base}/design/version"))>
             form_fields(account: account, version: version)
             if version.phase == Phase::Draft {
                 <div class="actions">
-                    if version.ready(active) {
+                    if version.ready {
                         <button type="submit" class="button primary" name="action" value="submit">"Send for review"</button>
                     } else {
                         <a href=(version_url(base, "screens", &version.id))>"Validate before sending for review"</a>

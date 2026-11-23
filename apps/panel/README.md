@@ -17,7 +17,7 @@ rupicola serve --server-url http://127.0.0.1:4730
 Go to http://127.0.0.1:4731 and create the owner account on first access.
 Captures, their media and their review notes live in the backend: publish them with
 `rupicola capture --server-url …` or `rupicola publish`, and the panel reads them from there.
-The panel's own database (`--db`) now only holds design-system versions. The project’s **Design** page shows the brief, art direction, tactics and decisions agents recorded in the backend. Use **Projects → Create a project** to prepare a
+The panel keeps no data of its own: accounts, projects, captures, problems, fixes, design records and design systems live in the backend. The project’s **Design** page shows the brief, art direction, tactics and decisions agents recorded in the backend. Use **Projects → Create a project** to prepare a
 project before its first upload.
 
 Tailwind's standalone compiler is fetched at build time. Set `TAILWIND_CLI` to
@@ -30,7 +30,7 @@ Routes follow the module tree (topcoat module routing): `src/app/projects/projec
 serves `/projects/{project}/problems`, and its child modules are that tab's actions. A route
 module loads what its page shows and calls a view. Markup lives only in `src/views/`, which
 takes loaded data and calls no backend. `auth.rs`, `project.rs`, `records.rs`, `runs.rs` and
-`media.rs` read from the backend; `design_system/` still keeps its versions in the panel's database.
+`media.rs` read from the backend; `systems.rs` reads the design systems the backend validates and stores.
 Pages sit under layouts (`app/_workspace.rs` for the document and navigation, `projects/project.rs` for the heading and tabs) and set their title with `Metadata`; backend reads shared by a request are `#[memoize]`d in `backend.rs`.
 
 Topcoat's streaming (`suspense`, `live!`) and runtime (shards, signals) inject inline scripts, which the panel's Content-Security-Policy refuses, so the panel does not use them; `error_boundary` needs no script and is used.
@@ -54,7 +54,6 @@ secret of at least 32 characters before first startup and remove it afterwards.
 ```sh
 rupicola serve \
   --public-origin https://atelier.example.org \
-  --db /srv/rupicola/panel.db \
   --server-url http://127.0.0.1:4730 \
   --port 4731
 ```

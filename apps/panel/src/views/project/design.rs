@@ -3,7 +3,7 @@ use crate::components::{
     form::{field, select_field, stack_form, text_area},
 };
 use crate::views::design_system::design_studio;
-use crate::{Account, auth::Role, design_system, media, project::AssetOption, records};
+use crate::{Account, auth::Role, media, project::AssetOption, records, systems::Studio};
 use rupicola_core::design_record;
 use std::collections::BTreeSet;
 use topcoat::{
@@ -21,7 +21,7 @@ pub async fn design_tab(
     tab: &str,
     records: Vec<design_record::Entry>,
     all_assets: Vec<AssetOption>,
-    studio: design_system::Studio,
+    studio: Studio,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
     Ok(view! {

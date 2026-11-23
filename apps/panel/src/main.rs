@@ -1,11 +1,11 @@
-use std::{error::Error, fs, net::Ipv4Addr, path::PathBuf, sync::Arc};
+use std::{error::Error, net::Ipv4Addr, sync::Arc};
 
 use clap::Parser;
 use http::{StatusCode, header};
 use rupicola_client::{Api, HttpApi};
 use rupicola_core::capture_manifest::Manifest;
 use serde::Deserialize;
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::net::TcpListener;
 use topcoat::router::{
     Body, Router,
     content::Html,
@@ -16,18 +16,16 @@ use topcoat::{
     context::Cx,
     view::{ViewExt, view},
 };
-use turso::Connection;
 
 mod app;
 mod auth;
 mod backend;
 mod components;
-mod db;
-mod design_system;
 mod media;
 mod project;
 mod records;
 mod runs;
+mod systems;
 mod views;
 use auth::Account;
 use rupicola_core::{design_record, fix_record, problem_record};
@@ -38,9 +36,6 @@ type PageResult<T> = Result<T, StatusCode>;
 #[derive(Parser)]
 #[command(about = "Browse local Rupicola visual evidence")]
 struct Args {
-    /// Local, rebuildable index file.
-    #[arg(long, default_value = ".rupicola/panel.db")]
-    db: PathBuf,
     /// Bind IPv4 address (defaults to HOST env var or 127.0.0.1).
     #[arg(long)]
     bind: Option<Ipv4Addr>,
@@ -58,14 +53,12 @@ struct Args {
 }
 
 struct Panel {
-    index: Mutex<Connection>,
     origin: String,
     localhost_origin: String,
     host: String,
     secure: bool,
     /// The backend, which owns accounts, sessions and project membership.
     api: Arc<dyn Api>,
-    design_validation: tokio::sync::Semaphore,
 }
 
 struct Run {
@@ -111,18 +104,6 @@ async fn main() -> Result<(), BoxError> {
         .server_url
         .ok_or("the panel needs the backend: pass --server-url or set RUPICOLA_SERVER_URL")?;
     let api: Arc<dyn Api> = Arc::new(HttpApi::new(&server_url)?);
-    let db_path = std::env::var_os("RUPICOLA_DB")
-        .map(PathBuf::from)
-        .unwrap_or(args.db);
-    if let Some(parent) = db_path.parent().filter(|path| !path.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)?;
-    }
-    let database = turso::Builder::new_local(db_path.to_str().ok_or("invalid database path")?)
-        .build()
-        .await?;
-    let index = database.connect()?;
-    db::migrate(&index).await?;
-    design_system::init(&index).await?;
     let bind_ip = args
         .bind
         .or_else(|| std::env::var("HOST").ok().and_then(|h| h.parse().ok()))
@@ -159,13 +140,11 @@ async fn main() -> Result<(), BoxError> {
         .1
         .to_owned();
     let panel = Arc::new(Panel {
-        index: Mutex::new(index),
         origin: origin.clone(),
         localhost_origin: format!("http://localhost:{port}"),
         secure,
         host,
         api,
-        design_validation: tokio::sync::Semaphore::new(1),
     });
     let app = app::router(panel);
     println!("Listening on {bind_ip}:{port} · {origin}");

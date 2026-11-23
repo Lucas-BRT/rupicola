@@ -5,7 +5,7 @@ use std::ffi::OsString;
 
 #[derive(clap::Args)]
 pub struct ServeArgs {
-    /// Options forwarded to rupicola-panel, including --server-url, --db and --port.
+    /// Options forwarded to rupicola-panel, including --server-url and --port.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     options: Vec<OsString>,
 }
