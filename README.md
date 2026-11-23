@@ -136,7 +136,7 @@ cargo install --path apps/panel --locked
 rupicola serve --captures .rupicola/captures
 ```
 
-The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel indexes multiple capture roots and supports shared review behind an HTTPS reverse proxy. See [panel installation](apps/panel/README.md), [scenario format and inspection](reference/capture-scenarios.md) and the [nested COSMIC applet spike](reference/libcosmic-capture-spike.md). `capture` handles HTTP(S) previews. On Linux, `capture-cosmic` uses an isolated panel host for two native applet checkpoints.
+The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel indexes multiple capture roots and supports shared review behind an HTTPS reverse proxy. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
 
 ## Run the local panel in the background
 

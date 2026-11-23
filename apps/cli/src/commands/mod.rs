@@ -8,7 +8,7 @@ mod remote;
 
 use crate::{AuthAction, EXIT_CLEAN, Result, design, mcp, mcp_bridge, pipeline, propose, service};
 use analysis::{AuditArgs, CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs};
-use capture::{CaptureArgs, CaptureCosmicArgs, CaptureReviewArgs, MatrixArgs, ProbeArgs};
+use capture::{CaptureArgs, CaptureReviewArgs, MatrixArgs, ProbeArgs};
 use clap::Subcommand;
 use images::{DiffArgs, FramesArgs, PaletteArgs, SheetArgs, VideoArgs};
 use panel::{ServeArgs, SetupArgs};
@@ -39,8 +39,6 @@ pub enum Command {
     Frames(FramesArgs),
     /// Capture a declarative scenario in headless Chromium.
     Capture(CaptureArgs),
-    /// Capture a COSMIC applet under an isolated nested compositor and panel (Linux).
-    CaptureCosmic(CaptureCosmicArgs),
     /// Record a visual inspection note against a completed or blocked capture.
     CaptureReview(CaptureReviewArgs),
     /// Install and start the per-user evidence panel on Linux.
@@ -109,7 +107,6 @@ impl Command {
             Self::Diff(args) => args.run(),
             Self::Frames(args) => args.run(),
             Self::Capture(args) => args.run(),
-            Self::CaptureCosmic(args) => args.run(),
             Self::CaptureReview(args) => args.run(),
             Self::Setup(args) => args.run(),
             Self::Link { project } => {

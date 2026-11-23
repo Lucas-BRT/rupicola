@@ -118,7 +118,6 @@ fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Resul
         if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py")
             && ![
                 "crates/rupicola-core/src/browser-capture.cjs",
-                "crates/rupicola-core/src/cosmic-capture.sh",
                 "apps/cli/src/browser-probe.cjs",
                 "apps/panel/src/panel.js",
                 "apps/panel/src/design_system/validator.cjs",

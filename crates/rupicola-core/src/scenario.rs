@@ -50,8 +50,6 @@ struct Profile {
 enum ColorScheme {
     Light,
     Dark,
-    #[serde(skip_deserializing)]
-    System,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -185,17 +183,6 @@ const CLIP_INTERVAL_MS: std::ops::RangeInclusive<u32> = 1..=1000;
 const MAX_CLIP_SPAN_MS: usize = 10_000;
 /// Decoded RGBA bytes one clip may hold in memory (256 MiB).
 const MAX_CLIP_DECODED_BYTES: f64 = 256.0 * 1024.0 * 1024.0;
-/// Longest COSMIC app id.
-const MAX_APP_ID_LEN: usize = 128;
-/// Size of the virtual display the COSMIC capture runs in.
-const COSMIC_DISPLAY_WIDTH: u32 = 1280;
-const COSMIC_DISPLAY_HEIGHT: u32 = 800;
-/// Default click position in the COSMIC display: the panel applet's slot near the
-/// top center.
-pub const DEFAULT_APPLET_CLICK_X: u32 = 640;
-pub const DEFAULT_APPLET_CLICK_Y: u32 = 18;
-/// Checkpoints the COSMIC applet capture produces (closed and open).
-const COSMIC_CHECKPOINTS: usize = 2;
 /// Stalled and jumping frames kept in a clip's selection, at most.
 const KEPT_STALLS: usize = 3;
 const KEPT_JUMPS: usize = 3;
@@ -407,130 +394,6 @@ pub fn web(
     };
     write_json(&output.join("manifest.json"), &manifest)?;
     Ok(manifest)
-}
-
-/// Options for an isolated two-checkpoint capture of a COSMIC panel applet.
-pub struct CosmicCapture {
-    pub applet: PathBuf,
-    pub desktop_entry: PathBuf,
-    pub app_id: String,
-    pub fixtures: PathBuf,
-    pub symbolic_icon: Option<PathBuf>,
-    pub x: u32,
-    pub y: u32,
-    pub project_id: String,
-    pub project_label: String,
-    pub revision: Option<String>,
-}
-
-/// # Errors
-///
-/// Returns an error if capture inputs are invalid, the host cannot run the isolated COSMIC capture, or artifacts cannot be read or written.
-pub fn cosmic(options: CosmicCapture, output: &Path) -> Result<Manifest> {
-    if !identifier(&options.project_id) || options.project_label.trim().is_empty() {
-        bail!("provide a project label and simple project ID");
-    }
-    if options.app_id.len() > MAX_APP_ID_LEN || !options.app_id.split('.').all(identifier) {
-        bail!("provide a valid app ID (dot-separated labels)");
-    }
-    if options.x >= COSMIC_DISPLAY_WIDTH || options.y >= COSMIC_DISPLAY_HEIGHT {
-        bail!(
-            "click coordinates must be inside the {COSMIC_DISPLAY_WIDTH}x{COSMIC_DISPLAY_HEIGHT} \
-             virtual display"
-        );
-    }
-    let output = new_run(output)?;
-    let created_at_ms = now_ms()?;
-    let result = drive_cosmic(&output, &options);
-    let mut evidence = BrowserResult {
-        blocker: result.err().map(|e| format!("{e:#}")),
-        ..BrowserResult::default()
-    };
-    for id in ["closed", "open"] {
-        let path = Path::new("checkpoints").join(format!("{id}.png"));
-        if visual::load(&output.join(&path)).is_ok() {
-            evidence.checkpoints.push(Checkpoint {
-                id: id.into(),
-                path,
-            });
-        }
-    }
-    if evidence.blocker.is_none() && evidence.checkpoints.len() != COSMIC_CHECKPOINTS {
-        evidence.blocker = Some("one or more COSMIC checkpoints could not be read".into());
-    }
-    let manifest = Manifest {
-        version: 1,
-        scenario: "COSMIC panel applet click".into(),
-        project: Project {
-            id: options.project_id,
-            label: options.project_label,
-        },
-        revision: options.revision,
-        created_at_ms,
-        environment: Environment {
-            renderer: "cosmic-comp-winit-xvfb",
-            platform: std::env::consts::OS,
-            profile: Profile {
-                width: COSMIC_DISPLAY_WIDTH,
-                height: COSMIC_DISPLAY_HEIGHT,
-                scale: 1.0,
-                locale: "C".into(),
-                color_scheme: ColorScheme::System,
-                reduced_motion: false,
-            },
-        },
-        status: if evidence.blocker.is_some() {
-            "blocked"
-        } else {
-            "complete"
-        },
-        inspection: "pending",
-        findings: Vec::new(),
-        result: evidence,
-    };
-    write_json(&output.join("manifest.json"), &manifest)?;
-    Ok(manifest)
-}
-
-fn drive_cosmic(output: &Path, options: &CosmicCapture) -> Result<()> {
-    if !cfg!(target_os = "linux") {
-        bail!("isolated COSMIC capture requires Linux");
-    }
-    let applet = fs::canonicalize(&options.applet).context("applet binary")?;
-    let desktop_entry = fs::canonicalize(&options.desktop_entry).context("desktop entry")?;
-    let fixtures = fs::canonicalize(&options.fixtures).context("fixture executable directory")?;
-    if !fixtures.is_dir() {
-        bail!("fixture executable path must be a directory");
-    }
-    let symbolic_icon = options
-        .symbolic_icon
-        .as_ref()
-        .map(fs::canonicalize)
-        .transpose()
-        .context("symbolic SVG icon")?
-        .unwrap_or_default();
-    let log = fs::File::create(output.join("native.log")).context("native capture log")?;
-    let status = Command::new("/bin/bash")
-        .args(["-c", include_str!("cosmic-capture.sh"), "cosmic-capture"])
-        .arg(output)
-        .arg(applet)
-        .arg(desktop_entry)
-        .arg(&options.app_id)
-        .arg(fixtures)
-        .arg(options.x.to_string())
-        .arg(options.y.to_string())
-        .arg(symbolic_icon)
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .stdout(log.try_clone()?)
-        .stderr(log)
-        .status()
-        .context("start isolated COSMIC capture")?;
-    if status.success() {
-        Ok(())
-    } else {
-        bail!("isolated COSMIC capture exited with {status}; see native.log");
-    }
 }
 
 fn now_ms() -> Result<u64> {

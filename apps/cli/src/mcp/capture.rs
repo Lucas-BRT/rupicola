@@ -3,7 +3,7 @@
 use super::bundle::import_bundle;
 use super::call::{ToolCall, cli, manifest, text};
 use crate::{scenario, service};
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -15,42 +15,6 @@ impl ToolCall<'_> {
     pub(super) fn evidence_import(&self) -> Result<Value> {
         let arg = |key: &str| self.arg(key);
         let output: String = import_bundle(std::path::Path::new(arg("path")?))?.to_string();
-        Ok(text(&output))
-    }
-
-    pub(super) fn capture_cosmic(&self) -> Result<Value> {
-        let args = self.args;
-        let arg = |key: &str| self.arg(key);
-        let output: String = {
-            let (project_id, project_label) = service::detect_project()?;
-            let coordinate = |key: &str, default| -> Result<u32> {
-                if args[key].is_null() {
-                    return Ok(default);
-                }
-                args[key]
-                    .as_u64()
-                    .and_then(|v| u32::try_from(v).ok())
-                    .ok_or_else(|| anyhow!("Invalid coordinate: {key}"))
-            };
-            let out = service::output()?;
-            let capture = scenario::cosmic(
-                scenario::CosmicCapture {
-                    applet: arg("applet")?.into(),
-                    desktop_entry: arg("desktop_entry")?.into(),
-                    app_id: arg("app_id")?.into(),
-                    fixtures: arg("fixtures")?.into(),
-                    symbolic_icon: args["symbolic_icon"].as_str().map(PathBuf::from),
-                    x: coordinate("x", scenario::DEFAULT_APPLET_CLICK_X)?,
-                    y: coordinate("y", scenario::DEFAULT_APPLET_CLICK_Y)?,
-                    project_id,
-                    project_label,
-                    revision: args["revision"].as_str().map(str::to_owned),
-                },
-                &out,
-            )?;
-            json!({"run":out.file_name().and_then(|name| name.to_str()),"manifest":capture})
-                .to_string()
-        };
         Ok(text(&output))
     }
 

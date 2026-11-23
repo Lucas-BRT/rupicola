@@ -60,7 +60,6 @@ impl ToolCall<'_> {
             "preview_status" => Self::preview_status(preview),
             "preview_stop" => Ok(Self::preview_stop(preview)),
             "evidence_import" => self.evidence_import(),
-            "capture_cosmic" => self.capture_cosmic(),
             "capture_run" => self.capture_run(),
             "evidence_list" => Self::evidence_list(),
             "capture_review" => self.capture_review(),

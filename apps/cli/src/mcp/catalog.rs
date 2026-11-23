@@ -63,12 +63,6 @@ pub(super) const TOOLS: &[(&str, &str, &[&str], &[&str])] = &[
         &[],
     ),
     (
-        "capture_cosmic",
-        "Capture a trusted local COSMIC applet in a nested compositor",
-        &["applet", "desktop_entry", "app_id", "fixtures"],
-        &["symbolic_icon", "revision", "x", "y"],
-    ),
-    (
         "evidence_import",
         "Import a local manifest directory into this project's panel",
         &["path"],

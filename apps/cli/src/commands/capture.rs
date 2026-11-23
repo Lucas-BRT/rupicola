@@ -2,7 +2,7 @@
 
 use crate::{
     DEFAULT_MATRIX_MAX_RUNS, DEFAULT_MATRIX_TIMEOUT_SECS, DEFAULT_MAX_PAGES, EXIT_CLEAN,
-    EXIT_ERROR, EXIT_FINDINGS, Result, anyhow, bail, block_on, json, print_capture, probe,
+    EXIT_ERROR, EXIT_FINDINGS, Result, bail, block_on, json, print_capture, probe,
     publish::Destination, scenario, service, visual,
 };
 use std::path::PathBuf;
@@ -53,83 +53,6 @@ impl CaptureArgs {
             threshold,
             video,
         )?;
-        let code = print_capture(&manifest, run.dir(), output_json)?;
-        block_on(destination.publish(run.dir(), output_json))??;
-        Ok(code)
-    }
-}
-
-#[derive(clap::Args)]
-pub struct CaptureCosmicArgs {
-    #[arg(long)]
-    applet: PathBuf,
-    #[arg(long)]
-    desktop_entry: PathBuf,
-    #[arg(long)]
-    app_id: String,
-    /// Directory with fixture executables, such as a mock tailscale.
-    #[arg(long)]
-    fixtures: PathBuf,
-    /// SVG installed as <app-id>-symbolic in the private XDG icon theme.
-    #[arg(long)]
-    symbolic_icon: Option<PathBuf>,
-    #[arg(long)]
-    project_id: Option<String>,
-    #[arg(long)]
-    project_label: Option<String>,
-    #[arg(long)]
-    revision: Option<String>,
-    /// Click position in the private COSMIC display.
-    #[arg(long, num_args = 2, value_names = ["X", "Y"], default_values_t = [scenario::DEFAULT_APPLET_CLICK_X, scenario::DEFAULT_APPLET_CLICK_Y])]
-    click: Vec<u32>,
-    #[arg(long)]
-    out: Option<PathBuf>,
-    #[arg(long)]
-    json: bool,
-    #[command(flatten)]
-    destination: Destination,
-}
-
-impl CaptureCosmicArgs {
-    pub(super) fn run(self) -> Result<u8> {
-        let CaptureCosmicArgs {
-            applet,
-            desktop_entry,
-            app_id,
-            fixtures,
-            symbolic_icon,
-            project_id,
-            project_label,
-            revision,
-            click,
-            out,
-            json: output_json,
-            destination,
-        } = self;
-        let (out, project_id, project_label) = if let Some(out) = out {
-            (
-                Some(out),
-                project_id.ok_or_else(|| anyhow!("--project-id is required with --out"))?,
-                project_label.ok_or_else(|| anyhow!("--project-label is required with --out"))?,
-            )
-        } else {
-            let (id, label) = service::detect_project()?;
-            (None, id, label)
-        };
-        let run = destination.run_dir(out)?;
-        let options = scenario::CosmicCapture {
-            applet,
-            desktop_entry,
-            app_id,
-            fixtures,
-            symbolic_icon,
-            project_id,
-            project_label,
-            revision,
-            x: click[0],
-            y: click[1],
-        };
-        let manifest = scenario::cosmic(options, run.dir())?;
         let code = print_capture(&manifest, run.dir(), output_json)?;
         block_on(destination.publish(run.dir(), output_json))??;
         Ok(code)

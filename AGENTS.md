@@ -17,7 +17,7 @@ Operational rules for AI agents working in this repository. Never invent files, 
 - Test panel changes locally via `./apps/panel/dev.sh {reload|stop|reset|status}` (isolated in `.rupicola/dev-data/`, `127.0.0.1:4731`) or `docker compose -f compose.local.yml up --build`.
 - Never overwrite `~/.local/share/rupicola/auth-token` from dev scripts.
 - Remote MCP: `rupicola mcp-bridge` (backend address from `RUPICOLA_SERVER_URL` or `--server-url`) (reads `~/.local/share/rupicola/auth-token` before `RUPICOLA_MCP_TOKEN`).
-- `rupicola capture`, `capture-cosmic` and `probe` publish the finished capture to the backend when `RUPICOLA_SERVER_URL` or `--server-url` is set; without `--out` they capture into a scratch directory that is removed afterwards.
+- `rupicola capture` and `probe` publish the finished capture to the backend when `RUPICOLA_SERVER_URL` or `--server-url` is set; without `--out` they capture into a scratch directory that is removed afterwards.
 - Server MCP endpoints (`apps/panel/src/mcp.rs`): `POST /mcp` (global `machine_tokens`) and `POST /mcp/{project}` (`devices` + `machine_tokens`).
 
 ## Mandatory Verification Before Reporting Done
