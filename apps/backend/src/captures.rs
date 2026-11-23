@@ -261,29 +261,16 @@ pub async fn list(
     access(&state, &principal, &project)
         .await?
         .require(Role::Reader)?;
-    let rows: Vec<(String, String, String, String, i64, Option<String>)> = sqlx::query_as(
+    let rows: Vec<SummaryRow> = sqlx::query_as(
         "SELECT c.id, c.scenario, c.status, c.inspection, c.created_at,
            (SELECT a.id FROM artifacts a WHERE a.capture_id = c.id AND a.role = 'checkpoint'
-            ORDER BY a.position LIMIT 1)
+            ORDER BY a.position LIMIT 1) AS preview
          FROM captures c WHERE c.project_id = ?1 ORDER BY c.created_at DESC, c.id DESC",
     )
     .bind(&project)
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(
-                |(id, scenario, status, inspection, created_at, preview)| CaptureSummary {
-                    id,
-                    scenario,
-                    status: parse_status(&status),
-                    inspection: parse_inspection(&inspection),
-                    created_at,
-                    preview,
-                },
-            )
-            .collect(),
-    ))
+    Ok(Json(rows.into_iter().map(CaptureSummary::from).collect()))
 }
 
 /// Project of a capture, checked against the caller's access.
@@ -331,41 +318,97 @@ pub async fn get(
     Ok(Json(load(&state, &id).await?))
 }
 
-type CaptureRow = (
-    String,
-    String,
-    Option<String>,
-    String,
-    Option<String>,
-    String,
-    String,
-    i64,
-);
+/// A `captures` row as listed, with its first checkpoint as preview.
+#[derive(sqlx::FromRow)]
+struct SummaryRow {
+    id: String,
+    scenario: String,
+    status: String,
+    inspection: String,
+    created_at: i64,
+    preview: Option<String>,
+}
 
-type FindingRow = (String, String, Option<String>, Option<String>, i64);
+impl From<SummaryRow> for CaptureSummary {
+    fn from(row: SummaryRow) -> Self {
+        Self {
+            id: row.id,
+            scenario: row.scenario,
+            status: parse_status(&row.status),
+            inspection: parse_inspection(&row.inspection),
+            created_at: row.created_at,
+            preview: row.preview,
+        }
+    }
+}
 
-type ArtifactRow = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    i64,
-    String,
-    Option<f64>,
-    Option<f64>,
-);
+/// A `captures` row.
+#[derive(sqlx::FromRow)]
+struct CaptureRow {
+    project_id: String,
+    scenario: String,
+    revision: Option<String>,
+    status: String,
+    blocker: Option<String>,
+    inspection: String,
+    environment: String,
+    created_at: i64,
+}
+
+/// A `capture_findings` row.
+#[derive(sqlx::FromRow)]
+struct FindingRow {
+    id: String,
+    note: String,
+    evidence_artifact_id: Option<String>,
+    author: Option<String>,
+    created_at: i64,
+}
+
+impl From<FindingRow> for Finding {
+    fn from(row: FindingRow) -> Self {
+        Self {
+            id: row.id,
+            note: row.note,
+            evidence_artifact_id: row.evidence_artifact_id,
+            author: row.author,
+            created_at: row.created_at,
+        }
+    }
+}
+
+/// An `artifacts` row.
+#[derive(sqlx::FromRow)]
+struct ArtifactRow {
+    id: String,
+    role: String,
+    owner_id: String,
+    path: String,
+    sha256: String,
+    bytes: i64,
+    mime: String,
+    target_ms: Option<f64>,
+    video_ms: Option<f64>,
+}
+
+/// Project, digest and media type of an artifact.
+#[derive(sqlx::FromRow)]
+struct BlobRow {
+    project_id: String,
+    sha256: String,
+    mime: String,
+    bytes: i64,
+}
 
 async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
-    let (project_id, scenario, revision, status, blocker, inspection, environment, created_at): CaptureRow =
-        sqlx::query_as(
-            "SELECT project_id, scenario, revision, status, blocker, inspection, environment,
+    let capture: CaptureRow = sqlx::query_as(
+        "SELECT project_id, scenario, revision, status, blocker, inspection, environment,
                created_at FROM captures WHERE id = ?1",
-        )
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(ApiError::NotFound)?;
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(ApiError::NotFound)?;
     let artifacts: Vec<ArtifactRow> = sqlx::query_as(
         "SELECT id, role, owner_id, path, sha256, bytes, mime, target_ms, video_ms
          FROM artifacts WHERE capture_id = ?1 ORDER BY position",
@@ -375,13 +418,15 @@ async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
     .await?;
     let mut checkpoints = Vec::new();
     let mut clips: Vec<Clip> = Vec::new();
-    for (artifact_id, role, owner, path, sha256, bytes, mime, target_ms, video_ms) in artifacts {
+    for row in artifacts {
+        let (role, owner, target_ms, video_ms) =
+            (row.role, row.owner_id, row.target_ms, row.video_ms);
         let artifact = Artifact {
-            id: artifact_id,
-            path,
-            mime,
-            bytes: u64::try_from(bytes).unwrap_or_default(),
-            sha256,
+            id: row.id,
+            path: row.path,
+            mime: row.mime,
+            bytes: u64::try_from(row.bytes).unwrap_or_default(),
+            sha256: row.sha256,
         };
         if role == "checkpoint" {
             checkpoints.push(Checkpoint {
@@ -423,28 +468,17 @@ async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
     .await?;
     Ok(Capture {
         id: id.to_owned(),
-        project_id,
-        scenario,
-        revision,
-        status: parse_status(&status),
-        blocker,
-        inspection: parse_inspection(&inspection),
-        environment: serde_json::from_str(&environment).map_err(anyhow::Error::from)?,
-        created_at,
+        project_id: capture.project_id,
+        scenario: capture.scenario,
+        revision: capture.revision,
+        status: parse_status(&capture.status),
+        blocker: capture.blocker,
+        inspection: parse_inspection(&capture.inspection),
+        environment: serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?,
+        created_at: capture.created_at,
         checkpoints,
         clips,
-        findings: findings
-            .into_iter()
-            .map(
-                |(id, note, evidence_artifact_id, author, created_at)| Finding {
-                    id,
-                    note,
-                    evidence_artifact_id,
-                    author,
-                    created_at,
-                },
-            )
-            .collect(),
+        findings: findings.into_iter().map(Finding::from).collect(),
     })
 }
 
@@ -510,18 +544,18 @@ pub async fn artifact_blob(
     principal: &Principal,
     id: &str,
 ) -> Result<(String, String, i64), ApiError> {
-    let found: Option<(String, String, String, i64)> = sqlx::query_as(
+    let found: Option<BlobRow> = sqlx::query_as(
         "SELECT c.project_id, a.sha256, a.mime, a.bytes FROM artifacts a
          JOIN captures c ON c.id = a.capture_id WHERE a.id = ?1",
     )
     .bind(id)
     .fetch_optional(&state.db)
     .await?;
-    let (project, sha256, mime, bytes) = found.ok_or(ApiError::NotFound)?;
-    access(state, principal, &project)
+    let blob = found.ok_or(ApiError::NotFound)?;
+    access(state, principal, &blob.project_id)
         .await?
         .require(Role::Reader)?;
-    Ok((sha256, mime, bytes))
+    Ok((blob.sha256, blob.mime, blob.bytes))
 }
 
 /// `GET /v1/artifacts/{id}`: the file's bytes, for readers of its project.
@@ -531,18 +565,18 @@ pub async fn artifact(
     Path(id): Path<String>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    let found: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT c.project_id, a.sha256, a.mime FROM artifacts a
+    let found: Option<BlobRow> = sqlx::query_as(
+        "SELECT c.project_id, a.sha256, a.mime, a.bytes FROM artifacts a
          JOIN captures c ON c.id = a.capture_id WHERE a.id = ?1",
     )
     .bind(&id)
     .fetch_optional(&state.db)
     .await?;
-    let (project, sha256, mime) = found.ok_or(ApiError::NotFound)?;
-    access(&state, &principal, &project)
+    let blob = found.ok_or(ApiError::NotFound)?;
+    access(&state, &principal, &blob.project_id)
         .await?
         .require(Role::Reader)?;
-    state.blobs.respond(&sha256, &mime, request).await
+    state.blobs.respond(&blob.sha256, &blob.mime, request).await
 }
 
 #[cfg(test)]
