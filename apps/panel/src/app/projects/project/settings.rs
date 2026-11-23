@@ -1,25 +1,49 @@
 //! `GET` and `POST /projects/{project}/settings`
 
 use crate::app::{account, panel, respond};
-use crate::{app::projects::project::Project, pages};
+use crate::{
+    Account, Arc, PageResult, Panel,
+    app::projects::project::Project,
+    auth::Role,
+    pages,
+    project::{Context, access_lists},
+    views::{self, project::Tab},
+};
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Form, parse_query_params, path_param, response::Response, route},
+    router::{
+        content::{Form, Html},
+        path_param,
+        response::Response,
+        route,
+    },
 };
 
 #[route(GET)]
 async fn page(cx: &Cx) -> Result<Response> {
     respond(
         cx,
-        pages::project_section(
-            panel(cx),
-            account(cx),
-            (path_param::<Project>(cx).into(), "settings".into()),
-            parse_query_params(cx)?,
-        )
-        .await,
+        show(panel(cx), account(cx), path_param::<Project>(cx).into()).await,
     )
+}
+
+async fn show(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Html<String>> {
+    let project = Context::load(&panel, &account, &id).await?;
+    let (members, audit) = if project.role == Role::Owner {
+        access_lists(&panel, &account, &id).await?
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let cx = &Cx::default();
+    let data = views::project::settings::Settings {
+        base: &project.base,
+        role: project.role,
+        members: &members,
+        audit: &audit,
+    };
+    let body = views::project::settings::render(cx, &account, data);
+    views::project::frame(cx, &account, &panel, &project, Tab::Settings, body).await
 }
 
 #[route(POST)]

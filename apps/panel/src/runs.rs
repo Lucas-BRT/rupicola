@@ -133,6 +133,14 @@ pub async fn list(panel: &Panel, account: &Account) -> PageResult<Vec<Run>> {
     Ok(runs)
 }
 
+pub async fn of_project(
+    panel: &Panel,
+    account: &Account,
+    project: &Project,
+) -> PageResult<Vec<Run>> {
+    project_runs(panel.api.as_ref(), &account.session, project).await
+}
+
 async fn project_runs(api: &dyn Api, session: &str, project: &Project) -> PageResult<Vec<Run>> {
     let summaries = api
         .captures(session, &project.id)

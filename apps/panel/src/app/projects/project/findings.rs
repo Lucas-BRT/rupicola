@@ -1,7 +1,7 @@
-//! `GET /projects/{project}/findings`
+//! `GET /projects/{project}/findings`: the problems tab.
 
+use crate::app::projects::project::Project;
 use crate::app::{account, panel, respond};
-use crate::{app::projects::project::Project, pages};
 use topcoat::{
     Result,
     context::Cx,
@@ -12,10 +12,10 @@ use topcoat::{
 async fn page(cx: &Cx) -> Result<Response> {
     respond(
         cx,
-        pages::project_section(
+        super::problems::show(
             panel(cx),
             account(cx),
-            (path_param::<Project>(cx).into(), "findings".into()),
+            path_param::<Project>(cx).into(),
             parse_query_params(cx)?,
         )
         .await,
