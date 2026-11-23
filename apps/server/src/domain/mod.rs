@@ -8,12 +8,18 @@ pub mod capture;
 pub mod credential;
 pub mod design;
 pub mod error;
+pub mod fix;
 pub mod limits;
 pub mod lineage;
 pub mod principal;
+pub mod problem;
 pub mod project;
 pub mod record;
+pub mod removal;
+pub mod search;
 pub mod secret;
+pub mod selection;
+pub mod topic;
 
 pub use error::ApiError;
 pub use principal::{Access, Principal};

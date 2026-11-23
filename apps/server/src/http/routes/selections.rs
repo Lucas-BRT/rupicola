@@ -1,6 +1,7 @@
 //! `/selections/{id}`: one frozen selection.
 
-use crate::{selections, state::Shared};
+use super::super::handlers::selections;
+use crate::state::Shared;
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {

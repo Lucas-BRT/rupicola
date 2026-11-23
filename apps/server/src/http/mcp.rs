@@ -4,9 +4,9 @@
 //! Tools are the variants of [`Call`]; [`catalog`] describes them. A test keeps the two
 //! in step.
 
+use super::handlers::{fixes, problems};
 use crate::{
     domain::{ApiError, Principal},
-    fixes, problems,
     services::{captures, design, projects},
     state::Shared,
 };

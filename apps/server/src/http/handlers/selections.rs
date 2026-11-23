@@ -1,11 +1,8 @@
-//! Selections: frozen lists of anchors into a project's captures, which problems and fixes cite
-//! as proof. A selection is never changed; a new proof is a new selection.
+//! `/projects/{id}/selections` and `/selections/{id}` handlers.
 
 use crate::{
-    domain::Access,
-    domain::ApiError,
-    domain::{Principal, secret::now_ms},
-    services::access::access,
+    domain::{ApiError, Principal},
+    services::selections,
     state::Shared,
 };
 use axum::{
@@ -13,198 +10,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use rupicola_api::{
-    Fragment, MAX_SELECTION_ITEMS, MAX_SELECTION_LABEL_CHARS, NewSelection, Role, Selection,
-    SelectionItem,
-};
-use std::collections::HashMap;
-
-/// Keeps `form` as a selection of `project` inside `tx`; returns its id. Every anchor must be a
-/// live capture of the project, and a file one of that capture's.
-///
-/// # Errors
-///
-/// [`ApiError::Invalid`] naming the first anchor that is not.
-pub async fn keep(
-    tx: &mut sqlx::SqliteConnection,
-    project: &str,
-    author: Option<&str>,
-    form: &NewSelection,
-) -> Result<String, ApiError> {
-    let label = form.label.trim();
-    if !(1..=MAX_SELECTION_LABEL_CHARS).contains(&label.chars().count()) {
-        return Err(ApiError::invalid(format!(
-            "a selection needs a label of at most {MAX_SELECTION_LABEL_CHARS} characters"
-        )));
-    }
-    if !(1..=MAX_SELECTION_ITEMS).contains(&form.items.len()) {
-        return Err(ApiError::invalid(format!(
-            "a selection holds 1 to {MAX_SELECTION_ITEMS} anchors"
-        )));
-    }
-    let id = uuid::Uuid::now_v7().to_string();
-    sqlx::query(
-        "INSERT INTO selections (id, project_id, label, author, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-    )
-    .bind(&id)
-    .bind(project)
-    .bind(label)
-    .bind(author)
-    .bind(now_ms())
-    .execute(&mut *tx)
-    .await?;
-    for (position, item) in form.items.iter().enumerate() {
-        let artifact = resolve(tx, project, item).await?;
-        let fragment = item
-            .fragment
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()
-            .map_err(anyhow::Error::from)?;
-        sqlx::query(
-            "INSERT INTO selection_items (project_id, selection_id, position, capture_id,
-               artifact_id, mark, fragment)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        )
-        .bind(project)
-        .bind(&id)
-        .bind(i64::try_from(position).map_err(anyhow::Error::from)?)
-        .bind(&item.capture)
-        .bind(artifact)
-        .bind(item.mark.as_str())
-        .bind(fragment)
-        .execute(&mut *tx)
-        .await?;
-    }
-    Ok(id)
-}
-
-/// The artifact an anchor names, by id or by path, after checking it belongs to the anchor's
-/// capture and the capture to the project; `None` for a whole capture.
-async fn resolve(
-    tx: &mut sqlx::SqliteConnection,
-    project: &str,
-    item: &SelectionItem,
-) -> Result<Option<String>, ApiError> {
-    let capture: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM captures WHERE id = ?1 AND project_id = ?2 AND deleted_at IS NULL",
-    )
-    .bind(&item.capture)
-    .bind(project)
-    .fetch_optional(&mut *tx)
-    .await?;
-    if capture.is_none() {
-        return Err(ApiError::invalid(format!(
-            "{} is not a capture of this project",
-            item.capture
-        )));
-    }
-    let found: Option<String> = match (&item.artifact, &item.path) {
-        (None, None) => return Ok(None),
-        (Some(artifact), _) => {
-            sqlx::query_scalar("SELECT id FROM artifacts WHERE id = ?1 AND capture_id = ?2")
-                .bind(artifact)
-                .bind(&item.capture)
-                .fetch_optional(&mut *tx)
-                .await?
-        }
-        (None, Some(path)) => {
-            sqlx::query_scalar("SELECT id FROM artifacts WHERE path = ?1 AND capture_id = ?2")
-                .bind(path)
-                .bind(&item.capture)
-                .fetch_optional(&mut *tx)
-                .await?
-        }
-    };
-    found.map(Some).ok_or_else(|| {
-        ApiError::invalid(format!(
-            "capture {} has no file {}",
-            item.capture,
-            item.artifact
-                .as_deref()
-                .or(item.path.as_deref())
-                .unwrap_or_default()
-        ))
-    })
-}
-
-/// A `selections` row.
-#[derive(sqlx::FromRow)]
-struct HeadRow {
-    id: String,
-    label: String,
-    author: Option<String>,
-    created_at: i64,
-}
-
-/// A `selection_items` row.
-#[derive(sqlx::FromRow)]
-struct ItemRow {
-    selection_id: String,
-    capture_id: String,
-    artifact_id: Option<String>,
-    mark: String,
-    fragment: Option<String>,
-}
-
-/// The selections named in `ids`, in that order.
-///
-/// # Errors
-///
-/// When the database cannot be read or holds a malformed fragment.
-pub async fn load(db: &sqlx::SqlitePool, ids: &[String]) -> Result<Vec<Selection>, ApiError> {
-    let wanted = serde_json::to_string(ids).map_err(anyhow::Error::from)?;
-    let heads: Vec<HeadRow> = sqlx::query_as(
-        "SELECT id, label, author, created_at FROM selections
-         WHERE id IN (SELECT value FROM json_each(?1))",
-    )
-    .bind(&wanted)
-    .fetch_all(db)
-    .await?;
-    let rows: Vec<ItemRow> = sqlx::query_as(
-        "SELECT selection_id, capture_id, artifact_id, mark, fragment FROM selection_items
-         WHERE selection_id IN (SELECT value FROM json_each(?1)) ORDER BY selection_id, position",
-    )
-    .bind(&wanted)
-    .fetch_all(db)
-    .await?;
-    let mut items: HashMap<String, Vec<SelectionItem>> = HashMap::new();
-    for row in rows {
-        let fragment: Option<Fragment> = row
-            .fragment
-            .map(|text| serde_json::from_str(&text))
-            .transpose()
-            .map_err(anyhow::Error::from)?;
-        items
-            .entry(row.selection_id)
-            .or_default()
-            .push(SelectionItem {
-                capture: row.capture_id,
-                artifact: row.artifact_id,
-                path: None,
-                mark: row.mark.parse().map_err(anyhow::Error::from)?,
-                fragment,
-            });
-    }
-    let mut by_id: HashMap<String, Selection> = heads
-        .into_iter()
-        .map(|head| {
-            let anchors = items.remove(&head.id).unwrap_or_default();
-            (
-                head.id.clone(),
-                Selection {
-                    id: head.id,
-                    label: head.label,
-                    author: head.author,
-                    created_at: head.created_at,
-                    items: anchors,
-                },
-            )
-        })
-        .collect();
-    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
-}
+use rupicola_api::{NewSelection, Selection};
 
 /// `POST /v1/projects/{id}/selections`: keeps a selection to cite later.
 pub async fn create(
@@ -213,15 +19,9 @@ pub async fn create(
     Path(project): Path<String>,
     Json(form): Json<NewSelection>,
 ) -> Result<(StatusCode, Json<Selection>), ApiError> {
-    match access(&state, &principal, &project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reviewer)?,
-    }
-    let mut tx = state.db.begin().await?;
-    let id = keep(&mut tx, &project, principal.handle.as_deref(), &form).await?;
-    tx.commit().await?;
-    let mut kept = load(&state.db, std::slice::from_ref(&id)).await?;
-    Ok((StatusCode::CREATED, Json(kept.remove(0))))
+    selections::create(&state, &principal, &project, &form)
+        .await
+        .map(|selection| (StatusCode::CREATED, Json(selection)))
 }
 
 /// `GET /v1/selections/{id}`
@@ -230,17 +30,7 @@ pub async fn get(
     principal: Principal,
     Path(id): Path<String>,
 ) -> Result<Json<Selection>, ApiError> {
-    let project: String = sqlx::query_scalar("SELECT project_id FROM selections WHERE id = ?1")
-        .bind(&id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(ApiError::NotFound)?;
-    match access(&state, &principal, &project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reader)?,
-    }
-    let mut kept = load(&state.db, std::slice::from_ref(&id)).await?;
-    Ok(Json(kept.remove(0)))
+    selections::get(&state, &principal, &id).await.map(Json)
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 //! `/problems/{id}`: one problem, its comments and the selections it cites.
 
-use crate::{problems, state::Shared};
+use super::super::handlers::problems;
+use crate::state::Shared;
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {

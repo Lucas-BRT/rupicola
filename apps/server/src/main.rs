@@ -4,19 +4,13 @@
 mod config;
 mod design_system;
 mod domain;
-mod fixes;
 mod http;
-mod problems;
-mod removal;
 mod repositories;
-mod search;
-mod selections;
 mod services;
 mod state;
 mod storage;
 #[cfg(test)]
 mod testkit;
-mod topics;
 
 use anyhow::{Context, bail};
 use clap::Parser;
@@ -61,7 +55,7 @@ struct Args {
     /// Whether any project may remove a capture that something cites; `never` overrides
     /// every project's policy.
     #[arg(long, env = "RUPICOLA_CITED_DELETION", value_enum, default_value_t)]
-    cited_deletion: removal::CitedDeletion,
+    cited_deletion: domain::removal::CitedDeletion,
 }
 
 #[tokio::main]
@@ -96,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     state.cited_deletion.store(
-        args.cited_deletion == removal::CitedDeletion::Allow,
+        args.cited_deletion == domain::removal::CitedDeletion::Allow,
         std::sync::atomic::Ordering::Relaxed,
     );
     let listener = tokio::net::TcpListener::bind((args.bind, args.port))

@@ -1,6 +1,7 @@
 //! `/fixes/{id}`: one fix, its steps, its reviews and the selections it cites.
 
-use crate::{fixes, state::Shared};
+use super::super::handlers::fixes;
+use crate::state::Shared;
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {

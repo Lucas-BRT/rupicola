@@ -31,15 +31,27 @@ pub async fn record(
     actor: &str,
     event: &str,
 ) -> sqlx::Result<()> {
+    record_with_detail(db, project, actor, event, None).await
+}
+
+/// Appends an audit event with an optional JSON detail payload.
+pub async fn record_with_detail(
+    db: impl SqliteExecutor<'_>,
+    project: Option<&str>,
+    actor: &str,
+    event: &str,
+    detail: Option<&str>,
+) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO audit_events (id, project_id, actor, event, occurred_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO audit_events (id, project_id, actor, event, occurred_at, detail)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(uuid::Uuid::now_v7().to_string())
     .bind(project)
     .bind(actor)
     .bind(event)
     .bind(now_ms())
+    .bind(detail)
     .execute(db)
     .await
     .map(drop)

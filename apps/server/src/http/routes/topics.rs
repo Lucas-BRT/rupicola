@@ -1,6 +1,7 @@
 //! `/topics/{id}`: one topic of a project's tree and the captures filed under it.
 
-use crate::{state::Shared, topics};
+use super::super::handlers::topics;
+use crate::state::Shared;
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {

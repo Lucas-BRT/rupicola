@@ -12,11 +12,17 @@ pub mod blobs;
 pub mod captures;
 pub mod credentials;
 pub mod design;
+pub mod fixes;
 pub mod lineage;
+pub mod problems;
 pub mod projects;
 pub mod records;
+pub mod removal;
+pub mod search;
+pub mod selections;
 pub mod settings;
 pub mod tokens;
+pub mod topics;
 
 use anyhow::Context;
 use sqlx::{
