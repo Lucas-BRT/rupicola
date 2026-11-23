@@ -25,6 +25,7 @@ tempfile.workspace = true
 rupicola-capture = { workspace = true, features = ["async"] }
 rupicola-client.workspace = true
 tokio = { workspace = true, features = ["rt", "fs", "io-std", "io-util"] }
+rpassword.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

@@ -96,4 +96,4 @@ rupicola capture scenario.toml --server-url https://atelier.example.org
 rupicola publish path/to/capture --server-url https://atelier.example.org
 ```
 
-Both use the token stored by `rupicola auth set-token`. Uploaded runs start with inspection pending.
+Both use the token stored by `rupicola login`. Uploaded runs start with inspection pending.

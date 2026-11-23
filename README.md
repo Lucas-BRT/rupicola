@@ -120,12 +120,11 @@ Project decisions live in `.rupicola/context.md` when explicitly requested. Visi
 ## Capture a web scenario
 
 ```sh
-export RUPICOLA_SERVER_URL=https://rupicola.example.com
-rupicola auth set-token            # once: the token the backend issued
+rupicola login --server-url https://rupicola.example.com   # once: asks for the password, stores a token
 rupicola capture settings.toml --video
 ```
 
-The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews, then publishes them to the backend named by `RUPICOLA_SERVER_URL` or `--server-url`. Without a server the capture stays in the directory given by `--out`. In a Git checkout the project is detected from Git; `rupicola link PROJECT_ID` chooses an explicit ID. `rupicola publish DIR` uploads a capture made earlier.
+The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews, then publishes them to the backend named by `--server-url`, `RUPICOLA_SERVER_URL` or, failing both, the one `rupicola login` stored. Without a backend the capture stays in the directory given by `--out`. `rupicola whoami` shows who the stored token acts as and `rupicola logout` forgets it; the token stays valid on the backend until it is revoked from a signed-in session. In a Git checkout the project is detected from Git; `rupicola link PROJECT_ID` chooses an explicit ID. `rupicola publish DIR` uploads a capture made earlier.
 
 The backend (`apps/backend`) owns accounts, projects, captures, problems, fixes, design records and the media store. The Topcoat panel (`rupicola serve --server-url …`) and the CLI are clients of its API. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
 
@@ -170,7 +169,7 @@ Security posture for open-internet multi-device deployments:
 - **Zero raw host port exposure in `compose.yml`:** traffic enters exclusively through Traefik over TLS (`dokploy-network`, container port `4731`).
 - **Bootstrap & Auth hardening:** the backend requires `RUPICOLA_SETUP_CODE` (>= 32 chars, SHA-256 constant-time check) for initial owner creation unless it listens on loopback only. Passwords use **Argon2id** with sliding-window rate-limiting (8 failed attempts / 5 min lockout), concurrency semaphore (`429 Too Many Requests`), constant-time dummy verification against user enumeration, `HttpOnly; SameSite=Lax; Secure` session cookies, strict `Host` and `Origin` header pinning, per-session CSRF tokens, and authenticated web password rotation (`Settings → Change password`).
 - **Container hardening:** runs as non-root `uid 10001:10001` (`rupicola`) with `read_only: true`, `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 128`, `mem_limit: 512m`, and a native self-contained `./rupicola-panel --healthcheck` probe.
-- **Multi-device capture publishing:** publish from any workstation or CI runner with `rupicola capture <scenario> --server-url https://atelier.example.com` or `rupicola publish <run-dir> --server-url https://atelier.example.com`, using the token stored by `rupicola auth set-token`.
+- **Multi-device capture publishing:** publish from any workstation or CI runner with `rupicola capture <scenario> --server-url https://atelier.example.com` or `rupicola publish <run-dir> --server-url https://atelier.example.com`, using the token `rupicola login` stored (`rupicola auth set-token` stores one issued some other way).
 
 ## Development
 
@@ -215,7 +214,7 @@ The repository is private. No project license has been assigned.
 
 ### Hosted MCP for Codex
 
-The backend serves MCP at `POST /mcp`, authenticated with any bearer token it issues: a signed-in session, a machine token or a project device token. `rupicola mcp-bridge --server-url https://YOUR-RUPICOLA-HOST` bridges it to stdio with the token stored by `rupicola auth set-token` (or `RUPICOLA_MCP_TOKEN`). A client that speaks HTTP can also be pointed at the endpoint, keeping the bearer in `RUPICOLA_MCP_TOKEN` in the environment that launches it:
+The backend serves MCP at `POST /mcp`, authenticated with any bearer token it issues: a signed-in session, a machine token or a project device token. `rupicola mcp-bridge --server-url https://YOUR-RUPICOLA-HOST` bridges it to stdio with the token stored by `rupicola login` (or `RUPICOLA_MCP_TOKEN`). A client that speaks HTTP can also be pointed at the endpoint, keeping the bearer in `RUPICOLA_MCP_TOKEN` in the environment that launches it:
 
 ```toml
 [mcp_servers.rupicola]

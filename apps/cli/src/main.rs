@@ -4,6 +4,7 @@ use commands::Command;
 mod mcp_bridge;
 mod publish;
 mod service;
+mod session;
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use rupicola_core::{FRAMEWORKS, TOPICS, capture, check, discover, scan, scenario, visual};
@@ -69,7 +70,8 @@ fn print_capture(
 }
 #[derive(Subcommand)]
 enum AuthAction {
-    /// Save a 64-hex bearer token to ~/.local/share/rupicola/auth-token (0600).
+    /// Save a 64-hex bearer token to ~/.local/share/rupicola/auth-token (0600). `login` issues
+    /// one for you.
     SetToken {
         /// Bearer token (omit to read from stdin).
         #[arg(long)]

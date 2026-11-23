@@ -1,12 +1,14 @@
 //! Subcommands: each takes its own argument struct and runs itself.
 
+mod account;
 mod analysis;
 mod capture;
 mod images;
 mod panel;
 mod remote;
 
-use crate::{AuthAction, EXIT_CLEAN, Result, mcp_bridge, service};
+use crate::{AuthAction, EXIT_CLEAN, Result, service};
+use account::{LoginArgs, Logout, WhoamiArgs};
 use analysis::{AuditArgs, CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs};
 use capture::CaptureArgs;
 use clap::Subcommand;
@@ -20,7 +22,13 @@ pub enum Command {
     McpBridge(McpBridgeArgs),
     /// Upload a capture directory to a Rupicola backend.
     Publish(PublishArgs),
-    /// Manage credentials for remote Rupicola panels.
+    /// Sign in to a Rupicola backend and store a token for this machine.
+    Login(LoginArgs),
+    /// Forget the stored token and backend.
+    Logout,
+    /// Show who the stored token acts as.
+    Whoami(WhoamiArgs),
+    /// Manage the stored token by hand.
     Auth {
         #[command(subcommand)]
         action: AuthAction,
@@ -60,9 +68,12 @@ impl Command {
         match self {
             Self::McpBridge(args) => args.run(),
             Self::Publish(args) => args.run(),
+            Self::Login(args) => args.run(),
+            Self::Logout => Logout::run(),
+            Self::Whoami(args) => args.run(),
             Self::Auth {
                 action: AuthAction::SetToken { token },
-            } => mcp_bridge::set_token(token).map(|()| EXIT_CLEAN),
+            } => account::set_token(token).map(|()| EXIT_CLEAN),
             Self::Discover(args) => args.run(),
             Self::Scan(args) => args.run(),
             Self::Check(args) => args.run(),

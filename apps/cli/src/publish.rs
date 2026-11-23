@@ -1,8 +1,8 @@
 //! Publishing a capture directory (a `manifest.json` and its media files) to the backend.
 
 use crate::{
-    mcp_bridge::{Remote, SERVER_URL_ENV},
     service,
+    session::{Remote, Server},
 };
 use anyhow::{Context, Result, bail};
 use rupicola_api::{
@@ -23,12 +23,12 @@ const TEMP_PREFIX: &str = "rupicola-capture-";
 /// Run directory inside the scratch directory; capture commands need it not to exist.
 const RUN_DIR: &str = "run";
 
-/// Where a finished capture goes: the backend named by `--server-url`, or only the disk.
+/// Where a finished capture goes: the backend named by `--server-url` or stored by
+/// `rupicola login`, or only the disk.
 #[derive(clap::Args)]
 pub struct Destination {
-    /// Base URL of the Rupicola backend; when set the capture is published there.
-    #[arg(long, env = SERVER_URL_ENV)]
-    server_url: Option<String>,
+    #[command(flatten)]
+    server: Server,
 }
 
 /// The directory a capture is written to, removed with the value when it was scratch.
@@ -51,7 +51,7 @@ impl Destination {
     ///
     /// Fails when the directory cannot be created.
     pub fn run_dir(&self, explicit: Option<PathBuf>) -> Result<Run> {
-        match (explicit, &self.server_url) {
+        match (explicit, self.server.url()?) {
             (Some(dir), _) => Ok(Run {
                 dir,
                 _scratch: None,
@@ -77,7 +77,7 @@ impl Destination {
     ///
     /// Fails when the capture cannot be read, uploaded or accepted.
     pub async fn publish(&self, dir: &Path, quiet: bool) -> Result<()> {
-        let Some(server_url) = &self.server_url else {
+        let Some(server_url) = self.server.url()? else {
             return Ok(());
         };
         let bundle = Bundle::open(dir).await?;
@@ -85,7 +85,7 @@ impl Destination {
         if project.is_empty() {
             bail!("the capture names no project");
         }
-        let remote = Remote::connect(server_url)?;
+        let remote = Remote::connect(&server_url)?;
         let capture = remote
             .api
             .publish_capture(&remote.token, project, &bundle.describe(&remote).await?)
@@ -245,7 +245,7 @@ mod tests {
 
     fn remote() -> Destination {
         Destination {
-            server_url: Some(SERVER.to_owned()),
+            server: Server::at(SERVER),
         }
     }
 
@@ -271,7 +271,9 @@ mod tests {
 
     #[tokio::test]
     async fn publishing_without_a_backend_does_nothing() {
-        let local = Destination { server_url: None };
+        let local = Destination {
+            server: Server::none(),
+        };
         local
             .publish(Path::new("does-not-exist"), false)
             .await
