@@ -8,11 +8,11 @@ mod http;
 
 use async_trait::async_trait;
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Comment, Credentials, DesignEntry, DocumentEdit, Finding,
-    Fix, FixSummary, IssuedInvite, Me, Member, NewCapture, NewComment, NewDesignEntry, NewFinding,
-    NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PasswordChange, Problem,
-    ProblemPatch, ProblemSummary, Project, Redeem, Register, SessionToken, Setup, Step,
-    SystemActionForm, SystemList, SystemVersion,
+    AuditEvent, Capture, CaptureSummary, Comment, Credential, Credentials, DesignEntry,
+    DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me, Member, NewCapture,
+    NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewProblem,
+    NewProject, NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
+    Redeem, Register, SessionToken, Setup, Step, SystemActionForm, SystemList, SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -65,6 +65,20 @@ pub trait Api: Send + Sync {
     /// [`ClientError::Invalid`] when the current password is wrong or the new one is not
     /// acceptable.
     async fn change_password(&self, token: &str, form: &PasswordChange) -> Result<()>;
+
+    /// The sessions and machine tokens of the person `token` belongs to.
+    async fn tokens(&self, token: &str) -> Result<Vec<Credential>>;
+
+    /// Issues a machine token that acts as the person `token` belongs to. The secret is in
+    /// the answer and is never shown again.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Forbidden`] when `token` is not a person's session.
+    async fn create_token(&self, token: &str, form: &NewCredential) -> Result<IssuedCredential>;
+
+    /// Revokes one of the caller's sessions or machine tokens by its id.
+    async fn delete_token(&self, token: &str, id: &str) -> Result<()>;
 
     /// Who `token` belongs to.
     async fn me(&self, token: &str) -> Result<Me>;

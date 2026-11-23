@@ -7,9 +7,10 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use rupicola_api::{
-    AuditEvent, Capture, CaptureStatus, CaptureSummary, Credentials, Environment, ErrorBody,
-    Finding, Inspection, Invite, IssuedInvite, Me, Member, NewCapture, NewFinding, NewInvite,
-    NewProject, PasswordChange, Project, Redeem, Role, SessionToken, SetupStatus, TokenKind,
+    AuditEvent, Capture, CaptureStatus, CaptureSummary, Credential, Credentials, Environment,
+    ErrorBody, Finding, Inspection, Invite, IssuedCredential, IssuedInvite, Me, Member, NewCapture,
+    NewCredential, NewFinding, NewInvite, NewProject, PasswordChange, Project, Redeem, Role,
+    SessionToken, SetupStatus, TokenKind,
 };
 use rupicola_client::{Api, ClientError, HttpApi, McpReply};
 use sha2::{Digest, Sha256};
@@ -48,6 +49,18 @@ fn error(status: StatusCode, code: &str, message: &str) -> (StatusCode, Json<Err
             message: message.to_owned(),
         }),
     )
+}
+
+fn credential() -> Credential {
+    Credential {
+        id: TOKEN_ID.to_owned(),
+        kind: TokenKind::Machine,
+        label: TOKEN_LABEL.to_owned(),
+        project_id: None,
+        created_at: 0,
+        expires_at: None,
+        last_used_at: None,
+    }
 }
 
 fn project() -> Project {
@@ -90,6 +103,9 @@ fn new_capture() -> NewCapture {
 }
 
 const INVITE_CODE: &str = "invite-code";
+const MACHINE_TOKEN: &str = "machine-secret";
+const TOKEN_LABEL: &str = "laptop";
+const TOKEN_ID: &str = "digest-1";
 const AUDIT_EVENT: &str = "member-added";
 const WRONG_PASSWORD_MESSAGE: &str = "the current password is incorrect";
 
@@ -236,6 +252,30 @@ fn access_routes() -> Router {
         .route(
             "/v1/sessions/others",
             delete(|| async { StatusCode::NO_CONTENT }),
+        )
+        .route(
+            "/v1/tokens",
+            get(|| async { Json(vec![credential()]) }).post(
+                |Json(form): Json<NewCredential>| async move {
+                    Json(IssuedCredential {
+                        token: MACHINE_TOKEN.to_owned(),
+                        credential: Credential {
+                            label: form.label,
+                            ..credential()
+                        },
+                    })
+                },
+            ),
+        )
+        .route(
+            "/v1/tokens/{id}",
+            delete(|Path(id): Path<String>| async move {
+                if id == TOKEN_ID {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::NOT_FOUND
+                }
+            }),
         )
         .route(
             "/v1/invites/redeem",
@@ -440,6 +480,28 @@ async fn project_access_is_read_and_changed_through_its_routes() {
     api.remove_member(TOKEN, PROJECT, HANDLE).await.unwrap();
     assert_eq!(
         api.remove_member(TOKEN, PROJECT, "nobody").await.err(),
+        Some(ClientError::NotFound)
+    );
+}
+
+#[tokio::test]
+async fn machine_tokens_are_issued_listed_and_revoked() {
+    let (api, _) = serve().await;
+    let issued = api
+        .create_token(
+            TOKEN,
+            &NewCredential {
+                label: "ci".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(issued.token, MACHINE_TOKEN);
+    assert_eq!(issued.credential.label, "ci");
+    assert_eq!(api.tokens(TOKEN).await.unwrap(), vec![credential()]);
+    api.delete_token(TOKEN, TOKEN_ID).await.unwrap();
+    assert_eq!(
+        api.delete_token(TOKEN, "missing").await.err(),
         Some(ClientError::NotFound)
     );
 }

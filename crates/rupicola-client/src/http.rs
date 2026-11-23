@@ -2,11 +2,12 @@ use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Comment, Credentials, DesignEntry, DocumentEdit, Finding,
-    Fix, FixSummary, IssuedInvite, Me, Member, NewCapture, NewComment, NewDesignEntry, NewFinding,
-    NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem,
-    ProblemPatch, ProblemSummary, Project, Redeem, Register, SessionToken, Setup, SetupStatus,
-    Step, SystemActionForm, SystemList, SystemVersion,
+    AuditEvent, Capture, CaptureSummary, Comment, Credential, Credentials, DesignEntry,
+    DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me, Member, NewCapture,
+    NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewProblem,
+    NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch, ProblemSummary,
+    Project, Redeem, Register, SessionToken, Setup, SetupStatus, Step, SystemActionForm,
+    SystemList, SystemVersion,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -156,6 +157,24 @@ impl Api for HttpApi {
 
     async fn projects(&self, token: &str) -> Result<Vec<Project>> {
         Self::read(self.request(Method::GET, "/projects", Some(token))).await
+    }
+
+    async fn tokens(&self, token: &str) -> Result<Vec<Credential>> {
+        Self::read(self.request(Method::GET, "/tokens", Some(token))).await
+    }
+
+    async fn create_token(&self, token: &str, form: &NewCredential) -> Result<IssuedCredential> {
+        Self::read(
+            self.request(Method::POST, "/tokens", Some(token))
+                .json(form),
+        )
+        .await
+    }
+
+    async fn delete_token(&self, token: &str, id: &str) -> Result<()> {
+        Self::send(self.request(Method::DELETE, &format!("/tokens/{id}"), Some(token)))
+            .await
+            .map(|_| ())
     }
 
     async fn create_project(&self, token: &str, form: &NewProject) -> Result<Project> {
