@@ -12,7 +12,6 @@ use rupicola_api::{Credentials as SignIn, Me, PasswordChange, Register, Setup, T
 use rupicola_client::{Api, ClientError};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
-use topcoat::view::View;
 
 /// Cookie that holds the backend's session token.
 const SESSION_COOKIE: &str = "rp_session";
@@ -447,11 +446,6 @@ async fn render(
         .headers_mut()
         .insert(header::SET_COOKIE, form_cookie);
     Ok(response)
-}
-
-pub async fn page(cx: &Cx, view: impl View) -> PageResult<Html<String>> {
-    let content = view.single().await.map_err(db_error)?;
-    Ok(Html(content.render(cx)))
 }
 
 #[cfg(test)]

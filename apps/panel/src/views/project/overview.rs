@@ -1,40 +1,47 @@
-use crate::components::display::{chip, counts, link_button, metric, proof_card, section_head};
-use crate::{Run, project::AssetOption};
+use crate::Run;
+use crate::components::display::{
+    chip, counts, link_button, metric, proof_card, run_list, section_head,
+};
 use rupicola_core::design_record;
 use std::collections::BTreeSet;
 use topcoat::{
+    Result,
     context::Cx,
-    view::{Child, view},
+    view::{View, component, view},
 };
 
 /// What the overview shows besides the project's name.
 pub struct Overview<'a> {
     pub base: &'a str,
+    /// Link, image and scenario of the newest verified capture.
     pub latest_project_evidence: Option<(String, String, String)>,
-    pub records: &'a [design_record::Entry],
-    pub superseded: &'a BTreeSet<&'a str>,
-    pub current: usize,
-    pub related: &'a [&'a Run],
-    pub all_assets: &'a [AssetOption],
+    pub records: Vec<design_record::Entry>,
+    pub captures: usize,
+    pub assets: usize,
     pub open_problems_count: usize,
     pub fix_count: usize,
-    pub list: Child<'a>,
+    pub recent: Vec<&'a Run>,
 }
 
-pub fn render<'a>(cx: &'a Cx, data: Overview<'a>) -> Child<'a> {
+/// The overview tab's content.
+#[component]
+pub async fn overview_tab(cx: &Cx, data: Overview<'_>) -> Result<impl View> {
     let Overview {
         base,
         latest_project_evidence,
         records,
-        superseded,
-        current,
-        related,
-        all_assets,
+        captures,
+        assets,
         open_problems_count,
         fix_count,
-        list,
+        recent,
     } = data;
-    Child::new(view! {
+    Ok(view! {
+        let superseded: BTreeSet<&str> = design_record::superseded(&records);
+        let current = records
+            .iter()
+            .filter(|entry| !superseded.contains(entry.id.as_str()))
+            .count();
         <div class="overview-hero">
             if let Some((href, image, scenario)) = &latest_project_evidence {
                 proof_card(href: href, image: image, scenario: scenario,
@@ -62,11 +69,11 @@ pub fn render<'a>(cx: &'a Cx, data: Overview<'a>) -> Child<'a> {
                         }
                     </ul>
                 }
-                <p class="muted brief-foot">(current) " active design records"</p>
+                <p class="muted brief-foot">(current.to_string()) " active design records"</p>
             </section>
         </div>
         counts(label: "Project pipeline",
-            metric(href: format!("{base}/captures"), value: related.len(), "Captures (" (all_assets.len()) " assets)")
+            metric(href: format!("{base}/captures"), value: captures, "Captures (" (assets.to_string()) " assets)")
             metric(href: format!("{base}/problems"), value: open_problems_count, featured: open_problems_count > 0, "Problems queue")
             metric(href: format!("{base}/fixes"), value: fix_count, "Recorded fixes")
         )
@@ -74,7 +81,7 @@ pub fn render<'a>(cx: &'a Cx, data: Overview<'a>) -> Child<'a> {
             section_head(title: "Recent captures",
                 link_button(href: format!("{base}/captures"), "Open research hub")
             )
-            (list)
+            run_list(runs: &recent, message: "No matching captures. Send a capture with this project's ID.")
         </section>
     })
 }

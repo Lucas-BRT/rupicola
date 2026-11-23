@@ -1,64 +1,57 @@
-use crate::components::{
-    display::empty,
-    form::stack_form,
-    layout::{Nav, workspace},
-};
-use crate::{Account, PageResult, Panel, auth, project::Filter};
+use crate::Account;
+use crate::components::{display::empty, form::stack_form};
 use std::collections::BTreeMap;
 use topcoat::{
     Result,
-    context::Cx,
-    router::content::Html,
+    context::{Cx, context},
     view::{View, component, view},
 };
 
 /// What the project list shows.
-pub struct Projects<'a> {
-    pub filter: &'a Filter,
-    pub search: &'a str,
-    pub visible: Vec<(&'a String, &'a String)>,
+pub struct Projects {
+    /// The search the visitor typed, as typed.
+    pub query: String,
+    /// The search, trimmed and lower-cased.
+    pub search: String,
+    /// The projects that match: id and label.
+    pub visible: Vec<(String, String)>,
     pub total: usize,
     pub empty_catalog: bool,
-    pub summaries: &'a BTreeMap<String, String>,
+    pub summaries: BTreeMap<String, String>,
 }
 
-pub async fn render(
-    cx: &Cx,
-    account: &Account,
-    panel: &Panel,
-    data: Projects<'_>,
-) -> PageResult<Html<String>> {
+/// The project list's content.
+#[component]
+pub async fn projects_page(cx: &Cx, data: &Projects) -> Result<impl View> {
     let Projects {
-        filter,
+        query,
         search,
         visible,
-        total: total_projects,
+        total,
         empty_catalog,
         summaries,
     } = data;
-    let content = view! {
-        workspace(title: "Projects", account: account, panel: panel, active: Nav::Projects,
-            <div class="page-title studio-heading">
-                <div>
-                    <h1>"Projects"</h1>
-                    <p class="muted">(visible.len()) " of " (total_projects) (if total_projects == 1 { " project" } else { " projects" })</p>
-                </div>
-                search_form(query: filter.q.as_deref().unwrap_or(""))
+    let account = context::<Account>(cx);
+    Ok(view! {
+        <div class="page-title studio-heading">
+            <div>
+                <h1>"Projects"</h1>
+                <p class="muted">(visible.len()) " of " (total) (if *total == 1 { " project" } else { " projects" })</p>
             </div>
-            if visible.is_empty() {
-                empty(message: if search.is_empty() { "No projects yet." } else { "No projects match that search." })
+            search_form(query: query)
+        </div>
+        if visible.is_empty() {
+            empty(message: if search.is_empty() { "No projects yet." } else { "No projects match that search." })
+        }
+        <div class="project-index">
+            for (id, label) in visible {
+                project_card(id: id, label: label, summary: summaries.get(id).map(String::as_str))
             }
-            <div class="project-index">
-                for (id, label) in visible {
-                    project_card(id: id, label: label, summary: summaries.get(id).map(String::as_str))
-                }
-            </div>
-            if account.owner {
-                new_project(token: &account.csrf, open: empty_catalog)
-            }
-        )
-    };
-    auth::page(cx, content).await
+        </div>
+        if account.owner {
+            new_project(token: &account.csrf, open: *empty_catalog)
+        }
+    })
 }
 
 /// The project search box.

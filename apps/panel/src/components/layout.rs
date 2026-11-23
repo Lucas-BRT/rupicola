@@ -15,12 +15,25 @@ pub enum Nav {
     Settings,
 }
 
-/// The whole page: document head, top bar with navigation and account, and the main area
-/// holding `child`.
+impl Nav {
+    /// The entry a page at `path` belongs to.
+    #[must_use]
+    pub fn of(path: &str) -> Self {
+        if path.starts_with("/settings") {
+            Self::Settings
+        } else if path.starts_with("/projects") || path.starts_with("/run/") {
+            Self::Projects
+        } else {
+            Self::Dashboard
+        }
+    }
+}
+
+/// The whole document: head with the page's metadata, top bar with navigation and account,
+/// and the main area holding `child`.
 #[component]
-pub async fn workspace(
+pub async fn document(
     cx: &Cx,
-    title: &str,
     account: &Account,
     panel: &Panel,
     active: Nav,
@@ -30,9 +43,7 @@ pub async fn workspace(
         <!DOCTYPE html>
         <html lang="en">
             <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>(title) " · Rupicola"</title>
+                topcoat::metadata::tags()
                 <link rel="stylesheet" href="/panel.css">
                 <script src="/panel.js" defer=""></script>
             </head>

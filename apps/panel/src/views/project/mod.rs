@@ -7,19 +7,22 @@ pub mod overview;
 pub mod problems;
 pub mod settings;
 
-pub use captures::render_captures;
-pub use fixes::render_fixes;
-pub use problems::render_problems;
+pub use captures::captures_tab;
+pub use fixes::fixes_tab;
+pub use problems::problems_tab;
 
 use crate::components::badge::{BadgeVariant, badge};
-use crate::components::layout::{Nav, breadcrumbs, tab_link, tabs, workspace};
+use crate::components::layout::{breadcrumbs, tab_link, tabs};
 use crate::project::AssetOption;
-use crate::{
-    Account, Cx, PageResult, Panel, Run, auth, design_record, fix_record, problem_record, view,
-};
+use crate::{Run, auth, design_record, fix_record, problem_record};
 use auth::Role;
 use fix_record::{ComparisonPair, FixRecord, FixStatus};
 use problem_record::{Problem, ProblemStatus, Severity};
+use topcoat::{
+    Result,
+    context::Cx,
+    view::{Child, View, component, view},
+};
 
 pub(super) fn severity_badge(sev: Severity) -> BadgeVariant {
     match sev {
@@ -99,7 +102,24 @@ pub enum Tab {
 }
 
 impl Tab {
-    const ALL: [Self; 6] = [
+    /// The tab a page at `path` belongs to, for a project served at `base`.
+    #[must_use]
+    pub fn of(path: &str, base: &str) -> Self {
+        let rest = path
+            .strip_prefix(base)
+            .unwrap_or_default()
+            .trim_start_matches('/');
+        match rest.split('/').next().unwrap_or_default() {
+            "captures" | "runs" | "images" | "videos" => Self::Captures,
+            "problems" | "findings" => Self::Problems,
+            "fixes" => Self::Fixes,
+            "design" => Self::Design,
+            "settings" => Self::Settings,
+            _ => Self::Overview,
+        }
+    }
+
+    pub const ALL: [Self; 6] = [
         Self::Overview,
         Self::Captures,
         Self::Problems,
@@ -108,7 +128,7 @@ impl Tab {
         Self::Settings,
     ];
 
-    const fn slug(self) -> &'static str {
+    pub const fn slug(self) -> &'static str {
         match self {
             Self::Overview => "overview",
             Self::Captures => "captures",
@@ -119,7 +139,7 @@ impl Tab {
         }
     }
 
-    const fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
             Self::Overview => "Overview",
             Self::Captures => "Captures",
@@ -130,7 +150,7 @@ impl Tab {
         }
     }
 
-    const fn heading(self) -> &'static str {
+    pub const fn heading(self) -> &'static str {
         match self {
             Self::Settings => "Project settings",
             other => other.label(),
@@ -138,47 +158,34 @@ impl Tab {
     }
 }
 
-/// The project page around one tab's `body`: breadcrumbs, heading and tabs.
-///
-/// # Errors
-///
-/// The status code when the page cannot be rendered.
-pub async fn frame<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
-    panel: &Panel,
-    project: &'a crate::project::Context,
+/// The project page around one tab: breadcrumbs, heading and tabs; `child` is the tab.
+#[component]
+pub async fn project_frame(
+    cx: &Cx,
+    project: &crate::project::Context,
     tab: Tab,
-    body: topcoat::view::Child<'a>,
-) -> PageResult<topcoat::router::content::Html<String>> {
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
     let (id, label, base, role) = (&project.id, &project.label, &project.base, project.role);
     let overview = tab == Tab::Overview;
-    let page_title = if overview {
-        label.clone()
-    } else {
-        format!("{} · {label}", tab.heading())
-    };
-    let content = view! {
-        workspace(title: &page_title, account: account, panel: panel, active: Nav::Projects,
-            breadcrumbs(<a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span><span>(label)</span>)
-            <header class="page-title project-masthead">
-                <div><h1>(if overview { label.as_str() } else { tab.heading() })</h1>
-                    if overview && label != id { <code class="muted">(id)</code> }
-                </div>
-            </header>
-            tabs(label: "Project",
-                for each in Tab::ALL {
-                    if each != Tab::Settings || role == Role::Owner {
-                        tab_link(
-                            href: if each == Tab::Overview { base.clone() } else { format!("{base}/{}", each.slug()) },
-                            current: tab == each,
-                            (each.label())
-                        )
-                    }
+    Ok(view! {
+        breadcrumbs(<a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span><span>(label)</span>)
+        <header class="page-title project-masthead">
+            <div><h1>(if overview { label.as_str() } else { tab.heading() })</h1>
+                if overview && label != id { <code class="muted">(id)</code> }
+            </div>
+        </header>
+        tabs(label: "Project",
+            for each in Tab::ALL {
+                if each != Tab::Settings || role == Role::Owner {
+                    tab_link(
+                        href: if each == Tab::Overview { base.clone() } else { format!("{base}/{}", each.slug()) },
+                        current: tab == each,
+                        (each.label())
+                    )
                 }
-            )
-            (body)
+            }
         )
-    };
-    Box::pin(auth::page(cx, content)).await
+        (child)
+    })
 }

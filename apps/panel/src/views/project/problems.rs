@@ -1,81 +1,84 @@
 use super::{
-    Account, AssetOption, Cx, Problem, ProblemStatus, Role, Severity, badge, design_record,
+    AssetOption, Cx, Problem, ProblemStatus, Role, Severity, badge, design_record,
     problem_status_badge, severity_badge, view,
 };
+use crate::Account;
 use crate::components::{
     display::{chip, counts, kind_label, link_button, metric, moment},
     form::{csrf, field, select_field, stack_form, text_area},
 };
+use crate::project::Filter;
 use topcoat::{
     Result,
+    context::context,
     view::{View, attributes, component},
 };
 
-#[allow(clippy::too_many_arguments)]
-pub fn render_problems<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
+/// The problems tab's content.
+#[component]
+pub async fn problems_tab(
+    cx: &Cx,
     role: Role,
-    _project_id: &'a str,
-    base: &'a str,
-    filter: &'a crate::project::Filter,
-    problems: &'a [Problem],
-    assets: &'a [AssetOption],
-    design_entries: &'a [design_record::Entry],
-) -> topcoat::view::Child<'a> {
-    let status_filter = filter.status.as_deref().unwrap_or("");
-    let severity_filter = filter.kind.as_deref().unwrap_or("");
-    let q = filter.q.as_deref().unwrap_or("").trim().to_lowercase();
-    let prefill_asset = filter.asset.as_deref().unwrap_or("");
-    let prefill_name = filter.name.as_deref().unwrap_or("");
+    base: &str,
+    filter: Filter,
+    problems: Vec<Problem>,
+    assets: Vec<AssetOption>,
+    design_entries: Vec<design_record::Entry>,
+) -> Result<impl View> {
+    let account = context::<Account>(cx);
+    Ok(view! {
+        let status_filter = filter.status.as_deref().unwrap_or("");
+        let severity_filter = filter.kind.as_deref().unwrap_or("");
+        let q = filter.q.as_deref().unwrap_or("").trim().to_lowercase();
+        let prefill_asset = filter.asset.as_deref().unwrap_or("");
+        let prefill_name = filter.name.as_deref().unwrap_or("");
 
-    let open_count = problems
-        .iter()
-        .filter(|p| {
-            matches!(
-                p.status,
-                ProblemStatus::Open | ProblemStatus::NeedsReprocess
-            )
-        })
-        .count();
-    let progress_count = problems
-        .iter()
-        .filter(|p| p.status == ProblemStatus::InProgress)
-        .count();
-    let intentional_count = problems
-        .iter()
-        .filter(|p| {
-            matches!(
-                p.status,
-                ProblemStatus::Intentional | ProblemStatus::FalsePositive
-            )
-        })
-        .count();
-    let resolved_count = problems
-        .iter()
-        .filter(|p| p.status == ProblemStatus::Resolved)
-        .count();
+        let open_count = problems
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.status,
+                    ProblemStatus::Open | ProblemStatus::NeedsReprocess
+                )
+            })
+            .count();
+        let progress_count = problems
+            .iter()
+            .filter(|p| p.status == ProblemStatus::InProgress)
+            .count();
+        let intentional_count = problems
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.status,
+                    ProblemStatus::Intentional | ProblemStatus::FalsePositive
+                )
+            })
+            .count();
+        let resolved_count = problems
+            .iter()
+            .filter(|p| p.status == ProblemStatus::Resolved)
+            .count();
 
-    let filtered: Vec<&Problem> = problems
-        .iter()
-        .filter(|p| {
-            (status_filter.is_empty() || p.status.slug() == status_filter)
-                && (severity_filter.is_empty() || p.severity.slug() == severity_filter)
-                && (q.is_empty()
-                    || p.title.to_lowercase().contains(&q)
-                    || p.diagnosis.to_lowercase().contains(&q)
-                    || p.route.to_lowercase().contains(&q))
-        })
-        .collect();
+        let filtered: Vec<&Problem> = problems
+            .iter()
+            .filter(|p| {
+                (status_filter.is_empty() || p.status.slug() == status_filter)
+                    && (severity_filter.is_empty() || p.severity.slug() == severity_filter)
+                    && (q.is_empty()
+                        || p.title.to_lowercase().contains(&q)
+                        || p.diagnosis.to_lowercase().contains(&q)
+                        || p.route.to_lowercase().contains(&q))
+            })
+            .collect();
 
-    topcoat::view::Child::new(view! {
         counts(label: "Problem triage counts",
             metric(href: format!("{base}/problems?status=open"), value: open_count, featured: open_count > 0, arrow: false, "Open / Needs reprocess")
             metric(href: format!("{base}/problems?status=in-progress"), value: progress_count, arrow: false, "In progress / Fixing")
             metric(href: format!("{base}/problems?status=resolved"), value: resolved_count, arrow: false, "Resolved · Intentional (" (intentional_count) ")")
         )
         if role != Role::Reader {
-            report_form(base: base, token: &account.csrf, prefill_asset: prefill_asset, prefill_name: prefill_name, assets: assets, design_entries: design_entries)
+            report_form(base: base, token: &account.csrf, prefill_asset: prefill_asset, prefill_name: prefill_name, assets: &assets, design_entries: &design_entries)
         }
         problem_toolbar(base: base, shown: filtered.len(), status_filter: status_filter, severity_filter: severity_filter)
         if filtered.is_empty() {

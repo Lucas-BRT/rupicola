@@ -1,33 +1,30 @@
-use crate::components::{
-    form::{csrf, stack_form},
-    layout::{Nav, workspace},
-};
-use crate::{Account, PageResult, Panel, auth};
+use crate::components::form::{csrf, stack_form};
+use crate::{Account, Panel};
+use std::sync::Arc;
 use topcoat::{
     Result,
-    context::Cx,
-    router::content::Html,
+    context::{Cx, context},
     view::{View, component, view},
 };
 
-/// The account settings page.
-pub async fn render(cx: &Cx, account: &Account, panel: &Panel) -> PageResult<Html<String>> {
-    let content = view! {
-        workspace(title: "Settings", account: account, panel: panel, active: Nav::Settings,
-            <div class="page-title studio-heading"><h1>"Settings"</h1></div>
-            <div class="settings-workbench">
-                appearance()
-                account_section(account: account)
-                if !account.owner {
-                    join_project(token: &account.csrf)
-                }
-                if account.owner {
-                    service(panel: panel)
-                }
-            </div>
-        )
-    };
-    auth::page(cx, content).await
+/// The account settings page's content.
+#[component]
+pub async fn settings_page(cx: &Cx) -> Result<impl View> {
+    let account = context::<Account>(cx);
+    let panel = context::<Arc<Panel>>(cx);
+    Ok(view! {
+        <div class="page-title studio-heading"><h1>"Settings"</h1></div>
+        <div class="settings-workbench">
+            appearance()
+            account_section(account: account)
+            if !account.owner {
+                join_project(token: &account.csrf)
+            }
+            if account.owner {
+                service(panel: panel)
+            }
+        </div>
+    })
 }
 
 /// The theme choice, kept on the device.

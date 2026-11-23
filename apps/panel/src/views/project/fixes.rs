@@ -1,56 +1,59 @@
 use super::{
-    Account, AssetOption, Cx, FixRecord, FixStatus, Problem, Role, badge, effective_after_url,
+    AssetOption, Cx, FixRecord, FixStatus, Problem, Role, badge, effective_after_url,
     fix_status_badge, is_video_url, view,
 };
+use crate::Account;
 use crate::components::{
     display::{chip, counts, kind_label, metric, moment},
     form::{csrf, field, select_field, stack_form, text_area},
 };
 use crate::fix_record::ComparisonPair;
+use crate::project::Filter;
 use topcoat::{
     Result,
+    context::context,
     view::{View, attributes, component},
 };
 
-#[allow(clippy::too_many_arguments)]
-pub fn render_fixes<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
+/// The fixes tab's content.
+#[component]
+pub async fn fixes_tab(
+    cx: &Cx,
     role: Role,
-    _project_id: &'a str,
-    base: &'a str,
-    filter: &'a crate::project::Filter,
-    fixes: &'a [FixRecord],
-    problems: &'a [Problem],
-    assets: &'a [AssetOption],
-) -> topcoat::view::Child<'a> {
-    let status_filter = filter.status.as_deref().unwrap_or("");
-    let pending_count = fixes
-        .iter()
-        .filter(|f| f.status == FixStatus::PendingReview)
-        .count();
-    let approved_count = fixes
-        .iter()
-        .filter(|f| f.status == FixStatus::Approved)
-        .count();
-    let changes_count = fixes
-        .iter()
-        .filter(|f| f.status == FixStatus::ChangesRequested)
-        .count();
+    base: &str,
+    filter: Filter,
+    fixes: Vec<FixRecord>,
+    problems: Vec<Problem>,
+    assets: Vec<AssetOption>,
+) -> Result<impl View> {
+    let account = context::<Account>(cx);
+    Ok(view! {
+        let status_filter = filter.status.as_deref().unwrap_or("");
+        let pending_count = fixes
+            .iter()
+            .filter(|f| f.status == FixStatus::PendingReview)
+            .count();
+        let approved_count = fixes
+            .iter()
+            .filter(|f| f.status == FixStatus::Approved)
+            .count();
+        let changes_count = fixes
+            .iter()
+            .filter(|f| f.status == FixStatus::ChangesRequested)
+            .count();
 
-    let filtered: Vec<&FixRecord> = fixes
-        .iter()
-        .filter(|f| status_filter.is_empty() || f.status.slug() == status_filter)
-        .collect();
+        let filtered: Vec<&FixRecord> = fixes
+            .iter()
+            .filter(|f| status_filter.is_empty() || f.status.slug() == status_filter)
+            .collect();
 
-    topcoat::view::Child::new(view! {
         counts(label: "Fixes overview",
             metric(href: format!("{base}/fixes?status=pending-review"), value: pending_count, featured: pending_count > 0, arrow: false, "Pending approval")
             metric(href: format!("{base}/fixes?status=approved"), value: approved_count, arrow: false, "Approved fixes")
             metric(href: format!("{base}/fixes?status=changes-requested"), value: changes_count, arrow: false, "Changes requested")
         )
         if role != Role::Reader {
-            record_form(base: base, token: &account.csrf, problems: problems, assets: assets)
+            record_form(base: base, token: &account.csrf, problems: &problems, assets: &assets)
         }
         <div class="propose-toolbar">
             <p class="muted">(filtered.len()) " recorded fixes with Before/After evidence"</p>

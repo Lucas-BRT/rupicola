@@ -2,16 +2,13 @@
 //! serves `/projects/{project}`); a handler reads the request and calls the page or action
 //! that does the work. The layer below guards every route.
 
+pub mod _workspace;
 mod assets;
-mod dashboard;
 mod healthz;
 mod login;
 mod logout;
 pub mod media;
-pub mod projects;
 mod register;
-pub mod run;
-pub mod settings;
 
 use crate::{
     Account, Arc, Body, Cx, IntoResponse, PageResult, Panel, Response, Router, StatusCode, auth,
@@ -47,6 +44,26 @@ pub(crate) fn respond(cx: &Cx, result: PageResult<impl IntoResponse>) -> Result<
         Err(error) => Ok(status(error)),
     }
 }
+
+/// The error a failed read or action becomes: the router answers with its page for that status.
+pub(crate) fn fail(status: StatusCode) -> topcoat::Error {
+    use topcoat::router::error::{
+        bad_request, forbidden, internal_server_error, not_found, too_many_requests, unauthorized,
+    };
+    match status {
+        StatusCode::UNAUTHORIZED => unauthorized().into(),
+        StatusCode::FORBIDDEN => forbidden().into(),
+        StatusCode::NOT_FOUND => not_found().into(),
+        StatusCode::TOO_MANY_REQUESTS => too_many_requests(RETRY_AFTER_SECS).into(),
+        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY | StatusCode::CONFLICT => {
+            bad_request(status.to_string()).into()
+        }
+        other => internal_server_error(std::io::Error::other(other.to_string())).into(),
+    }
+}
+
+/// What a rate-limited visitor is told to wait.
+const RETRY_AFTER_SECS: u64 = 60;
 
 #[layer]
 async fn workspace(cx: &Cx, body: Body, next: Next<'_>) -> Result<Response> {

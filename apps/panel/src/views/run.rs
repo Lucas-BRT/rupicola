@@ -1,40 +1,36 @@
 use crate::components::{
     display::link_button,
     form::stack_form,
-    layout::{Nav, breadcrumbs, page_title, workspace},
+    layout::{breadcrumbs, page_title},
 };
-use crate::{Account, PageResult, Panel, auth, media};
+use crate::{Account, media};
 use rupicola_api::CaptureSummary;
 use rupicola_core::capture_manifest::{Checkpoint, Clip, Finding, Manifest};
 use std::collections::BTreeMap;
 use topcoat::{
     Result,
-    context::Cx,
-    router::content::Html,
+    context::{Cx, context},
     view::{View, component, view},
 };
 
 /// What the capture page shows.
-pub struct Capture<'a> {
-    pub manifest: &'a Manifest,
-    pub candidates: &'a [CaptureSummary],
+pub struct Capture {
+    pub manifest: Manifest,
+    pub candidates: Vec<CaptureSummary>,
     pub requested: Option<String>,
-    pub before_images: &'a BTreeMap<String, String>,
+    pub before_images: BTreeMap<String, String>,
     pub environments_differ: bool,
     pub comparing: bool,
     pub may_review: bool,
-    pub width: &'a str,
-    pub height: &'a str,
-    pub project_url: &'a str,
-    pub form_url: &'a str,
+    pub width: String,
+    pub height: String,
+    pub project_url: String,
+    pub form_url: String,
 }
 
-pub async fn render(
-    cx: &Cx,
-    account: &Account,
-    panel: &Panel,
-    data: Capture<'_>,
-) -> PageResult<Html<String>> {
+/// The capture page's content.
+#[component]
+pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
     let Capture {
         manifest: run,
         candidates,
@@ -48,37 +44,36 @@ pub async fn render(
         project_url,
         form_url,
     } = data;
-    let content = view! {
-        workspace(title: &run.scenario, account: account, panel: panel, active: Nav::Projects,
-            breadcrumbs(
-                <a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span>
-                <a href=(project_url)>(&run.project.label)</a>
-            )
-            page_title(title: &run.scenario, class: "project-masthead",
-                link_button(href: format!("{project_url}/captures"), "Project captures")
-            )
-            summary(run: run, width: width, height: height)
-            if !candidates.is_empty() {
-                comparison_control(form_url: form_url, candidates: candidates, requested: requested.as_deref())
-            }
-            if environments_differ {
-                <p class="notice">"The two runs used different capture settings. Check their environment before judging differences."</p>
-            }
-            if !run.findings.is_empty() {
-                findings(items: &run.findings)
-            }
-            if !run.checkpoints.is_empty() {
-                screenshots(checkpoints: &run.checkpoints, before_images: before_images, comparing: comparing)
-            }
-            if !run.clips.is_empty() {
-                recordings(clips: &run.clips, width: width, height: height)
-            }
-            if may_review {
-                review_form(form_url: form_url, token: &account.csrf, checkpoints: &run.checkpoints)
-            }
+    let account = context::<Account>(cx);
+    Ok(view! {
+        breadcrumbs(
+            <a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span>
+            <a href=(project_url)>(&run.project.label)</a>
         )
-    };
-    auth::page(cx, content).await
+        page_title(title: &run.scenario, class: "project-masthead",
+            link_button(href: format!("{project_url}/captures"), "Project captures")
+        )
+        summary(run: run, width: width, height: height)
+        if !candidates.is_empty() {
+            comparison_control(form_url: form_url, candidates: candidates, requested: requested.as_deref())
+        }
+        if *environments_differ {
+            <p class="notice">"The two runs used different capture settings. Check their environment before judging differences."</p>
+        }
+        if !run.findings.is_empty() {
+            findings(items: &run.findings)
+        }
+        if !run.checkpoints.is_empty() {
+            screenshots(checkpoints: &run.checkpoints, before_images: before_images, comparing: *comparing)
+        }
+        if !run.clips.is_empty() {
+            recordings(clips: &run.clips, width: width, height: height)
+        }
+        if *may_review {
+            review_form(form_url: form_url, token: &account.csrf, checkpoints: &run.checkpoints)
+        }
+
+    })
 }
 
 /// The capture's state, environment and revision.

@@ -8,38 +8,28 @@ use rupicola_core::design_record;
 use std::collections::BTreeSet;
 use topcoat::{
     Result,
-    context::Cx,
-    view::{Child, View, attributes, component, view},
+    context::{Cx, context},
+    view::{View, attributes, component, view},
 };
 
-/// The design tab: the records, and the design-system studio below them.
-#[derive(Clone, Copy)]
-pub struct Design<'a> {
-    pub base: &'a str,
-    pub role: Role,
-    pub tab: &'a str,
-    pub records: &'a [design_record::Entry],
-    pub superseded: &'a BTreeSet<&'a str>,
-    pub all_assets: &'a [AssetOption],
-    pub studio: &'a design_system::Studio,
-}
-
-pub fn render<'a>(cx: &'a Cx, account: &'a Account, data: Design<'a>) -> Child<'a> {
-    let Design {
-        base,
-        role,
-        tab,
-        records,
-        superseded,
-        all_assets,
-        studio,
-    } = data;
-    let design_tab = tab;
-    Child::new(view! {
-        design_studio(account: account, role: role, base: base, tab: design_tab, studio: studio)
-        if design_tab == "records" {
+/// The design tab's content: the studio, then the records.
+#[component]
+pub async fn design_tab(
+    cx: &Cx,
+    base: &str,
+    role: Role,
+    tab: &str,
+    records: Vec<design_record::Entry>,
+    all_assets: Vec<AssetOption>,
+    studio: design_system::Studio,
+) -> Result<impl View> {
+    let account = context::<Account>(cx);
+    Ok(view! {
+        let superseded: BTreeSet<&str> = design_record::superseded(&records);
+        design_studio(account: account, role: role, base: base, tab: tab, studio: &studio)
+        if tab == "records" {
             if role == Role::Owner {
-                record_editor(base: base, token: &account.csrf, records: records, superseded: superseded, all_assets: all_assets)
+                record_editor(base: base, token: &account.csrf, records: &records, superseded: &superseded, all_assets: &all_assets)
             }
             if records.is_empty() {
                 <section class="empty">
@@ -49,11 +39,11 @@ pub fn render<'a>(cx: &'a Cx, account: &'a Account, data: Design<'a>) -> Child<'
             }
             for kind in [design_record::Kind::Brief, design_record::Kind::Direction, design_record::Kind::Tactic, design_record::Kind::Decision] {
                 if records.iter().any(|entry| entry.kind == kind && !superseded.contains(entry.id.as_str())) {
-                    design_chapter(kind: kind, records: records, superseded: superseded)
+                    design_chapter(kind: kind, records: &records, superseded: &superseded)
                 }
             }
             if !superseded.is_empty() {
-                history(records: records, superseded: superseded)
+                history(records: &records, superseded: &superseded)
             }
         }
     })

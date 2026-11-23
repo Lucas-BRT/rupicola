@@ -1,105 +1,107 @@
-use super::{
-    Account, AssetOption, BadgeVariant, Cx, Problem, ProblemStatus, Role, Run, badge, view,
-};
+#![allow(
+    clippy::too_many_lines,
+    reason = "the captures view keeps its filtering and layout together"
+)]
+
+use super::{AssetOption, BadgeVariant, Cx, Problem, ProblemStatus, Role, Run, badge, view};
+use crate::Account;
 use crate::components::{
     display::{counts, empty, metric, moment, section_head, stat},
     form::csrf,
 };
+use crate::project::Filter;
 use std::collections::BTreeSet;
 use topcoat::{
     Result,
+    context::context,
     view::{View, component},
 };
 
-#[allow(clippy::too_many_arguments)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the captures view keeps its filtering and layout together"
-)]
-pub fn render_captures<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
+/// The captures tab's content.
+#[component]
+pub async fn captures_tab(
+    cx: &Cx,
     role: Role,
-    _project_id: &'a str,
-    base: &'a str,
-    filter: &'a crate::project::Filter,
-    runs: &'a [&'a Run],
-    assets: &'a [AssetOption],
-    problems: &'a [Problem],
-) -> topcoat::view::Child<'a> {
-    let subview = filter.view.as_deref().unwrap_or("all");
-    let health = filter.health.as_deref().unwrap_or("");
-    let q = filter.q.as_deref().unwrap_or("").trim().to_lowercase();
+    base: &str,
+    filter: Filter,
+    runs: Vec<&Run>,
+    assets: Vec<AssetOption>,
+    problems: Vec<Problem>,
+) -> Result<impl View> {
+    let account = context::<Account>(cx);
+    Ok(view! {
+        let subview = filter.view.as_deref().unwrap_or("all");
+        let health = filter.health.as_deref().unwrap_or("");
+        let q = filter.q.as_deref().unwrap_or("").trim().to_lowercase();
 
-    let problem_urls: std::collections::BTreeSet<&str> = problems
-        .iter()
-        .filter(|p| {
-            !matches!(
-                p.status,
-                ProblemStatus::Intentional | ProblemStatus::FalsePositive
-            )
-        })
-        .flat_map(|p| p.evidence_assets.iter().map(|a| a.url.as_str()))
-        .collect();
-    let problem_runs: std::collections::BTreeSet<&str> = problems
-        .iter()
-        .filter(|p| {
-            !matches!(
-                p.status,
-                ProblemStatus::Intentional | ProblemStatus::FalsePositive
-            )
-        })
-        .flat_map(|p| p.evidence_assets.iter().map(|a| a.run_key.as_str()))
-        .collect();
+        let problem_urls: std::collections::BTreeSet<&str> = problems
+            .iter()
+            .filter(|p| {
+                !matches!(
+                    p.status,
+                    ProblemStatus::Intentional | ProblemStatus::FalsePositive
+                )
+            })
+            .flat_map(|p| p.evidence_assets.iter().map(|a| a.url.as_str()))
+            .collect();
+        let problem_runs: std::collections::BTreeSet<&str> = problems
+            .iter()
+            .filter(|p| {
+                !matches!(
+                    p.status,
+                    ProblemStatus::Intentional | ProblemStatus::FalsePositive
+                )
+            })
+            .flat_map(|p| p.evidence_assets.iter().map(|a| a.run_key.as_str()))
+            .collect();
 
-    let filtered_runs: Vec<&Run> = runs
-        .iter()
-        .copied()
-        .filter(|r| {
-            let has_prob = problem_runs.contains(r.key.as_str()) || r.status == "blocked";
-            let matches_health = match health {
-                "problems" => has_prob,
-                "clean" => !has_prob && r.inspection == "reviewed",
-                "unanalyzed" => r.inspection == "pending",
-                _ => true,
-            };
-            matches_health && filter.accepts(r)
-        })
-        .collect();
+        let filtered_runs: Vec<&Run> = runs
+            .iter()
+            .copied()
+            .filter(|r| {
+                let has_prob = problem_runs.contains(r.key.as_str()) || r.status == "blocked";
+                let matches_health = match health {
+                    "problems" => has_prob,
+                    "clean" => !has_prob && r.inspection == "reviewed",
+                    "unanalyzed" => r.inspection == "pending",
+                    _ => true,
+                };
+                matches_health && filter.accepts(r)
+            })
+            .collect();
 
-    let filtered_assets: Vec<&AssetOption> = assets
-        .iter()
-        .filter(|a| {
-            let has_prob =
-                problem_urls.contains(a.url.as_str()) || problem_runs.contains(a.run_key.as_str());
-            let matches_health = match health {
-                "problems" => has_prob,
-                "clean" => !has_prob,
-                _ => true,
-            };
-            let matches_view = match subview {
-                "images" => a.kind != "Recording",
-                "videos" => a.kind == "Recording",
-                _ => true,
-            };
-            let matches_q = q.is_empty()
-                || a.name.to_lowercase().contains(&q)
-                || a.scenario.to_lowercase().contains(&q);
-            matches_health && matches_view && matches_q
-        })
-        .collect();
+        let filtered_assets: Vec<&AssetOption> = assets
+            .iter()
+            .filter(|a| {
+                let has_prob =
+                    problem_urls.contains(a.url.as_str()) || problem_runs.contains(a.run_key.as_str());
+                let matches_health = match health {
+                    "problems" => has_prob,
+                    "clean" => !has_prob,
+                    _ => true,
+                };
+                let matches_view = match subview {
+                    "images" => a.kind != "Recording",
+                    "videos" => a.kind == "Recording",
+                    _ => true,
+                };
+                let matches_q = q.is_empty()
+                    || a.name.to_lowercase().contains(&q)
+                    || a.scenario.to_lowercase().contains(&q);
+                matches_health && matches_view && matches_q
+            })
+            .collect();
 
-    let open_problems = problems
-        .iter()
-        .filter(|p| {
-            matches!(
-                p.status,
-                ProblemStatus::Open | ProblemStatus::NeedsReprocess
-            )
-        })
-        .count();
+        let open_problems = problems
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.status,
+                    ProblemStatus::Open | ProblemStatus::NeedsReprocess
+                )
+            })
+            .count();
 
-    topcoat::view::Child::new(view! {
         counts(label: "Research summary",
             stat(value: runs.len(), "Capture runs")
             stat(value: assets.len(), "Visual assets (shots & clips)")
