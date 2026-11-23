@@ -8,7 +8,8 @@ mod http;
 
 use async_trait::async_trait;
 use rupicola_api::{
-    Capture, Credentials, Me, NewCapture, NewProject, Project, Register, SessionToken, Setup,
+    AuditEvent, Capture, Credentials, IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject,
+    Project, Redeem, Register, SessionToken, Setup,
 };
 
 pub use error::{ClientError, Result};
@@ -47,6 +48,26 @@ pub trait Api: Send + Sync {
     async fn projects(&self, token: &str) -> Result<Vec<Project>>;
 
     async fn create_project(&self, token: &str, form: &NewProject) -> Result<Project>;
+
+    /// Who belongs to `project`, and in which role.
+    async fn members(&self, token: &str, project: &str) -> Result<Vec<Member>>;
+
+    /// Removes `handle` from `project`.
+    async fn remove_member(&self, token: &str, project: &str, handle: &str) -> Result<()>;
+
+    /// The most recent access events of `project`.
+    async fn audit(&self, token: &str, project: &str) -> Result<Vec<AuditEvent>>;
+
+    /// Issues an invitation to `project`; the code is shown only in the answer.
+    async fn create_invite(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewInvite,
+    ) -> Result<IssuedInvite>;
+
+    /// Joins the project an invitation code belongs to.
+    async fn redeem_invite(&self, token: &str, form: &Redeem) -> Result<Project>;
 
     /// Uploads `data` unless the backend already has it; returns its SHA-256.
     async fn put_blob(&self, token: &str, data: &[u8]) -> Result<String>;

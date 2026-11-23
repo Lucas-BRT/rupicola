@@ -7,8 +7,9 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use rupicola_api::{
-    Capture, CaptureStatus, Credentials, Environment, ErrorBody, Inspection, Me, NewCapture,
-    NewProject, Project, Role, SessionToken, SetupStatus, TokenKind,
+    AuditEvent, Capture, CaptureStatus, Credentials, Environment, ErrorBody, Inspection, Invite,
+    IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject, Project, Redeem, Role,
+    SessionToken, SetupStatus, TokenKind,
 };
 use rupicola_client::{Api, ClientError, HttpApi, McpReply};
 use sha2::{Digest, Sha256};
@@ -88,6 +89,69 @@ fn new_capture() -> NewCapture {
     }
 }
 
+const INVITE_CODE: &str = "invite-code";
+const AUDIT_EVENT: &str = "member-added";
+
+/// Stub of the member, audit and invitation routes; each answers with what it was asked
+/// for, so a test can tell the path reached it.
+fn access_routes() -> Router {
+    Router::new()
+        .route(
+            "/v1/projects/{id}/members",
+            get(|Path(id): Path<String>| async move {
+                Json(vec![Member {
+                    handle: id,
+                    role: Role::Reader,
+                }])
+            }),
+        )
+        .route(
+            "/v1/projects/{id}/members/{handle}",
+            delete(|Path((_, handle)): Path<(String, String)>| async move {
+                if handle == HANDLE {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::NOT_FOUND
+                }
+            }),
+        )
+        .route(
+            "/v1/projects/{id}/audit",
+            get(|Path(id): Path<String>| async move {
+                Json(vec![AuditEvent {
+                    id: "1".to_owned(),
+                    actor: id,
+                    event: AUDIT_EVENT.to_owned(),
+                    occurred_at: 0,
+                }])
+            }),
+        )
+        .route(
+            "/v1/projects/{id}/invites",
+            post(|Json(form): Json<NewInvite>| async move {
+                Json(IssuedInvite {
+                    code: INVITE_CODE.to_owned(),
+                    invite: Invite {
+                        id: "digest".to_owned(),
+                        role: form.role,
+                        created_by: None,
+                        expires_at: 0,
+                    },
+                })
+            }),
+        )
+        .route(
+            "/v1/invites/redeem",
+            post(|Json(form): Json<Redeem>| async move {
+                if form.code == INVITE_CODE {
+                    Ok(Json(project()))
+                } else {
+                    Err(error(StatusCode::FORBIDDEN, "forbidden", "unknown code"))
+                }
+            }),
+        )
+}
+
 /// Stub of the blob, capture and MCP routes; counts the uploads it receives.
 fn upload_routes(uploads: Arc<AtomicUsize>) -> Router {
     Router::new()
@@ -136,6 +200,7 @@ fn upload_routes(uploads: Arc<AtomicUsize>) -> Router {
 async fn serve() -> (HttpApi, Arc<AtomicUsize>) {
     let uploads = Arc::new(AtomicUsize::new(0));
     let app = upload_routes(Arc::clone(&uploads))
+        .merge(access_routes())
         .route(
             "/v1/sessions",
             post(|Json(form): Json<Credentials>| async move {
@@ -262,5 +327,60 @@ async fn an_mcp_answer_is_relayed_whatever_its_status() {
             status: StatusCode::BAD_GATEWAY.as_u16(),
             body: MCP_BODY.to_owned()
         }
+    );
+}
+
+#[tokio::test]
+async fn project_access_is_read_and_changed_through_its_routes() {
+    let (api, _) = serve().await;
+    let members = api.members(TOKEN, PROJECT).await.unwrap();
+    assert_eq!(members[0].handle, PROJECT);
+    assert_eq!(
+        api.audit(TOKEN, PROJECT).await.unwrap()[0].event,
+        AUDIT_EVENT
+    );
+    api.remove_member(TOKEN, PROJECT, HANDLE).await.unwrap();
+    assert_eq!(
+        api.remove_member(TOKEN, PROJECT, "nobody").await.err(),
+        Some(ClientError::NotFound)
+    );
+}
+
+#[tokio::test]
+async fn an_invitation_is_issued_and_redeemed() {
+    let (api, _) = serve().await;
+    let issued = api
+        .create_invite(
+            TOKEN,
+            PROJECT,
+            &NewInvite {
+                role: Role::Reviewer,
+                hours: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(issued.code, INVITE_CODE);
+    assert_eq!(issued.invite.role, Role::Reviewer);
+    let joined = api
+        .redeem_invite(
+            TOKEN,
+            &Redeem {
+                code: issued.code.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(joined, project());
+    assert_eq!(
+        api.redeem_invite(
+            TOKEN,
+            &Redeem {
+                code: "wrong".to_owned()
+            }
+        )
+        .await
+        .err(),
+        Some(ClientError::Forbidden)
     );
 }

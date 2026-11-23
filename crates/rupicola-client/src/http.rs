@@ -2,8 +2,8 @@ use crate::{Api, ClientError, McpReply, Result};
 use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
-    Capture, Credentials, Me, NewCapture, NewProject, PREFIX, Project, Register, SessionToken,
-    Setup, SetupStatus,
+    AuditEvent, Capture, Credentials, IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject,
+    PREFIX, Project, Redeem, Register, SessionToken, Setup, SetupStatus,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -118,6 +118,59 @@ impl Api for HttpApi {
     async fn create_project(&self, token: &str, form: &NewProject) -> Result<Project> {
         Self::read(
             self.request(Method::POST, "/projects", Some(token))
+                .json(form),
+        )
+        .await
+    }
+
+    async fn members(&self, token: &str, project: &str) -> Result<Vec<Member>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/members"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn remove_member(&self, token: &str, project: &str, handle: &str) -> Result<()> {
+        Self::send(self.request(
+            Method::DELETE,
+            &format!("/projects/{project}/members/{handle}"),
+            Some(token),
+        ))
+        .await
+        .map(|_| ())
+    }
+
+    async fn audit(&self, token: &str, project: &str) -> Result<Vec<AuditEvent>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/audit"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn create_invite(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewInvite,
+    ) -> Result<IssuedInvite> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{project}/invites"),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn redeem_invite(&self, token: &str, form: &Redeem) -> Result<Project> {
+        Self::read(
+            self.request(Method::POST, "/invites/redeem", Some(token))
                 .json(form),
         )
         .await
