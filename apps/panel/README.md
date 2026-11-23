@@ -31,6 +31,10 @@ serves `/projects/{project}/problems`, and its child modules are that tab's acti
 module loads what its page shows and calls a view. Markup lives only in `src/views/`, which
 takes loaded data and calls no backend. `auth.rs`, `project.rs`, `records.rs`, `runs.rs` and
 `media.rs` read from the backend; `design_system/` still keeps its versions in the panel's database.
+Pages sit under layouts (`app/_workspace.rs` for the document and navigation, `projects/project.rs` for the heading and tabs) and set their title with `Metadata`; backend reads shared by a request are `#[memoize]`d in `backend.rs`.
+
+Topcoat's streaming (`suspense`, `live!`) and runtime (shards, signals) inject inline scripts, which the panel's Content-Security-Policy refuses, so the panel does not use them; `error_boundary` needs no script and is used.
+
 The same layout applies to `apps/site` (`app/`, `views/`, `content/`, `assets/`).
 
 ## Shared server

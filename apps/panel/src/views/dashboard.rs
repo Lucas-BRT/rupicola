@@ -9,7 +9,7 @@ use rupicola_core::design_record::{Kind, Status};
 use topcoat::{
     Result,
     context::Cx,
-    view::{View, component, view},
+    view::{Child, View, component, view},
 };
 
 /// A design record on the dashboard.
@@ -36,9 +36,20 @@ pub struct Dashboard {
     pub queue: Vec<usize>,
 }
 
-/// The dashboard's content.
+/// The dashboard's heading, around `child`, which holds what takes time to load.
 #[component]
-pub async fn dashboard_page(cx: &Cx, data: &Dashboard) -> Result<impl View> {
+pub async fn dashboard_frame(cx: &Cx, #[default] child: Child<'_>) -> Result<impl View> {
+    Ok(view! {
+        page_title(title: "Dashboard", class: "studio-heading",
+            link_button(href: "/projects", primary: true, "Browse projects")
+        )
+        (child)
+    })
+}
+
+/// The dashboard's board, once its data is loaded.
+#[component]
+pub async fn dashboard_board(cx: &Cx, data: &Dashboard) -> Result<impl View> {
     let Dashboard {
         filter,
         project_count,
@@ -51,9 +62,6 @@ pub async fn dashboard_page(cx: &Cx, data: &Dashboard) -> Result<impl View> {
     } = data;
     let items: Vec<&Run> = queue.iter().map(|&index| &runs[index]).collect();
     Ok(view! {
-        page_title(title: "Dashboard", class: "studio-heading",
-            link_button(href: "/projects", primary: true, "Browse projects")
-        )
         <div class="studio-board">
             <div class="studio-evidence">
                 if let Some((href, image, scenario)) = latest_evidence {

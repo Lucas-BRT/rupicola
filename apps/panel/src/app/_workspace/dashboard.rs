@@ -5,7 +5,7 @@ use crate::{
     PageResult, media,
     project::{self, Filter, pick_hero_checkpoint},
     records,
-    views::dashboard::{Activity, Dashboard, dashboard_page},
+    views::dashboard::{Activity, Dashboard, dashboard_board, dashboard_frame},
 };
 use rupicola_core::design_record;
 use topcoat::{
@@ -13,7 +13,7 @@ use topcoat::{
     context::Cx,
     metadata::Metadata,
     router::{page, parse_query_params},
-    view::{View, view},
+    view::{View, component, error_boundary, view},
 };
 
 /// Captures listed in the queue.
@@ -24,8 +24,23 @@ const ACTIVITY_LEN: usize = 8;
 #[page(with(Metadata::new().title(title("Dashboard"))))]
 async fn dashboard(cx: &Cx) -> Result<impl View> {
     let filter: Filter = parse_query_params(cx)?;
+    Ok(view! {
+        dashboard_frame(
+            error_boundary(
+                fallback: |_| Ok(view! {
+                    <p class="notice" role="alert">"The captures could not be loaded. Try again in a moment."</p>
+                }),
+                loaded_board(filter: filter)
+            )
+        )
+    })
+}
+
+/// The board, loaded apart from the heading so that a failed read leaves the page standing.
+#[component]
+async fn loaded_board(cx: &Cx, filter: Filter) -> Result<impl View> {
     let data = load(cx, filter).await.map_err(fail)?;
-    Ok(view! { dashboard_page(data: &data) })
+    Ok(view! { dashboard_board(data: &data) })
 }
 
 async fn load(cx: &Cx, filter: Filter) -> PageResult<Dashboard> {
