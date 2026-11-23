@@ -1,6 +1,7 @@
 //! `GET /dashboard`
 
 use crate::app::{account, panel, respond};
+use crate::components::display::run_list;
 use crate::{
     Account, Arc, PageResult, Panel, media,
     project::{self, Filter, pick_hero_checkpoint},
@@ -8,6 +9,7 @@ use crate::{
     views::{self, dashboard::Dashboard},
 };
 use rupicola_core::design_record;
+use topcoat::view::{Child, view};
 use topcoat::{
     Result,
     context::Cx,
@@ -76,7 +78,7 @@ async fn show(panel: Arc<Panel>, account: Account, filter: Filter) -> PageResult
             ))
         });
     let cx = &Cx::default();
-    let list = views::run_list(cx, &items, "No matching captures.");
+    let list = Child::new(view! { cx => run_list(runs: &items, message: "No matching captures.") });
     let data = Dashboard {
         filter: &filter,
         project_count,

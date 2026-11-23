@@ -12,6 +12,7 @@ pub use fixes::render_fixes;
 pub use problems::render_problems;
 
 use crate::components::badge::{BadgeVariant, badge};
+use crate::components::layout::{Nav, breadcrumbs, tab_link, tabs, workspace};
 use crate::project::AssetOption;
 use crate::{
     Account, Cx, PageResult, Panel, Run, auth, design_record, fix_record, problem_record, view,
@@ -157,22 +158,27 @@ pub async fn frame<'a>(
     } else {
         format!("{} · {label}", tab.heading())
     };
-    let content = shell!(cx, &page_title, account, panel, "projects", {
-        <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span><span>(label)</span></nav>
-        <header class="page-title project-masthead">
-            <div><h1>(if overview { label.as_str() } else { tab.heading() })</h1>
-                if overview && label != id { <code class="muted">(id)</code> }
-            </div>
-        </header>
-        <nav class="tabs" aria-label="Project">
-            for each in Tab::ALL {
-                if each != Tab::Settings || role == Role::Owner {
-                    <a href=(if each == Tab::Overview { base.clone() } else { format!("{base}/{}", each.slug()) })
-                        if tab == each { aria-current="page" }>(each.label())</a>
+    let content = view! { cx =>
+        workspace(title: &page_title, account: account, panel: panel, active: Nav::Projects,
+            breadcrumbs(<a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span><span>(label)</span>)
+            <header class="page-title project-masthead">
+                <div><h1>(if overview { label.as_str() } else { tab.heading() })</h1>
+                    if overview && label != id { <code class="muted">(id)</code> }
+                </div>
+            </header>
+            tabs(label: "Project",
+                for each in Tab::ALL {
+                    if each != Tab::Settings || role == Role::Owner {
+                        tab_link(
+                            href: if each == Tab::Overview { base.clone() } else { format!("{base}/{}", each.slug()) },
+                            current: tab == each,
+                            (each.label())
+                        )
+                    }
                 }
-            }
-        </nav>
-        (body)
-    });
+            )
+            (body)
+        )
+    };
     Box::pin(auth::page(cx, content)).await
 }

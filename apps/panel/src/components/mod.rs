@@ -2,3 +2,8 @@
 pub mod badge;
 pub mod button;
 pub mod card;
+
+// The panel's own components.
+pub mod display;
+pub mod form;
+pub mod layout;

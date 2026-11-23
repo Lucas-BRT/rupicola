@@ -11,6 +11,7 @@ mod settings;
 mod videos;
 
 use crate::app::{account, panel, respond};
+use crate::components::display::run_list;
 use crate::{
     Account, Arc, PageResult, Panel, auth, media,
     project::{Context, Filter, pick_hero_checkpoint},
@@ -18,6 +19,7 @@ use crate::{
     views::{self, project::Tab, project::overview::Overview},
 };
 use rupicola_core::design_record;
+use topcoat::view::{Child, view};
 use topcoat::{
     Result,
     context::Cx,
@@ -85,11 +87,9 @@ async fn show(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Htm
             ))
         });
     let cx = &Cx::default();
-    let list = views::run_list(
-        cx,
-        &selected,
-        "No matching captures. Send a capture with this project's ID.",
-    );
+    let list = Child::new(view! { cx =>
+        run_list(runs: &selected, message: "No matching captures. Send a capture with this project's ID.")
+    });
     let data = Overview {
         base: &project.base,
         latest_project_evidence,
