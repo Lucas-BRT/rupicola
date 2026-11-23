@@ -17,6 +17,7 @@ const DASHBOARD_PATH: &str = "/dashboard";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 mod app;
+mod components;
 mod content;
 mod views;
 

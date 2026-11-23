@@ -1,68 +1,54 @@
-use super::{escape_html, layout};
+use crate::components::page::{Nav, shell};
 use crate::content::docs::{DOCS, DocPage, render_markdown};
-use std::fmt::Write;
+use topcoat::{
+    Result,
+    view::{Unescaped, View, component, view},
+};
 
-pub fn render(doc: &DocPage, panel_url: &str) -> String {
-    let mut sidebar_groups = String::new();
-    let mut last_group = "";
+/// A documentation page with the sidebar listing every document.
+#[component]
+pub async fn docs_page(doc: &DocPage, panel_url: &str) -> Result<impl View> {
+    let mut groups: Vec<(&str, Vec<&DocPage>)> = Vec::new();
     for item in DOCS {
-        if item.group != last_group {
-            if !last_group.is_empty() {
-                sidebar_groups.push_str("</ul></div>");
-            }
-            last_group = item.group;
-            let _ = write!(
-                sidebar_groups,
-                r#"<div><div class="docs-group-title">{}</div><ul class="docs-nav-list">"#,
-                escape_html(item.group)
-            );
+        match groups.last_mut() {
+            Some((group, items)) if *group == item.group => items.push(item),
+            _ => groups.push((item.group, vec![item])),
         }
-        let active_attr = if item.slug == doc.slug {
-            r#" aria-current="page""#
-        } else {
-            ""
-        };
-        let _ = write!(
-            sidebar_groups,
-            r#"<li data-doc-item="{} {}"><a href="/docs/{}"{}>{}</a></li>"#,
-            escape_html(item.title),
-            escape_html(item.group),
-            escape_html(item.slug),
-            active_attr,
-            escape_html(item.title)
-        );
     }
-    if !last_group.is_empty() {
-        sidebar_groups.push_str("</ul></div>");
-    }
-
-    let rendered = render_markdown(doc);
-    let body = format!(
-        r#"<div class="container docs-layout">
-  <aside class="docs-sidebar" aria-label="Documentation navigation">
-    <input id="docs-filter" class="docs-search" type="search" placeholder="Filter docs..." aria-label="Filter documentation">
-    {sidebar_groups}
-  </aside>
-  <article class="prose">
-    <div class="breadcrumb">
-      <span>Docs</span>
-      <span aria-hidden="true">/</span>
-      <span>{}</span>
-      <span aria-hidden="true">/</span>
-      <code>{}</code>
-    </div>
-    {rendered}
-  </article>
-</div>"#,
-        escape_html(doc.group),
-        escape_html(doc.source_path)
-    );
-
-    layout(
-        doc.title,
-        "Rupicola documentation, workflows, UX principles, and framework guides.",
-        "docs",
-        panel_url,
-        &body,
-    )
+    let rendered = Unescaped::new_unchecked(render_markdown(doc));
+    Ok(view! {
+        shell(
+            title: doc.title,
+            description: "Rupicola documentation, workflows, UX principles, and framework guides.",
+            active: Nav::Docs,
+            panel_url: panel_url,
+            <div class="container docs-layout">
+                <aside class="docs-sidebar" aria-label="Documentation navigation">
+                    <input id="docs-filter" class="docs-search" type="search" placeholder="Filter docs..." aria-label="Filter documentation">
+                    for (group, items) in &groups {
+                        <div>
+                            <div class="docs-group-title">(group)</div>
+                            <ul class="docs-nav-list">
+                                for item in items {
+                                    <li data-doc-item=(format!("{} {}", item.title, item.group))>
+                                        <a href=(format!("/docs/{}", item.slug)) if item.slug == doc.slug { aria-current="page" }>(item.title)</a>
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                </aside>
+                <article class="prose">
+                    <div class="breadcrumb">
+                        <span>"Docs"</span>
+                        <span aria-hidden="true">"/"</span>
+                        <span>(doc.group)</span>
+                        <span aria-hidden="true">"/"</span>
+                        <code>(doc.source_path)</code>
+                    </div>
+                    (rendered)
+                </article>
+            </div>
+        )
+    })
 }

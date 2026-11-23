@@ -7,15 +7,13 @@ mod docs;
 mod healthz;
 mod install;
 
-use crate::views;
+use crate::views::home_page;
 use std::sync::Arc;
 use topcoat::{
     Result as TopcoatResult,
     context::{Cx, app_context},
-    router::{
-        Router, RouterBuilderDiscoverExt, content::Html, module_router, response::IntoResponse,
-        response::Response, route,
-    },
+    router::{Router, RouterBuilderDiscoverExt, content::Html, module_router, page},
+    view::{View, ViewExt, view},
 };
 
 /// Where the site and the review panel live, for links and the install script.
@@ -37,9 +35,19 @@ pub fn router(config: SiteConfig) -> Router {
         .build()
 }
 
+/// Renders a view to the HTML a response carries.
+///
+/// # Errors
+///
+/// The error of the failed render.
+pub async fn html(cx: &Cx, page: impl View) -> TopcoatResult<Html<String>> {
+    let content = page.single().await?;
+    Ok(Html(content.render(cx)))
+}
+
 /// `GET /`
-#[route(GET)]
-async fn home(cx: &Cx) -> TopcoatResult<Response> {
+#[page]
+async fn home(cx: &Cx) -> TopcoatResult<impl View> {
     let config = cfg(cx);
-    Html(views::home(&config.panel_url, &config.public_url)).into_response(cx)
+    Ok(view! { home_page(panel_url: &config.panel_url, public_url: &config.public_url) })
 }

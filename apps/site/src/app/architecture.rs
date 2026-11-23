@@ -1,18 +1,16 @@
 //! `GET /architecture`
 
 use super::cfg;
-use crate::views;
+use crate::views::architecture_page;
 use topcoat::{
     Result as TopcoatResult,
     context::Cx,
-    router::{
-        content::Html,
-        response::{IntoResponse, Response},
-        route,
-    },
+    router::page,
+    view::{View, view},
 };
 
-#[route(GET)]
-async fn architecture(cx: &Cx) -> TopcoatResult<Response> {
-    Html(views::architecture(&cfg(cx).panel_url)).into_response(cx)
+#[page]
+async fn architecture(cx: &Cx) -> TopcoatResult<impl View> {
+    let config = cfg(cx);
+    Ok(view! { architecture_page(panel_url: &config.panel_url) })
 }
