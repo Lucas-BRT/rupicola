@@ -2,9 +2,10 @@ use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Credentials, Finding, IssuedInvite, Me, Member,
-    NewCapture, NewFinding, NewInvite, NewProject, PREFIX, PasswordChange, Project, Redeem,
-    Register, SessionToken, Setup, SetupStatus,
+    AuditEvent, Capture, CaptureSummary, Comment, Credentials, Finding, Fix, FixSummary,
+    IssuedInvite, Me, Member, NewCapture, NewComment, NewFinding, NewFix, NewInvite, NewProblem,
+    NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch, ProblemSummary,
+    Project, Redeem, Register, SessionToken, Setup, SetupStatus, Step,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -213,6 +214,97 @@ impl Api for HttpApi {
                 Some(token),
             )
             .json(form),
+        )
+        .await
+    }
+
+    async fn problems(&self, token: &str, project: &str) -> Result<Vec<ProblemSummary>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/problems"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn problem(&self, token: &str, id: &str) -> Result<Problem> {
+        Self::read(self.request(Method::GET, &format!("/problems/{id}"), Some(token))).await
+    }
+
+    async fn create_problem(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewProblem,
+    ) -> Result<Problem> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{project}/problems"),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn update_problem(&self, token: &str, id: &str, patch: &ProblemPatch) -> Result<Problem> {
+        Self::read(
+            self.request(Method::PATCH, &format!("/problems/{id}"), Some(token))
+                .json(patch),
+        )
+        .await
+    }
+
+    async fn comment_problem(&self, token: &str, id: &str, form: &NewComment) -> Result<Comment> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/problems/{id}/comments"),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn fixes(&self, token: &str, project: &str) -> Result<Vec<FixSummary>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/fixes"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn fix(&self, token: &str, id: &str) -> Result<Fix> {
+        Self::read(self.request(Method::GET, &format!("/fixes/{id}"), Some(token))).await
+    }
+
+    async fn create_fix(&self, token: &str, project: &str, form: &NewFix) -> Result<Fix> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{project}/fixes"),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn add_step(&self, token: &str, id: &str, form: &NewStep) -> Result<Step> {
+        Self::read(
+            self.request(Method::POST, &format!("/fixes/{id}/steps"), Some(token))
+                .json(form),
+        )
+        .await
+    }
+
+    async fn review_fix(&self, token: &str, id: &str, form: &NewReview) -> Result<Fix> {
+        Self::read(
+            self.request(Method::POST, &format!("/fixes/{id}/reviews"), Some(token))
+                .json(form),
         )
         .await
     }

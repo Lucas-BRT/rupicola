@@ -8,9 +8,10 @@ mod http;
 
 use async_trait::async_trait;
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Credentials, Finding, IssuedInvite, Me, Member,
-    NewCapture, NewFinding, NewInvite, NewProject, PasswordChange, Project, Redeem, Register,
-    SessionToken, Setup,
+    AuditEvent, Capture, CaptureSummary, Comment, Credentials, Finding, Fix, FixSummary,
+    IssuedInvite, Me, Member, NewCapture, NewComment, NewFinding, NewFix, NewInvite, NewProblem,
+    NewProject, NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
+    Redeem, Register, SessionToken, Setup, Step,
 };
 
 pub use error::{ClientError, Result};
@@ -100,6 +101,41 @@ pub trait Api: Send + Sync {
 
     /// Records an observation on a capture, optionally pointing at one of its artifacts.
     async fn add_finding(&self, token: &str, capture: &str, form: &NewFinding) -> Result<Finding>;
+
+    /// The problems of `project`.
+    async fn problems(&self, token: &str, project: &str) -> Result<Vec<ProblemSummary>>;
+
+    /// One problem, with its evidence and comments.
+    async fn problem(&self, token: &str, id: &str) -> Result<Problem>;
+
+    /// Opens a problem on `project`.
+    async fn create_problem(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewProblem,
+    ) -> Result<Problem>;
+
+    /// Changes the status, severity or proposed solution of a problem.
+    async fn update_problem(&self, token: &str, id: &str, patch: &ProblemPatch) -> Result<Problem>;
+
+    /// Adds a comment to a problem.
+    async fn comment_problem(&self, token: &str, id: &str, form: &NewComment) -> Result<Comment>;
+
+    /// The fixes of `project`.
+    async fn fixes(&self, token: &str, project: &str) -> Result<Vec<FixSummary>>;
+
+    /// One fix, with its steps and reviews.
+    async fn fix(&self, token: &str, id: &str) -> Result<Fix>;
+
+    /// Records a fix for one or more problems of `project`.
+    async fn create_fix(&self, token: &str, project: &str, form: &NewFix) -> Result<Fix>;
+
+    /// Appends a step to a fix.
+    async fn add_step(&self, token: &str, id: &str, form: &NewStep) -> Result<Step>;
+
+    /// Reviews a fix; the backend moves its problems accordingly.
+    async fn review_fix(&self, token: &str, id: &str, form: &NewReview) -> Result<Fix>;
 
     /// The bytes of an artifact; `range` is an HTTP `Range` header value. It is owned because
     /// the mock generated for this trait cannot take an optional borrowed argument.
