@@ -22,7 +22,7 @@ pub fn render<'a>(cx: &'a Cx, account: &'a Account, data: Settings<'a>) -> Child
         members,
         audit,
     } = data;
-    Child::new(view! { cx =>
+    Child::new(view! {
         <h2>"Access & publication"</h2>
         if role != Role::Owner {
             empty(message: "Only the workspace owner can manage project access.")
@@ -58,7 +58,7 @@ pub fn render<'a>(cx: &'a Cx, account: &'a Account, data: Settings<'a>) -> Child
 
 /// A member of the project, with the button that removes them.
 #[component]
-async fn member_row(action: String, token: &str, item: &AccessItem) -> Result<impl View> {
+async fn member_row(cx: &Cx, action: String, token: &str, item: &AccessItem) -> Result<impl View> {
     Ok(view! {
         <form method="post" action=(action) class="entry">
             csrf(token: token)

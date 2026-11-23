@@ -1,5 +1,6 @@
 use crate::design_system::{HeadingStyle, Outcome, Phase, Studio, Version};
 use crate::{Account, auth::Role};
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{View, component, view},
@@ -12,6 +13,7 @@ fn version_url(base: &str, tab: &str, id: &str) -> String {
 /// The design tab's studio: the tab row and, when asked for, the system versions.
 #[component]
 pub async fn design_studio(
+    cx: &Cx,
     account: &Account,
     role: Role,
     base: &str,
@@ -70,7 +72,7 @@ pub async fn design_studio(
 
 /// The hidden fields that say which version a form is about.
 #[component]
-async fn form_fields(account: &Account, version: &Version) -> Result<impl View> {
+async fn form_fields(cx: &Cx, account: &Account, version: &Version) -> Result<impl View> {
     Ok(view! {
         <input type="hidden" name="csrf" value=(&account.csrf)>
         <input type="hidden" name="version" value=(&version.id)>
@@ -81,6 +83,7 @@ async fn form_fields(account: &Account, version: &Version) -> Result<impl View> 
 /// The design document of the selected version.
 #[component]
 async fn document(
+    cx: &Cx,
     account: &Account,
     base: &str,
     role: Role,
@@ -126,7 +129,7 @@ async fn document(
 
 /// The form that edits a draft.
 #[component]
-async fn editor(account: &Account, base: &str, version: &Version) -> Result<impl View> {
+async fn editor(cx: &Cx, account: &Account, base: &str, version: &Version) -> Result<impl View> {
     let doc = &version.document;
     Ok(view! {
         <details class="design-editor">
@@ -177,6 +180,7 @@ async fn editor(account: &Account, base: &str, version: &Version) -> Result<impl
 /// The example pages and the validation of the selected version.
 #[component]
 async fn screens(
+    cx: &Cx,
     account: &Account,
     base: &str,
     role: Role,
@@ -238,6 +242,7 @@ async fn screens(
 /// The selected version's review state and history.
 #[component]
 async fn proposal(
+    cx: &Cx,
     account: &Account,
     base: &str,
     role: Role,
@@ -277,6 +282,7 @@ async fn proposal(
 /// The form that sends a version for review, comments on it or decides it.
 #[component]
 async fn review_form(
+    cx: &Cx,
     account: &Account,
     base: &str,
     version: &Version,

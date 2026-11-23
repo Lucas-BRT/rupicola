@@ -158,7 +158,7 @@ pub async fn frame<'a>(
     } else {
         format!("{} · {label}", tab.heading())
     };
-    let content = view! { cx =>
+    let content = view! {
         workspace(title: &page_title, account: account, panel: panel, active: Nav::Projects,
             breadcrumbs(<a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span><span>(label)</span>)
             <header class="page-title project-masthead">

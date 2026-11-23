@@ -1,6 +1,6 @@
 //! `POST /projects/{project}/design/record`
 
-use crate::app::projects::project::Project;
+use crate::app::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
 use crate::{
     Account, Arc, Deserialize, PageResult, Panel, StatusCode, auth, auth::Role, redirect, safe_name,
@@ -8,20 +8,14 @@ use crate::{
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Form, path_param, response::Response, route},
+    router::{content::Form, response::Response, route},
 };
 
 #[route(POST)]
 async fn record(cx: &Cx, Form(form): Form<DesignForm>) -> Result<Response> {
     respond(
         cx,
-        submit(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            form,
-        )
-        .await,
+        submit(panel(cx), account(cx), project_param(cx).into(), form).await,
     )
 }
 

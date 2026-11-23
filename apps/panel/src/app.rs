@@ -19,24 +19,24 @@ use crate::{
 };
 use topcoat::{
     Result,
-    context::{app_context, request_context},
+    context::context,
     router::{Next, OriginPolicy, RouterBuilderDiscoverExt, layer, module_router, request},
 };
 
 pub fn router(panel: Arc<Panel>) -> Router {
     module_router!()
         .discover()
-        .origin_policy(OriginPolicy::new().trust_origins([panel.origin.clone()]))
-        .app_context(panel)
+        .with(OriginPolicy::trust_origins([panel.origin.clone()]))
+        .with(panel)
         .build()
 }
 
 pub(crate) fn panel(cx: &Cx) -> Arc<Panel> {
-    app_context::<Arc<Panel>>(cx).clone()
+    context::<Arc<Panel>>(cx).clone()
 }
 
 pub(crate) fn account(cx: &Cx) -> Account {
-    request_context::<Account>(cx).clone()
+    context::<Account>(cx).clone()
 }
 
 pub(crate) fn respond(cx: &Cx, result: PageResult<impl IntoResponse>) -> Result<Response> {

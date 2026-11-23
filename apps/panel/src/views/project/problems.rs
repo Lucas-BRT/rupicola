@@ -69,7 +69,6 @@ pub fn render_problems<'a>(
         .collect();
 
     topcoat::view::Child::new(view! {
-        cx =>
         counts(label: "Problem triage counts",
             metric(href: format!("{base}/problems?status=open"), value: open_count, featured: open_count > 0, arrow: false, "Open / Needs reprocess")
             metric(href: format!("{base}/problems?status=in-progress"), value: progress_count, arrow: false, "In progress / Fixing")
@@ -98,6 +97,7 @@ pub fn render_problems<'a>(
 /// The form that reports a problem found in a capture.
 #[component]
 async fn report_form(
+    cx: &Cx,
     base: &str,
     token: &str,
     prefill_asset: &str,
@@ -173,6 +173,7 @@ async fn report_form(
 /// The count of problems shown and the status and severity filter.
 #[component]
 async fn problem_toolbar(
+    cx: &Cx,
     base: &str,
     shown: usize,
     status_filter: &str,
@@ -207,7 +208,13 @@ async fn problem_toolbar(
 
 /// One problem: its labels, evidence, rules, diagnosis, discussion and triage controls.
 #[component]
-async fn problem_card(item: &Problem, base: &str, role: Role, token: &str) -> Result<impl View> {
+async fn problem_card(
+    cx: &Cx,
+    item: &Problem,
+    base: &str,
+    role: Role,
+    token: &str,
+) -> Result<impl View> {
     Ok(view! {
         <article class="surface problem-card" id=(format!("problem-{}", item.id)) data-problem-card=(&item.id)>
             <header class="propose-head">
@@ -298,7 +305,7 @@ async fn problem_card(item: &Problem, base: &str, role: Role, token: &str) -> Re
 
 /// The dialog that shows an evidence image at full size.
 #[component]
-async fn image_viewer() -> Result<impl View> {
+async fn image_viewer(cx: &Cx) -> Result<impl View> {
     Ok(view! {
         <dialog id="image-viewer" aria-labelledby="image-title">
             <div class="section-head">

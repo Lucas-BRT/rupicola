@@ -44,7 +44,6 @@ pub fn render_fixes<'a>(
         .collect();
 
     topcoat::view::Child::new(view! {
-        cx =>
         counts(label: "Fixes overview",
             metric(href: format!("{base}/fixes?status=pending-review"), value: pending_count, featured: pending_count > 0, arrow: false, "Pending approval")
             metric(href: format!("{base}/fixes?status=approved"), value: approved_count, arrow: false, "Approved fixes")
@@ -84,6 +83,7 @@ pub fn render_fixes<'a>(
 /// The form that records a fix with its before and after captures.
 #[component]
 async fn record_form(
+    cx: &Cx,
     base: &str,
     token: &str,
     problems: &[Problem],
@@ -143,7 +143,13 @@ async fn record_form(
 
 /// One fix: its labels, comparison, tactics, steps, reviews and review controls.
 #[component]
-async fn fix_card(fix: &FixRecord, base: &str, role: Role, token: &str) -> Result<impl View> {
+async fn fix_card(
+    cx: &Cx,
+    fix: &FixRecord,
+    base: &str,
+    role: Role,
+    token: &str,
+) -> Result<impl View> {
     Ok(view! {
         <article class="surface fix-card" id=(format!("fix-{}", fix.id)) data-fix-card=(&fix.id)>
             <header class="propose-head">
@@ -218,7 +224,7 @@ async fn fix_card(fix: &FixRecord, base: &str, role: Role, token: &str) -> Resul
 
 /// The before and after of a fix, in the modes the capture supports.
 #[component]
-async fn comparator(fix: &FixRecord, pair: &ComparisonPair) -> Result<impl View> {
+async fn comparator(cx: &Cx, fix: &FixRecord, pair: &ComparisonPair) -> Result<impl View> {
     let after = effective_after_url(fix, pair);
     let before_video = is_video_url(&pair.before_url);
     let after_video = is_video_url(&after);
@@ -270,6 +276,7 @@ async fn comparator(fix: &FixRecord, pair: &ComparisonPair) -> Result<impl View>
 /// The slider that wipes between the before and the after.
 #[component]
 async fn split_stage(
+    cx: &Cx,
     fix_id: &str,
     pair: &ComparisonPair,
     after: &str,
@@ -331,6 +338,7 @@ async fn split_stage(
 /// The before and the after side by side.
 #[component]
 async fn side_stage(
+    cx: &Cx,
     pair: &ComparisonPair,
     after: &str,
     before_video: bool,
@@ -364,7 +372,12 @@ async fn side_stage(
 
 /// The recording alone, at full size.
 #[component]
-async fn full_stage(pair: &ComparisonPair, after: &str, after_video: bool) -> Result<impl View> {
+async fn full_stage(
+    cx: &Cx,
+    pair: &ComparisonPair,
+    after: &str,
+    after_video: bool,
+) -> Result<impl View> {
     Ok(view! {
             <div class="compare-stage compare-video-full" data-stage-mode="video" hidden="">
                 <figure class="checkpoint">
@@ -378,7 +391,7 @@ async fn full_stage(pair: &ComparisonPair, after: &str, after_video: bool) -> Re
 
 /// The pixel difference between the two.
 #[component]
-async fn diff_stage(diff: &str) -> Result<impl View> {
+async fn diff_stage(cx: &Cx, diff: &str) -> Result<impl View> {
     Ok(view! {
         <div class="compare-stage compare-diff" data-stage-mode="diff" hidden="">
             <figure class="checkpoint">

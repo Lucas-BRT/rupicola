@@ -5,9 +5,7 @@ use crate::media;
 use topcoat::{
     Result,
     context::Cx,
-    router::{
-        Body, module_param, path_param, request, request::Request, response::Response, route,
-    },
+    router::{Body, module_param, request, request::Request, response::Response, route},
 };
 
 module_param!(pub artifact_id);
@@ -19,12 +17,6 @@ async fn artifact(cx: &Cx) -> Result<Response> {
     *request.headers_mut() = request::headers(cx).clone();
     respond(
         cx,
-        media::by_id(
-            account(cx),
-            panel(cx),
-            path_param::<ArtifactId>(cx).into(),
-            request,
-        )
-        .await,
+        media::by_id(account(cx), panel(cx), artifact_id(cx).into(), request).await,
     )
 }

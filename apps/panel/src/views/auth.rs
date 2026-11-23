@@ -1,4 +1,5 @@
 use crate::components::button::button;
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{View, attributes, component, view},
@@ -7,6 +8,7 @@ use topcoat::{
 /// The sign-in and registration page.
 #[component]
 pub async fn sign_in_sheet(
+    cx: &Cx,
     title: &str,
     registering: bool,
     /// Whether this registration creates the workspace's first account.

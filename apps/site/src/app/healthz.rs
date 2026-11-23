@@ -8,7 +8,7 @@ use topcoat::{
 };
 
 #[route(GET)]
-async fn healthz(_cx: &Cx) -> TopcoatResult<Response> {
+async fn healthz(cx: &Cx) -> TopcoatResult<Response> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")

@@ -78,7 +78,7 @@ async fn show(panel: Arc<Panel>, account: Account, filter: Filter) -> PageResult
             ))
         });
     let cx = &Cx::default();
-    let list = Child::new(view! { cx => run_list(runs: &items, message: "No matching captures.") });
+    let list = Child::new(view! { run_list(runs: &items, message: "No matching captures.") });
     let data = Dashboard {
         filter: &filter,
         project_count,

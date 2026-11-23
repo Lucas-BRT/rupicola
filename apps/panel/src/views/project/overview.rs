@@ -34,7 +34,7 @@ pub fn render<'a>(cx: &'a Cx, data: Overview<'a>) -> Child<'a> {
         fix_count,
         list,
     } = data;
-    Child::new(view! { cx =>
+    Child::new(view! {
         <div class="overview-hero">
             if let Some((href, image, scenario)) = &latest_project_evidence {
                 proof_card(href: href, image: image, scenario: scenario,

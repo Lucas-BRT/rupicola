@@ -35,7 +35,7 @@ pub fn render<'a>(cx: &'a Cx, account: &'a Account, data: Design<'a>) -> Child<'
         studio,
     } = data;
     let design_tab = tab;
-    Child::new(view! { cx =>
+    Child::new(view! {
         design_studio(account: account, role: role, base: base, tab: design_tab, studio: studio)
         if design_tab == "records" {
             if role == Role::Owner {
@@ -62,6 +62,7 @@ pub fn render<'a>(cx: &'a Cx, account: &'a Account, data: Design<'a>) -> Child<'
 /// The form that records a design brief, direction, tactic or decision.
 #[component]
 async fn record_editor(
+    cx: &Cx,
     base: &str,
     token: &str,
     records: &[design_record::Entry],
@@ -110,6 +111,7 @@ async fn record_editor(
 /// The active records of one kind.
 #[component]
 async fn design_chapter(
+    cx: &Cx,
     kind: design_record::Kind,
     records: &[design_record::Entry],
     superseded: &BTreeSet<&str>,
@@ -128,7 +130,7 @@ async fn design_chapter(
 
 /// One design record with its status, author, time and links.
 #[component]
-async fn record_item(entry: &design_record::Entry) -> Result<impl View> {
+async fn record_item(cx: &Cx, entry: &design_record::Entry) -> Result<impl View> {
     Ok(view! {
         <li>
             <h3>(&entry.title)</h3>
@@ -151,6 +153,7 @@ async fn record_item(entry: &design_record::Entry) -> Result<impl View> {
 /// The records that later ones replaced.
 #[component]
 async fn history(
+    cx: &Cx,
     records: &[design_record::Entry],
     superseded: &BTreeSet<&str>,
 ) -> Result<impl View> {

@@ -3,6 +3,7 @@
 
 use super::badge::{BadgeVariant, badge};
 use crate::Run;
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{Child, View, component, view},
@@ -11,6 +12,7 @@ use topcoat::{
 /// A linked counter: `child` is its label, `value` its number; `arrow` adds the ↗ mark.
 #[component]
 pub async fn metric(
+    cx: &Cx,
     #[into] href: String,
     value: impl std::fmt::Display + Send,
     #[default] featured: bool,
@@ -28,7 +30,7 @@ pub async fn metric(
 
 /// A row of [`metric`]s.
 #[component]
-pub async fn counts(label: &str, #[default] child: Child<'_>) -> Result<impl View> {
+pub async fn counts(cx: &Cx, label: &str, #[default] child: Child<'_>) -> Result<impl View> {
     Ok(view! {
         <section class="studio-counts" aria-label=(label)>(child)</section>
     })
@@ -36,7 +38,11 @@ pub async fn counts(label: &str, #[default] child: Child<'_>) -> Result<impl Vie
 
 /// A heading with controls beside it: `child` holds the controls.
 #[component]
-pub async fn section_head(#[into] title: String, #[default] child: Child<'_>) -> Result<impl View> {
+pub async fn section_head(
+    cx: &Cx,
+    #[into] title: String,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
     Ok(view! {
         <div class="section-head">
             <h2>(title)</h2>
@@ -47,7 +53,7 @@ pub async fn section_head(#[into] title: String, #[default] child: Child<'_>) ->
 
 /// The message shown where a list has nothing to list.
 #[component]
-pub async fn empty(message: &str) -> Result<impl View> {
+pub async fn empty(cx: &Cx, message: &str) -> Result<impl View> {
     Ok(view! {
         <div class="empty"><p>(message)</p></div>
     })
@@ -55,25 +61,26 @@ pub async fn empty(message: &str) -> Result<impl View> {
 
 /// A small outlined label.
 #[component]
-pub async fn chip(#[default] child: Child<'_>) -> Result<impl View> {
+pub async fn chip(cx: &Cx, #[default] child: Child<'_>) -> Result<impl View> {
     Ok(view! { <span class="tactic-chip">(child)</span> })
 }
 
 /// The small caps label above a record's title.
 #[component]
-pub async fn kind_label(#[default] child: Child<'_>) -> Result<impl View> {
+pub async fn kind_label(cx: &Cx, #[default] child: Child<'_>) -> Result<impl View> {
     Ok(view! { <small class="studio-kind">(child)</small> })
 }
 
 /// A time shown in the viewer's own zone; the script fills it in from `epoch_ms`.
 #[component]
-pub async fn moment(epoch_ms: impl std::fmt::Display + Send) -> Result<impl View> {
+pub async fn moment(cx: &Cx, epoch_ms: impl std::fmt::Display + Send) -> Result<impl View> {
     Ok(view! { <time data-epoch-ms=(epoch_ms.to_string())></time> })
 }
 
 /// A link styled as a button.
 #[component]
 pub async fn link_button(
+    cx: &Cx,
     #[into] href: String,
     #[default] primary: bool,
     #[default] child: Child<'_>,
@@ -86,6 +93,7 @@ pub async fn link_button(
 /// The latest capture's screenshot, linked to its page; `child` is the heading above it.
 #[component]
 pub async fn proof_card(
+    cx: &Cx,
     href: &str,
     image: &str,
     scenario: &str,
@@ -104,7 +112,7 @@ pub async fn proof_card(
 
 /// The captures as a list, newest first, or `message` when there are none.
 #[component]
-pub async fn run_list(runs: &[&Run], message: &str) -> Result<impl View> {
+pub async fn run_list(cx: &Cx, runs: &[&Run], message: &str) -> Result<impl View> {
     Ok(view! {
         if runs.is_empty() {
             empty(message: message)
@@ -133,6 +141,7 @@ pub async fn run_list(runs: &[&Run], message: &str) -> Result<impl View> {
 /// A counter that is not a link.
 #[component]
 pub async fn stat(
+    cx: &Cx,
     value: impl std::fmt::Display + Send,
     #[default] child: Child<'_>,
 ) -> Result<impl View> {

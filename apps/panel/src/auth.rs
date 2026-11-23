@@ -399,7 +399,6 @@ async fn render(
     };
     let cx = &Cx::default();
     let content = view! {
-        cx =>
         sign_in_sheet(title: title, registering: registering, initial: initial, handle: handle, error: error, nonce: &nonce)
     }
     .single()

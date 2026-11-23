@@ -16,7 +16,7 @@ const INSTALL_SH: &str = include_str!("../../assets/install.sh");
 const PUBLIC_URL_PLACEHOLDER: &str = "@PUBLIC_URL@";
 
 #[route(GET "/site.css")]
-async fn css(_cx: &Cx) -> TopcoatResult<Response> {
+async fn css(cx: &Cx) -> TopcoatResult<Response> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
@@ -26,7 +26,7 @@ async fn css(_cx: &Cx) -> TopcoatResult<Response> {
 }
 
 #[route(GET "/site.js")]
-async fn js(_cx: &Cx) -> TopcoatResult<Response> {
+async fn js(cx: &Cx) -> TopcoatResult<Response> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(

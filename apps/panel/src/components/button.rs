@@ -1,6 +1,8 @@
+#![allow(dead_code)]
 use topcoat::{
     Result,
-    view::{Attributes, Child, StaticClass, View, class, component, view},
+    context::Cx,
+    view::{Attributes, Child, Class, StaticClass, View, class, component, view},
 };
 
 /// The visual style of a [`button`].
@@ -90,10 +92,31 @@ const BASE: StaticClass = class!(
     "focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
 );
 
+/// Builds the full class list for a button of the given `variant` and `size`.
+///
+/// Use it to give button styling to an element that is not a `<button>`, such
+/// as a link styled as a button:
+///
+/// ```ignore
+/// view! {
+///     <a href="/login" class=(button_variants(ButtonVariant::Outline, ButtonSize::Md))>
+///         "Sign in"
+///     </a>
+/// }
+/// ```
+#[must_use]
+pub fn button_variants(
+    variant: ButtonVariant,
+    size: ButtonSize,
+) -> Class<(StaticClass, StaticClass, StaticClass)> {
+    class!(BASE, variant.classes(), size.classes())
+}
+
 /// A styled button.
 ///
 /// `variant` defaults to `Primary` and `size` to `Md`. Pass the content as children.
 /// `attrs` are forwarded to the `<button>`, with extra classes added to its classes.
+/// Use [`button_variants`] to apply the same styling to another element.
 ///
 /// ```ignore
 /// view! {
@@ -106,6 +129,7 @@ const BASE: StaticClass = class!(
 /// ```
 #[component]
 pub async fn button(
+    cx: &Cx,
     #[default] variant: ButtonVariant,
     #[default] size: ButtonSize,
     #[default] mut attrs: Attributes,

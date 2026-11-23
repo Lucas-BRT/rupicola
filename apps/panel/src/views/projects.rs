@@ -36,7 +36,7 @@ pub async fn render(
         empty_catalog,
         summaries,
     } = data;
-    let content = view! { cx =>
+    let content = view! {
         workspace(title: "Projects", account: account, panel: panel, active: Nav::Projects,
             <div class="page-title studio-heading">
                 <div>
@@ -63,7 +63,7 @@ pub async fn render(
 
 /// The project search box.
 #[component]
-async fn search_form(query: &str) -> Result<impl View> {
+async fn search_form(cx: &Cx, query: &str) -> Result<impl View> {
     Ok(view! {
         <form class="filters" method="get" action="/projects">
             <label for="q">"Search"</label>
@@ -75,7 +75,7 @@ async fn search_form(query: &str) -> Result<impl View> {
 
 /// One project in the index.
 #[component]
-async fn project_card(id: &str, label: &str, summary: Option<&str>) -> Result<impl View> {
+async fn project_card(cx: &Cx, id: &str, label: &str, summary: Option<&str>) -> Result<impl View> {
     Ok(view! {
         <a class="project-card" href=(format!("/projects/{id}"))>
             <div class="project-emblem" aria-hidden="true">"▱"</div>
@@ -88,7 +88,7 @@ async fn project_card(id: &str, label: &str, summary: Option<&str>) -> Result<im
 
 /// The form that creates a project; `open` unfolds it when there is no project yet.
 #[component]
-async fn new_project(token: &str, open: bool) -> Result<impl View> {
+async fn new_project(cx: &Cx, token: &str, open: bool) -> Result<impl View> {
     Ok(view! {
         <details class="surface new-project" if open { open="" }>
             <summary>"Create a project"</summary>

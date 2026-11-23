@@ -1,6 +1,8 @@
+#![allow(dead_code)]
 use topcoat::{
     Result,
-    view::{Attributes, Child, StaticClass, View, class, component, view},
+    context::Cx,
+    view::{Attributes, Child, Class, StaticClass, View, class, component, view},
 };
 
 /// The visual style of a [`badge`].
@@ -41,10 +43,25 @@ const BASE: StaticClass = class!(
     "border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
 );
 
+/// Builds the full class list for a badge of the given `variant`.
+///
+/// Use it to give badge styling to another element, such as a link:
+///
+/// ```ignore
+/// view! {
+///     <a href="/releases/v2" class=(badge_variants(BadgeVariant::Outline))>"v2.0"</a>
+/// }
+/// ```
+#[must_use]
+pub fn badge_variants(variant: BadgeVariant) -> Class<(StaticClass, StaticClass)> {
+    class!(BASE, variant.classes())
+}
+
 /// A small label for a status or count.
 ///
 /// `variant` defaults to `Primary`. Pass the label as children and extra attributes
 /// through `attrs`. Attributes go on the `<span>`, with classes added to its classes.
+/// Use [`badge_variants`] to apply the same styling to another element.
 ///
 /// ```ignore
 /// view! {
@@ -53,6 +70,7 @@ const BASE: StaticClass = class!(
 /// ```
 #[component]
 pub async fn badge(
+    cx: &Cx,
     #[default] variant: BadgeVariant,
     #[default] mut attrs: Attributes,
     #[default] child: Child<'_>,

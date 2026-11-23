@@ -2,12 +2,15 @@
 
 use crate::app::{account, panel, respond};
 use crate::{Account, Arc, PageResult, Panel, StatusCode, auth, auth::Role, redirect};
-use crate::{app::projects::project::Project, app::projects::project::fixes::fix::Fix};
+use crate::{
+    app::projects::project::fixes::fix::fix as fix_param,
+    app::projects::project::project as project_param,
+};
 use serde::Deserialize;
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Form, path_param, response::Response, route},
+    router::{content::Form, response::Response, route},
 };
 
 #[route(POST)]
@@ -17,10 +20,7 @@ async fn submit(cx: &Cx, Form(form): Form<ReviewFixForm>) -> Result<Response> {
         review_fix_action(
             panel(cx),
             account(cx),
-            (
-                path_param::<Project>(cx).into(),
-                path_param::<Fix>(cx).into(),
-            ),
+            (project_param(cx).into(), fix_param(cx).into()),
             form,
         )
         .await,

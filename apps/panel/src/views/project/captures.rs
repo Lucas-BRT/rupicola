@@ -100,7 +100,6 @@ pub fn render_captures<'a>(
         .count();
 
     topcoat::view::Child::new(view! {
-        cx =>
         counts(label: "Research summary",
             stat(value: runs.len(), "Capture runs")
             stat(value: assets.len(), "Visual assets (shots & clips)")
@@ -146,6 +145,7 @@ pub fn render_captures<'a>(
 /// The view switch and the health and search filter.
 #[component]
 async fn capture_toolbar(
+    cx: &Cx,
     base: &str,
     subview: &str,
     health: &str,
@@ -180,6 +180,7 @@ async fn capture_toolbar(
 /// One capture run, with the button that extracts problems from it.
 #[component]
 async fn run_row(
+    cx: &Cx,
     run: &Run,
     base: &str,
     problem_runs: &BTreeSet<&str>,
@@ -228,6 +229,7 @@ async fn run_row(
 /// One captured screenshot, sheet or recording.
 #[component]
 async fn asset_card(
+    cx: &Cx,
     item: &AssetOption,
     index: usize,
     base: &str,
@@ -269,7 +271,7 @@ async fn asset_card(
 
 /// The dialog that shows a screenshot at full size.
 #[component]
-async fn image_dialog() -> Result<impl View> {
+async fn image_dialog(cx: &Cx) -> Result<impl View> {
     Ok(view! {
         <dialog id="image-viewer" aria-labelledby="image-title">
             <div class="section-head">

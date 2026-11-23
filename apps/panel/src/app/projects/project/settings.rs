@@ -3,7 +3,7 @@
 use crate::app::{account, panel, respond};
 use crate::{
     Account, Arc, Deserialize, PageResult, Panel, StatusCode,
-    app::projects::project::Project,
+    app::projects::project::project as project_param,
     auth,
     auth::Role,
     db_error,
@@ -18,7 +18,6 @@ use topcoat::{
     context::Cx,
     router::{
         content::{Form, Html},
-        path_param,
         response::{IntoResponse, Response},
         route,
     },
@@ -28,7 +27,7 @@ use topcoat::{
 async fn page(cx: &Cx) -> Result<Response> {
     respond(
         cx,
-        show(panel(cx), account(cx), path_param::<Project>(cx).into()).await,
+        show(panel(cx), account(cx), project_param(cx).into()).await,
     )
 }
 
@@ -54,13 +53,7 @@ async fn show(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Htm
 async fn change_access(cx: &Cx, Form(form): Form<ProjectAction>) -> Result<Response> {
     respond(
         cx,
-        submit(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            form,
-        )
-        .await,
+        submit(panel(cx), account(cx), project_param(cx).into(), form).await,
     )
 }
 

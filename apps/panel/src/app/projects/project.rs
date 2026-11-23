@@ -23,17 +23,14 @@ use topcoat::view::{Child, view};
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Html, module_param, path_param, response::Response, route},
+    router::{content::Html, module_param, response::Response, route},
 };
 
 module_param!(pub project);
 
 #[route(GET)]
 async fn overview(cx: &Cx) -> Result<Response> {
-    respond(
-        cx,
-        show(panel(cx), account(cx), path_param::<Project>(cx).into()).await,
-    )
+    respond(cx, show(panel(cx), account(cx), project(cx).into()).await)
 }
 
 /// Recent captures listed on the overview.
@@ -87,7 +84,7 @@ async fn show(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Htm
             ))
         });
     let cx = &Cx::default();
-    let list = Child::new(view! { cx =>
+    let list = Child::new(view! {
         run_list(runs: &selected, message: "No matching captures. Send a capture with this project's ID.")
     });
     let data = Overview {

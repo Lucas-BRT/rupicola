@@ -14,7 +14,7 @@ use topcoat::{
     context::Cx,
     router::{
         content::{Form, Html},
-        module_param, parse_query_params, path_param,
+        module_param, parse_query_params,
         response::Response,
         route,
     },
@@ -35,7 +35,7 @@ async fn page(cx: &Cx) -> Result<Response> {
             parse_query_params(cx)?,
             account(cx),
             panel(cx),
-            path_param::<CaptureId>(cx).into(),
+            capture_id(cx).into(),
         )
         .await,
     )
@@ -109,13 +109,7 @@ async fn show(
 async fn inspect(cx: &Cx, Form(form): Form<Review>) -> Result<Response> {
     respond(
         cx,
-        review(
-            panel(cx),
-            account(cx),
-            path_param::<CaptureId>(cx).into(),
-            form,
-        )
-        .await,
+        review(panel(cx), account(cx), capture_id(cx).into(), form).await,
     )
 }
 

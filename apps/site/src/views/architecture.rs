@@ -2,6 +2,7 @@ use crate::components::{
     display::{article_card, button, card, code_block, eyebrow, section},
     page::{Nav, shell},
 };
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{View, component, view},
@@ -9,7 +10,7 @@ use topcoat::{
 
 /// The architecture and self-hosting page.
 #[component]
-pub async fn architecture_page(panel_url: &str) -> Result<impl View> {
+pub async fn architecture_page(cx: &Cx, panel_url: &str) -> Result<impl View> {
     Ok(view! {
         shell(
             title: "Architecture",

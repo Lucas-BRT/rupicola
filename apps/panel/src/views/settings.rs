@@ -12,7 +12,7 @@ use topcoat::{
 
 /// The account settings page.
 pub async fn render(cx: &Cx, account: &Account, panel: &Panel) -> PageResult<Html<String>> {
-    let content = view! { cx =>
+    let content = view! {
         workspace(title: "Settings", account: account, panel: panel, active: Nav::Settings,
             <div class="page-title studio-heading"><h1>"Settings"</h1></div>
             <div class="settings-workbench">
@@ -32,7 +32,7 @@ pub async fn render(cx: &Cx, account: &Account, panel: &Panel) -> PageResult<Htm
 
 /// The theme choice, kept on the device.
 #[component]
-async fn appearance() -> Result<impl View> {
+async fn appearance(cx: &Cx) -> Result<impl View> {
     Ok(view! {
         <section class="surface panel-padding">
             <h2>"Appearance"</h2>
@@ -46,7 +46,7 @@ async fn appearance() -> Result<impl View> {
 
 /// Who is signed in, signing out elsewhere and the password change.
 #[component]
-async fn account_section(account: &Account) -> Result<impl View> {
+async fn account_section(cx: &Cx, account: &Account) -> Result<impl View> {
     Ok(view! {
         <section class="surface panel-padding">
             <h2>"Account"</h2><p><strong>(&account.handle)</strong></p>
@@ -72,7 +72,7 @@ async fn account_section(account: &Account) -> Result<impl View> {
 
 /// Where a member redeems an invitation code.
 #[component]
-async fn join_project(token: &str) -> Result<impl View> {
+async fn join_project(cx: &Cx, token: &str) -> Result<impl View> {
     Ok(view! {
         <section class="surface panel-padding">
             <h2>"Join a project"</h2>
@@ -87,7 +87,7 @@ async fn join_project(token: &str) -> Result<impl View> {
 
 /// What the owner sees of the service.
 #[component]
-async fn service(panel: &Panel) -> Result<impl View> {
+async fn service(cx: &Cx, panel: &Panel) -> Result<impl View> {
     Ok(view! {
         <section class="surface panel-padding">
             <h2>"Service"</h2>

@@ -3,6 +3,7 @@ use crate::components::{
     display::{button, card, code_block, eyebrow, section},
     page::{Nav, shell},
 };
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{View, component, view},
@@ -10,7 +11,7 @@ use topcoat::{
 
 /// The install page.
 #[component]
-pub async fn install_page(panel_url: &str, public_url: &str) -> Result<impl View> {
+pub async fn install_page(cx: &Cx, panel_url: &str, public_url: &str) -> Result<impl View> {
     let quick = format!("curl -fsSL {public_url}/install.sh | bash\nrupicola --version");
     Ok(view! {
         shell(

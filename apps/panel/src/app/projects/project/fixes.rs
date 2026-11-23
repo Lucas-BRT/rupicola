@@ -3,7 +3,7 @@
 mod create;
 mod fix;
 
-use crate::app::projects::project::Project;
+use crate::app::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
 use crate::{
     Account, Arc, PageResult, Panel,
@@ -14,7 +14,7 @@ use crate::{
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Html, parse_query_params, path_param, response::Response, route},
+    router::{content::Html, parse_query_params, response::Response, route},
 };
 
 #[route(GET)]
@@ -24,7 +24,7 @@ async fn page(cx: &Cx) -> Result<Response> {
         show(
             panel(cx),
             account(cx),
-            path_param::<Project>(cx).into(),
+            project_param(cx).into(),
             parse_query_params(cx)?,
         )
         .await,

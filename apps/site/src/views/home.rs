@@ -5,6 +5,7 @@ use crate::components::{
     },
     page::{Nav, shell},
 };
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{View, component, view},
@@ -12,7 +13,7 @@ use topcoat::{
 
 /// The landing page.
 #[component]
-pub async fn home_page(panel_url: &str, public_url: &str) -> Result<impl View> {
+pub async fn home_page(cx: &Cx, panel_url: &str, public_url: &str) -> Result<impl View> {
     let install_cmd = format!("curl -fsSL {public_url}/install.sh | bash");
     Ok(view! {
         shell(

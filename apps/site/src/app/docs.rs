@@ -25,7 +25,7 @@ async fn index(cx: &Cx) -> TopcoatResult<Response> {
 
 #[route(GET "/docs/{*slug}")]
 async fn page(cx: &Cx) -> TopcoatResult<Response> {
-    let slug = path_param::<Slug>(cx).collect::<Vec<_>>().join("/");
+    let slug = slug(cx).collect::<Vec<_>>().join("/");
     let config = cfg(cx);
     match docs::find_doc(&slug) {
         Some(doc) => {

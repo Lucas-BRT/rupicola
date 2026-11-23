@@ -13,7 +13,7 @@ pub async fn render(
     url: &str,
     secret: &str,
 ) -> PageResult<Html<String>> {
-    let content = view! { cx =>
+    let content = view! {
         workspace(title: "Copy credential", account: account, panel: panel, active: Nav::Projects,
             breadcrumbs(<a href=(url)>"Project settings"</a>)
             <h1>"Invitation created"</h1>

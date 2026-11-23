@@ -1,11 +1,11 @@
 //! `GET /projects/{project}/images`: the captures tab with the images view.
 
-use crate::app::projects::project::Project;
+use crate::app::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
 use topcoat::{
     Result,
     context::Cx,
-    router::{parse_query_params, path_param, response::Response, route},
+    router::{parse_query_params, response::Response, route},
 };
 
 #[route(GET)]
@@ -14,12 +14,6 @@ async fn page(cx: &Cx) -> Result<Response> {
     filter.view.get_or_insert_with(|| "images".into());
     respond(
         cx,
-        super::captures::show(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            filter,
-        )
-        .await,
+        super::captures::show(panel(cx), account(cx), project_param(cx).into(), filter).await,
     )
 }

@@ -1,5 +1,6 @@
 //! Form building blocks.
 
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{Attributes, Child, View, component, view},
@@ -7,13 +8,14 @@ use topcoat::{
 
 /// The hidden field every state-changing form sends back.
 #[component]
-pub async fn csrf(token: &str) -> Result<impl View> {
+pub async fn csrf(cx: &Cx, token: &str) -> Result<impl View> {
     Ok(view! { <input type="hidden" name="csrf" value=(token)> })
 }
 
 /// A labelled one-line input; `attrs` goes on the `<input>`.
 #[component]
 pub async fn field(
+    cx: &Cx,
     #[into] id: String,
     name: &str,
     label: &str,
@@ -28,6 +30,7 @@ pub async fn field(
 /// A labelled text area holding `value`; `attrs` goes on the `<textarea>`.
 #[component]
 pub async fn text_area(
+    cx: &Cx,
     #[into] id: String,
     name: &str,
     label: &str,
@@ -43,6 +46,7 @@ pub async fn text_area(
 /// A labelled select; `child` holds the `<option>`s.
 #[component]
 pub async fn select_field(
+    cx: &Cx,
     #[into] id: String,
     name: &str,
     label: &str,
@@ -58,6 +62,7 @@ pub async fn select_field(
 /// A form that posts to `action`, with the CSRF field first.
 #[component]
 pub async fn stack_form(
+    cx: &Cx,
     #[into] action: String,
     token: &str,
     #[default] attrs: Attributes,

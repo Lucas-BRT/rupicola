@@ -39,7 +39,7 @@ pub async fn render(
         latest_evidence,
         list,
     } = data;
-    let content = view! { cx =>
+    let content = view! {
         workspace(title: "Dashboard", account: account, panel: panel, active: Nav::Dashboard,
             page_title(title: "Dashboard", class: "studio-heading",
                 link_button(href: "/projects", primary: true, "Browse projects")

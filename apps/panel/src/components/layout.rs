@@ -1,6 +1,7 @@
 //! The page chrome: the workspace shell and the headings every page opens with.
 
 use crate::{Account, Panel};
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{Child, View, component, view},
@@ -18,6 +19,7 @@ pub enum Nav {
 /// holding `child`.
 #[component]
 pub async fn workspace(
+    cx: &Cx,
     title: &str,
     account: &Account,
     panel: &Panel,
@@ -69,6 +71,7 @@ pub async fn workspace(
 /// beside the title.
 #[component]
 pub async fn page_title(
+    cx: &Cx,
     title: &str,
     #[default] class: &str,
     #[default] child: Child<'_>,
@@ -83,7 +86,7 @@ pub async fn page_title(
 
 /// The trail above a project page.
 #[component]
-pub async fn breadcrumbs(#[default] child: Child<'_>) -> Result<impl View> {
+pub async fn breadcrumbs(cx: &Cx, #[default] child: Child<'_>) -> Result<impl View> {
     Ok(view! {
         <nav class="breadcrumbs" aria-label="Breadcrumb">(child)</nav>
     })
@@ -92,6 +95,7 @@ pub async fn breadcrumbs(#[default] child: Child<'_>) -> Result<impl View> {
 /// A row of tab links; `class` adds to `tabs`.
 #[component]
 pub async fn tabs(
+    cx: &Cx,
     label: &str,
     #[default] class: &str,
     #[default] child: Child<'_>,
@@ -104,6 +108,7 @@ pub async fn tabs(
 /// One link of a [`tabs`] row; `current` marks the tab being shown.
 #[component]
 pub async fn tab_link(
+    cx: &Cx,
     #[into] href: String,
     current: bool,
     #[default] child: Child<'_>,

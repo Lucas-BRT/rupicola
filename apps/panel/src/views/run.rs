@@ -48,7 +48,7 @@ pub async fn render(
         project_url,
         form_url,
     } = data;
-    let content = view! { cx =>
+    let content = view! {
         workspace(title: &run.scenario, account: account, panel: panel, active: Nav::Projects,
             breadcrumbs(
                 <a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span>
@@ -83,7 +83,7 @@ pub async fn render(
 
 /// The capture's state, environment and revision.
 #[component]
-async fn summary(run: &Manifest, width: &str, height: &str) -> Result<impl View> {
+async fn summary(cx: &Cx, run: &Manifest, width: &str, height: &str) -> Result<impl View> {
     Ok(view! {
         <p class="metadata run-metadata"><span class="status">(&run.status)</span> <span>"Inspection " (&run.inspection)</span> <code>(&run.environment.renderer)</code></p>
         <p class="muted">
@@ -99,6 +99,7 @@ async fn summary(run: &Manifest, width: &str, height: &str) -> Result<impl View>
 /// The choice of an earlier capture of the same scenario to compare with.
 #[component]
 async fn comparison_control(
+    cx: &Cx,
     form_url: &str,
     candidates: &[CaptureSummary],
     requested: Option<&str>,
@@ -123,7 +124,7 @@ async fn comparison_control(
 
 /// The review notes left on the capture.
 #[component]
-async fn findings(items: &[Finding]) -> Result<impl View> {
+async fn findings(cx: &Cx, items: &[Finding]) -> Result<impl View> {
     let url = media::url;
     Ok(view! {
         <section>
@@ -145,6 +146,7 @@ async fn findings(items: &[Finding]) -> Result<impl View> {
 /// The capture's screenshots, each beside the earlier run's when comparing.
 #[component]
 async fn screenshots(
+    cx: &Cx,
     checkpoints: &[Checkpoint],
     before_images: &BTreeMap<String, String>,
     comparing: bool,
@@ -182,7 +184,7 @@ async fn screenshots(
 
 /// The capture's recordings.
 #[component]
-async fn recordings(clips: &[Clip], width: &str, height: &str) -> Result<impl View> {
+async fn recordings(cx: &Cx, clips: &[Clip], width: &str, height: &str) -> Result<impl View> {
     Ok(view! {
         <section>
             <h2>"Recordings"</h2>
@@ -195,7 +197,7 @@ async fn recordings(clips: &[Clip], width: &str, height: &str) -> Result<impl Vi
 
 /// One recording: the video, its retained frames and its analysis files.
 #[component]
-async fn clip_card(clip: &Clip, width: &str, height: &str) -> Result<impl View> {
+async fn clip_card(cx: &Cx, clip: &Clip, width: &str, height: &str) -> Result<impl View> {
     let url = media::url;
     Ok(view! {
         <article>
@@ -235,7 +237,12 @@ async fn clip_card(clip: &Clip, width: &str, height: &str) -> Result<impl View> 
 
 /// The form that records an inspection note, optionally pointing at a screenshot.
 #[component]
-async fn review_form(form_url: &str, token: &str, checkpoints: &[Checkpoint]) -> Result<impl View> {
+async fn review_form(
+    cx: &Cx,
+    form_url: &str,
+    token: &str,
+    checkpoints: &[Checkpoint],
+) -> Result<impl View> {
     Ok(view! {
         <section class="surface review" id="review">
             <h2>"Record inspection"</h2>

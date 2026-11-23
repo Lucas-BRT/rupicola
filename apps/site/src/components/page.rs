@@ -1,6 +1,7 @@
 //! The page shell every page shares.
 
 use crate::views::{GITHUB_URL, RELEASES_URL};
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{Child, View, component, view},
@@ -17,7 +18,12 @@ pub enum Nav {
 
 /// One link of the primary navigation; `current` marks the page being shown.
 #[component]
-async fn nav_link(href: &str, current: bool, #[default] child: Child<'_>) -> Result<impl View> {
+async fn nav_link(
+    cx: &Cx,
+    href: &str,
+    current: bool,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
     Ok(view! {
         <a href=(href) if current { aria-current="page" }>(child)</a>
     })
@@ -26,6 +32,7 @@ async fn nav_link(href: &str, current: bool, #[default] child: Child<'_>) -> Res
 /// A whole page: head, top bar, `child` as the main area, and footer.
 #[component]
 pub async fn shell(
+    cx: &Cx,
     title: &str,
     description: &str,
     active: Nav,

@@ -11,7 +11,7 @@ use crate::views::home_page;
 use std::sync::Arc;
 use topcoat::{
     Result as TopcoatResult,
-    context::{Cx, app_context},
+    context::{Cx, context},
     router::{Router, RouterBuilderDiscoverExt, content::Html, module_router, page},
     view::{View, ViewExt, view},
 };
@@ -25,14 +25,11 @@ pub struct SiteConfig {
 
 /// The site's configuration, as set when the router was built.
 fn cfg(cx: &Cx) -> Arc<SiteConfig> {
-    app_context::<Arc<SiteConfig>>(cx).clone()
+    context::<Arc<SiteConfig>>(cx).clone()
 }
 
 pub fn router(config: SiteConfig) -> Router {
-    module_router!()
-        .discover()
-        .app_context(Arc::new(config))
-        .build()
+    module_router!().discover().with(Arc::new(config)).build()
 }
 
 /// Renders a view to the HTML a response carries.

@@ -1,5 +1,6 @@
 use crate::components::page::{Nav, shell};
 use crate::content::docs::{DOCS, DocPage, render_markdown};
+use topcoat::context::Cx;
 use topcoat::{
     Result,
     view::{Unescaped, View, component, view},
@@ -7,7 +8,7 @@ use topcoat::{
 
 /// A documentation page with the sidebar listing every document.
 #[component]
-pub async fn docs_page(doc: &DocPage, panel_url: &str) -> Result<impl View> {
+pub async fn docs_page(cx: &Cx, doc: &DocPage, panel_url: &str) -> Result<impl View> {
     let mut groups: Vec<(&str, Vec<&DocPage>)> = Vec::new();
     for item in DOCS {
         match groups.last_mut() {

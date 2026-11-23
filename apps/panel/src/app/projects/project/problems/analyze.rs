@@ -1,6 +1,6 @@
 //! `POST /projects/{project}/problems/analyze`
 
-use crate::app::projects::project::Project;
+use crate::app::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
 use crate::{Account, Arc, PageResult, Panel, StatusCode, auth, auth::Role, redirect};
 use rupicola_core::problem_record;
@@ -8,20 +8,14 @@ use serde::Deserialize;
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Form, path_param, response::Response, route},
+    router::{content::Form, response::Response, route},
 };
 
 #[route(POST)]
 async fn analyze(cx: &Cx, Form(form): Form<AnalyzeRunForm>) -> Result<Response> {
     respond(
         cx,
-        analyze_run_action(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            form,
-        )
-        .await,
+        analyze_run_action(panel(cx), account(cx), project_param(cx).into(), form).await,
     )
 }
 

@@ -2,12 +2,15 @@
 
 use crate::app::{account, panel, respond};
 use crate::{Account, Arc, PageResult, Panel, StatusCode, auth, auth::Role, redirect};
-use crate::{app::projects::project::Project, app::projects::project::problems::problem::Problem};
+use crate::{
+    app::projects::project::problems::problem::problem as problem_param,
+    app::projects::project::project as project_param,
+};
 use serde::Deserialize;
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Form, path_param, response::Response, route},
+    router::{content::Form, response::Response, route},
 };
 
 #[route(POST)]
@@ -17,10 +20,7 @@ async fn triage(cx: &Cx, Form(form): Form<TriageProblemForm>) -> Result<Response
         triage_problem_action(
             panel(cx),
             account(cx),
-            (
-                path_param::<Project>(cx).into(),
-                path_param::<Problem>(cx).into(),
-            ),
+            (project_param(cx).into(), problem_param(cx).into()),
             form,
         )
         .await,
