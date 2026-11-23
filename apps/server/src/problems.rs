@@ -466,14 +466,6 @@ async fn cite(
     Ok(())
 }
 
-/// The routes that make a problem cite a selection, or stop citing it.
-pub fn routes() -> axum::Router<Shared> {
-    axum::Router::new().route(
-        "/problems/{id}/selections/{selection}",
-        axum::routing::put(cite_selection).delete(uncite_selection),
-    )
-}
-
 /// The selection, if it belongs to `project`.
 async fn project_selection(state: &Shared, project: &str, selection: &str) -> Result<(), ApiError> {
     let owner: Option<String> =

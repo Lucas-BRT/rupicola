@@ -51,7 +51,7 @@ pub async fn home_page(cx: &Cx, panel_url: &str, public_url: &str) -> Result<imp
                 )
                 article_card(
                     <h3>"Lean Rust Services"</h3>
-                    <p class="muted">"Workspace binaries split cleanly: CLI (" <code>"rupicola"</code> "), API backend (" <code>"rupicola-backend"</code> "), review panel (" <code>"rupicola-panel"</code> "), and this site (" <code>"rupicola-site"</code> ")."</p>
+                    <p class="muted">"Workspace binaries split cleanly: CLI (" <code>"rupicola"</code> "), API server (" <code>"rupicola-server"</code> "), review panel (" <code>"rupicola-panel"</code> "), and this site (" <code>"rupicola-site"</code> ")."</p>
                 )
             )
             section(grid: "grid-2",

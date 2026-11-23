@@ -100,7 +100,7 @@ fn run_browser(html: &str, baseline: Option<&str>) -> anyhow::Result<Report> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|_| anyhow::anyhow!("Node.js is unavailable on the backend host."))?;
+        .map_err(|_| anyhow::anyhow!("Node.js is unavailable on the server host."))?;
     let sent = child
         .stdin
         .take()

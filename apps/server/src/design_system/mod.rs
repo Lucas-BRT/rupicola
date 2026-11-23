@@ -44,33 +44,6 @@ const TARGETS: [&str; 6] = [
 /// Seconds a caller is told to wait while another validation runs.
 const VALIDATION_RETRY_SECS: u64 = 5;
 
-/// The routes of the design systems.
-pub fn routes() -> axum::Router<Shared> {
-    use axum::routing;
-    axum::Router::new()
-        .route(
-            "/projects/{id}/design-systems",
-            routing::get(list).post(create),
-        )
-        .route("/projects/{id}/design-systems/{version}", routing::get(get))
-        .route(
-            "/projects/{id}/design-systems/{version}/document",
-            routing::put(edit),
-        )
-        .route(
-            "/projects/{id}/design-systems/{version}/actions",
-            routing::post(act),
-        )
-        .route(
-            "/projects/{id}/design-systems/{version}/preview",
-            routing::get(preview),
-        )
-        .route(
-            "/projects/{id}/design-systems/{version}/proofs/{name}",
-            routing::get(proof),
-        )
-}
-
 /// A version as stored.
 struct Stored {
     id: String,

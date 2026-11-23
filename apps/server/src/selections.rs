@@ -18,14 +18,6 @@ use rupicola_api::{
 };
 use std::collections::HashMap;
 
-/// The routes of the selections.
-pub fn routes() -> axum::Router<Shared> {
-    use axum::routing;
-    axum::Router::new()
-        .route("/projects/{id}/selections", routing::post(create))
-        .route("/selections/{id}", routing::get(get))
-}
-
 /// Keeps `form` as a selection of `project` inside `tx`; returns its id. Every anchor must be a
 /// live capture of the project, and a file one of that capture's.
 ///

@@ -1,7 +1,7 @@
 //! Helpers for API tests: a real server on an in-memory database, spoken to over
 //! raw HTTP/1.1 so tests exercise every layer, middleware included.
 
-use crate::{app, db, security, send, state};
+use crate::{db, routes::app, security, send, state};
 use axum::http::StatusCode;
 use rupicola_api::{
     CaptureStatus,
@@ -46,7 +46,7 @@ pub async fn start_custom(
 ) -> (u16, state::Shared) {
     let _ = tracing_subscriber::fmt()
         .with_test_writer()
-        .with_env_filter("rupicola_backend=debug")
+        .with_env_filter("rupicola_server=debug")
         .try_init();
     let state = state::AppState::new(
         db::open_memory().await,

@@ -140,7 +140,7 @@ rupicola design [list|add --file F]
 
 `create`, `step` and `add` take the JSON of the API's `NewProblem`, `NewFix`, `NewStep` and `NewDesignEntry` (`--file -` reads standard input). Design systems are served by the API and the panel, not yet by the CLI.
 
-The backend (`apps/backend`) owns accounts, projects, captures, problems, fixes, design records and the media store. The Topcoat panel (`rupicola serve --server-url …`) and the CLI are clients of its API. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
+The server (`apps/server`) owns accounts, projects, captures, problems, fixes, design records and the media store. The Topcoat panel (`rupicola serve --server-url …`) and the CLI are clients of its API. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
 
 ## Agents: design context, problems and fixes
 

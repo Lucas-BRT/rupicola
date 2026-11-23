@@ -26,15 +26,6 @@ const CYCLE_ERROR: &str = "capture lineage cycle";
 const DEFAULT_DEPTH: u32 = 5;
 const MAX_DEPTH: u32 = 20;
 
-/// The routes of the lineage.
-pub fn routes() -> axum::Router<Shared> {
-    use axum::routing;
-    axum::Router::new()
-        .route("/captures/{id}/parents", routing::get(get).put(edit))
-        .route("/captures/{id}/lineage", routing::get(graph))
-        .route("/captures/{a}/compare/{b}", routing::get(compare))
-}
-
 #[derive(serde::Deserialize)]
 pub struct Reach {
     depth: Option<u32>,

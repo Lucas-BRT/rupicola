@@ -36,18 +36,6 @@ pub enum CitedDeletion {
     Never,
 }
 
-/// The routes of removal.
-pub fn routes() -> axum::Router<Shared> {
-    use axum::routing;
-    axum::Router::new()
-        .route("/captures/{id}/citations", routing::get(citations))
-        .route("/captures/{id}", routing::delete(remove))
-        .route(
-            "/projects/{id}/deletion-policy",
-            routing::get(policy).put(set_policy),
-        )
-}
-
 /// The project's policy as it stands, before the server's ceiling.
 async fn project_policy(state: &Shared, project: &str) -> Result<DeletionPolicy, ApiError> {
     let stored: Option<String> =

@@ -346,14 +346,6 @@ async fn cite(
     Ok(())
 }
 
-/// The routes that make a fix cite a selection, or stop citing it.
-pub fn routes() -> axum::Router<Shared> {
-    axum::Router::new().route(
-        "/fixes/{id}/selections/{selection}",
-        axum::routing::put(cite_selection).delete(uncite_selection),
-    )
-}
-
 /// `PUT /v1/fixes/{id}/selections/{selection}`: the fix cites a selection of the same project
 /// as its baseline or as proof that it works.
 pub async fn cite_selection(

@@ -3,13 +3,13 @@ members = [
     "crates/rupicola-core",
     "crates/rupicola-api",
     "crates/rupicola-client",
-    "apps/backend",
+    "apps/server",
     "apps/cli",
     "apps/panel",
     "apps/site",
     "tools/eval-runner",
 ]
-default-members = ["crates/rupicola-core", "crates/rupicola-api", "crates/rupicola-client", "apps/backend", "apps/cli", "tools/eval-runner"]
+default-members = ["crates/rupicola-core", "crates/rupicola-api", "crates/rupicola-client", "apps/server", "apps/cli", "tools/eval-runner"]
 exclude = ["evals", "examples"]
 resolver = "2"
 

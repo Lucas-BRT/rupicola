@@ -26,21 +26,6 @@ const TOPIC_CYCLE: &str = "topic cycle";
 const NAME_TAKEN_MESSAGE: &str = "another topic there already has that name";
 const STALE_MESSAGE: &str = "the topic changed since it was read; read it again";
 
-/// The routes of the topics.
-pub fn routes() -> axum::Router<Shared> {
-    use axum::routing;
-    axum::Router::new()
-        .route("/projects/{id}/topics", routing::get(tree).post(create))
-        .route("/topics/{id}", routing::delete(remove))
-        .route("/topics/{id}/name", routing::put(rename))
-        .route("/topics/{id}/parent", routing::put(move_to))
-        .route("/topics/{id}/captures", routing::get(captures))
-        .route(
-            "/topics/{id}/captures/{capture}",
-            routing::put(file).delete(unfile),
-        )
-}
-
 /// Who may do what: people by role; a capture device may read and file its captures.
 async fn allow(
     state: &Shared,

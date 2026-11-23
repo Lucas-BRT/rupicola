@@ -1,4 +1,4 @@
-//! Rupicola backend: the API server every client (web panel, CLI, desktop GUI) talks to.
+//! Rupicola server: the API server every client (web panel, CLI, desktop GUI) talks to.
 //! It is the only process that touches the database and the media store.
 
 mod auth;
@@ -17,6 +17,7 @@ mod problems;
 mod projects;
 mod publish;
 mod removal;
+mod routes;
 mod search;
 mod security;
 mod selections;
@@ -27,10 +28,7 @@ mod testkit;
 mod topics;
 
 use anyhow::{Context, bail};
-use axum::{Json, Router, routing};
 use clap::Parser;
-use error::ApiError;
-use rupicola_api::{Health, HealthStatus};
 use std::{
     io::{Read, Write},
     net::{Ipv4Addr, SocketAddr, TcpStream},
@@ -39,17 +37,10 @@ use std::{
 };
 use tracing_subscriber::EnvFilter;
 
-/// Port the backend listens on unless told otherwise.
+/// Port the server listens on unless told otherwise.
 const DEFAULT_PORT: u16 = 4730;
 /// Shortest accepted setup code, so it cannot be guessed.
 const MIN_SETUP_CODE_LEN: usize = 32;
-/// Password guessing budget per client: a burst of attempts, then one more every
-/// [`SIGN_IN_REFILL_MS`].
-const SIGN_IN_BURST: u32 = 5;
-const SIGN_IN_REFILL_MS: u64 = 12_000;
-/// The longest any upload may take, whatever a setting says: the handler enforces the
-/// project's own limits, and this only stops a request that somehow outlives them.
-const UPLOAD_BACKSTOP: Duration = Duration::from_hours(6);
 /// How long the health probe waits to connect and to read the answer.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -66,7 +57,7 @@ struct Args {
     #[arg(long, env = "RUPICOLA_DB", default_value = ".rupicola/panel.db")]
     db: PathBuf,
     /// Code required to create the first administrator; short codes are refused.
-    /// Without it, setup is only allowed while the backend listens on loopback.
+    /// Without it, setup is only allowed while the server listens on loopback.
     #[arg(long, env = "RUPICOLA_SETUP_CODE", hide_env_values = true)]
     setup_code: Option<String>,
     /// Probe the local listener and exit; used by container health checks.
@@ -82,171 +73,11 @@ struct Args {
     cited_deletion: removal::CitedDeletion,
 }
 
-/// Every route, wrapped in the request hardening from [`security`].
-/// Path of the unversioned health probe used by containers and load balancers.
-const HEALTH_PATH: &str = "/healthz";
-/// Path of the unversioned MCP endpoint, which MCP clients are configured with.
-const MCP_PATH: &str = "/mcp";
-
-/// Every route, wrapped in the request hardening from [`security`]. Versioned
-/// routes are mounted once under [`rupicola_api::PREFIX`], so a future version is
-/// a second `nest` rather than an edit of every path.
-fn app(settings: &security::Security, state: state::Shared) -> Router {
-    let routes = Router::new()
-        .route(HEALTH_PATH, routing::get(health))
-        .nest(rupicola_api::PREFIX, v1(settings))
-        .merge(security::limit_body(
-            Router::new().route(MCP_PATH, routing::post(mcp::serve)),
-            settings.body_limit,
-        ))
-        .fallback(|| async { ApiError::NotFound })
-        .with_state(state.clone());
-    // Streamed uploads keep their own deadlines, from the project's limits, instead of the
-    // request timeout every other route has.
-    let uploads = Router::new()
-        .nest(
-            rupicola_api::PREFIX,
-            Router::new().route(
-                "/projects/{id}/blobs/{sha256}",
-                routing::put(captures::upload),
-            ),
-        )
-        .with_state(state);
-    security::harden(
-        routes,
-        settings,
-        Duration::from_secs(settings.request_timeout),
-    )
-    .merge(security::harden(uploads, settings, UPLOAD_BACKSTOP))
-}
-
-/// The routes the feature modules declare themselves.
-fn modules() -> Router<state::Shared> {
-    Router::new()
-        .merge(design_system::routes())
-        .merge(settings::routes())
-        .merge(publish::routes())
-        .merge(lineage::routes())
-        .merge(topics::routes())
-        .merge(selections::routes())
-        .merge(problems::routes())
-        .merge(fixes::routes())
-        .merge(removal::routes())
-        .merge(search::routes())
-}
-
-/// Version 1 of the API, with paths relative to [`rupicola_api::PREFIX`].
-fn v1(settings: &security::Security) -> Router<state::Shared> {
-    // Password guessing gets a much smaller budget than ordinary API use.
-    let sign_in_limit =
-        security::rate_limit(SIGN_IN_BURST, SIGN_IN_REFILL_MS, settings.behind_proxy);
-    let credentials = Router::new()
-        .route("/sessions", routing::post(auth::sign_in))
-        .route("/setup", routing::post(auth::setup))
-        .route("/register", routing::post(credentials::register))
-        .route("/invites/redeem", routing::post(credentials::redeem))
-        .route_layer(sign_in_limit);
-    let api = Router::new()
-        .merge(modules())
-        .route("/setup", routing::get(auth::setup_status))
-        .route("/me", routing::get(auth::me))
-        .route("/sessions/current", routing::delete(auth::sign_out))
-        .route("/sessions/others", routing::delete(auth::sign_out_others))
-        .route("/me/password", routing::put(auth::change_password))
-        .route(
-            "/projects",
-            routing::get(projects::list).post(projects::create),
-        )
-        .route(
-            "/projects/{id}",
-            routing::get(projects::get)
-                .patch(projects::update)
-                .delete(projects::delete),
-        )
-        .route("/projects/{id}/members", routing::get(projects::members))
-        .route(
-            "/projects/{id}/blobs/missing",
-            routing::post(captures::missing),
-        )
-        .route(
-            "/projects/{id}/members/{handle}",
-            routing::put(projects::put_member).delete(projects::delete_member),
-        )
-        .route("/projects/{id}/audit", routing::get(projects::audit_log))
-        .route(
-            "/projects/{id}/captures",
-            routing::get(captures::list).post(captures::create),
-        )
-        .route("/captures/{id}", routing::get(captures::get))
-        .route(
-            "/captures/{id}/findings",
-            routing::post(captures::add_finding),
-        )
-        .route("/artifacts/{id}", routing::get(captures::artifact))
-        .route(
-            "/projects/{id}/problems",
-            routing::get(problems::list).post(problems::create),
-        )
-        .route(
-            "/problems/{id}",
-            routing::get(problems::get).patch(problems::update),
-        )
-        .route("/problems/{id}/comments", routing::post(problems::comment))
-        .route(
-            "/projects/{id}/fixes",
-            routing::get(fixes::list).post(fixes::create),
-        )
-        .route("/fixes/{id}", routing::get(fixes::get))
-        .route("/fixes/{id}/steps", routing::post(fixes::add_step))
-        .route("/fixes/{id}/reviews", routing::post(fixes::review))
-        .route(
-            "/projects/{id}/design",
-            routing::get(design::list).post(design::create),
-        )
-        .route(
-            "/tokens",
-            routing::get(credentials::list_tokens).post(credentials::create_token),
-        )
-        .route("/tokens/{id}", routing::delete(credentials::delete_token))
-        .route(
-            "/projects/{id}/devices",
-            routing::get(credentials::list_devices).post(credentials::create_device),
-        )
-        .route(
-            "/projects/{id}/devices/{device}",
-            routing::delete(credentials::delete_device),
-        )
-        .route(
-            "/projects/{id}/invites",
-            routing::get(credentials::list_invites).post(credentials::create_invite),
-        )
-        .route(
-            "/projects/{id}/invites/{invite}",
-            routing::delete(credentials::delete_invite),
-        )
-        .merge(credentials);
-    let legacy_uploads = Router::new().route(
-        "/blobs/{sha256}",
-        routing::put(captures::put_blob).head(captures::head_blob),
-    );
-    security::limit_body(api, settings.body_limit).merge(security::limit_body(
-        legacy_uploads,
-        settings.blob_limit.min(security::LEGACY_BLOB_LIMIT),
-    ))
-}
-
-async fn health() -> Json<Health> {
-    Json(Health {
-        status: HealthStatus::Ok,
-        version: env!("CARGO_PKG_VERSION").to_owned(),
-    })
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     if args.healthcheck {
-        let response = fetch(args.port, HEALTH_PATH).context("backend is not reachable")?;
+        let response = fetch(args.port, routes::HEALTH_PATH).context("server is not reachable")?;
         if status_code(&response) != Some(axum::http::StatusCode::OK) {
             bail!("healthcheck failed");
         }
@@ -279,16 +110,16 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(
         address = %listener.local_addr()?,
         behind_proxy = args.security.behind_proxy,
-        "rupicola-backend listening"
+        "rupicola-server listening"
     );
     axum::serve(
         listener,
-        app(&args.security, state).into_make_service_with_connect_info::<SocketAddr>(),
+        routes::app(&args.security, state).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown())
     .await
     .context("server stopped with an error")?;
-    tracing::info!("rupicola-backend stopped");
+    tracing::info!("rupicola-server stopped");
     Ok(())
 }
 
@@ -342,6 +173,7 @@ mod tests {
     use super::*;
     use crate::testkit::*;
     use axum::http::StatusCode;
+    use rupicola_api::{Health, HealthStatus};
 
     /// Length of a hyphenated UUID, the format of request ids.
     const UUID_TEXT_LEN: usize = 36;
@@ -590,7 +422,7 @@ mod tests {
     async fn password_guessing_is_rate_limited_per_client() {
         let port = start(settings()).await;
         let wrong = r#"{"handle":"ana","password":"wrong password here"}"#;
-        for _ in 0..SIGN_IN_BURST {
+        for _ in 0..routes::SIGN_IN_BURST {
             call(port, "POST", "/v1/sessions", None, Some(wrong)).await;
         }
         let limited = call(port, "POST", "/v1/sessions", None, Some(wrong)).await;

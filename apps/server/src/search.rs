@@ -22,11 +22,6 @@ const CURSOR_SEPARATOR: char = '.';
 /// The `include` value that asks for every capture in full.
 const INCLUDE_DETAILS: &str = "details";
 
-/// The routes of the search.
-pub fn routes() -> axum::Router<Shared> {
-    axum::Router::new().route("/projects/{id}/captures/search", axum::routing::get(search))
-}
-
 /// What a search asks for, read from its query string.
 #[derive(Debug, Default, PartialEq)]
 struct Search {

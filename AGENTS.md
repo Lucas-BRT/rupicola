@@ -18,7 +18,7 @@ Operational rules for AI agents working in this repository. Never invent files, 
 - Never overwrite `~/.local/share/rupicola/auth-token` from dev scripts.
 - Remote MCP: `rupicola mcp-bridge` (backend address from `--server-url`, `RUPICOLA_SERVER_URL` or the `server-url` file `rupicola login` writes next to the token) (reads `~/.local/share/rupicola/auth-token` before `RUPICOLA_MCP_TOKEN`). Run the CLI against a dev backend with `XDG_DATA_HOME` pointing at a scratch directory so `login` does not replace your token.
 - `rupicola capture` publishes the finished capture to the backend when `--server-url`, `RUPICOLA_SERVER_URL` or a stored `server-url` names one; without `--out` it captures into a scratch directory that is removed afterwards.
-- Server MCP endpoint (`apps/backend/src/mcp.rs`): `POST /mcp`, authenticated with any bearer token the backend issues. The panel serves no MCP.
+- Server MCP endpoint (`apps/server/src/mcp.rs`): `POST /mcp`, authenticated with any bearer token the backend issues. The panel serves no MCP.
 
 ## Mandatory Verification Before Reporting Done
 Run and observe passing output after your final edit:

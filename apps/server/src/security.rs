@@ -69,7 +69,7 @@ pub struct Security {
     pub max_concurrency: usize,
     /// Set when a TLS-terminating reverse proxy (one hop) sits in front: the client
     /// address is then the last X-Forwarded-For entry, and HSTS is sent. Never set
-    /// it when clients reach the backend directly, or they can forge their address.
+    /// it when clients reach the server directly, or they can forge their address.
     #[arg(long, env = "RUPICOLA_BEHIND_PROXY")]
     pub behind_proxy: bool,
 }

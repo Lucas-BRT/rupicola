@@ -1,6 +1,6 @@
 //! SQLite connection pool and schema migrations.
 //!
-//! Migrations are the numbered `.sql` files in `apps/backend/migrations/`, embedded
+//! Migrations are the numbered `.sql` files in `apps/server/migrations/`, embedded
 //! at build time by `sqlx::migrate!` and recorded (with checksums) in
 //! `_sqlx_migrations`. Never edit a file that has shipped: add a new one.
 

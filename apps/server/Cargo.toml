@@ -1,5 +1,5 @@
 [package]
-name = "rupicola-backend"
+name = "rupicola-server"
 description = "Rupicola API server: the only process that touches the database and media store"
 version.workspace = true
 edition.workspace = true

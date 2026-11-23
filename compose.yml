@@ -53,7 +53,7 @@ services:
     mem_limit: 512m
     pids_limit: 128
     healthcheck:
-      test: ["CMD", "./rupicola-backend", "--healthcheck"]
+      test: ["CMD", "./rupicola-server", "--healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3

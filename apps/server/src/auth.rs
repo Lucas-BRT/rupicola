@@ -382,7 +382,7 @@ pub async fn setup_status(State(state): State<Shared>) -> Result<Json<SetupStatu
 }
 
 /// `POST /v1/setup`: create the first administrator and sign them in. Refused once
-/// one exists, and without the setup code unless the backend only listens on
+/// one exists, and without the setup code unless the server only listens on
 /// loopback.
 pub async fn setup(
     State(state): State<Shared>,

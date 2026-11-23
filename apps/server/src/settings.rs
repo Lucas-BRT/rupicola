@@ -14,23 +14,6 @@ use axum::{
 };
 use rupicola_api::{LimitSetting, LimitSettings, LimitValue, Role};
 
-/// The routes of the limits and their settings.
-pub fn routes() -> axum::Router<Shared> {
-    use axum::routing;
-    axum::Router::new()
-        .route("/projects/{id}/limits", routing::get(crate::limits::get))
-        .route("/settings", routing::get(server))
-        .route(
-            "/settings/{key}",
-            routing::put(set_server).delete(reset_server),
-        )
-        .route("/projects/{id}/settings", routing::get(project))
-        .route(
-            "/projects/{id}/settings/{key}",
-            routing::put(set_project).delete(reset_project),
-        )
-}
-
 /// The setting a path names.
 fn key(raw: &str) -> Result<LimitSetting, ApiError> {
     raw.parse().map_err(|_| {

@@ -1,0 +1,21 @@
+//! Blob uploads, mounted apart from the other routes because their body limits and
+//! deadlines differ.
+
+use crate::{captures, state::Shared};
+use axum::{Router, routing};
+
+/// Streamed uploads into a project, under the project's own limits and deadlines.
+pub fn uploads() -> Router<Shared> {
+    Router::new().route(
+        "/projects/{id}/blobs/{sha256}",
+        routing::put(captures::upload),
+    )
+}
+
+/// `/blobs`: the upload the old capture flow uses, until its clients move to [`uploads`].
+pub fn legacy() -> Router<Shared> {
+    Router::new().route(
+        "/blobs/{sha256}",
+        routing::put(captures::put_blob).head(captures::head_blob),
+    )
+}

@@ -118,8 +118,8 @@ fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Resul
         if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py")
             && ![
                 "apps/panel/src/panel.js",
-                "apps/backend/design/validator.cjs",
-                "apps/backend/design/examples.js",
+                "apps/server/design/validator.cjs",
+                "apps/server/design/examples.js",
                 "apps/panel/tests/design-review.cjs",
                 "apps/panel/dev.sh",
                 "apps/site/assets/site.js",

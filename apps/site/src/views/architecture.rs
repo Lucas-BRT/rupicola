@@ -28,7 +28,7 @@ pub async fn architecture_page(cx: &Cx, panel_url: &str) -> Result<impl View> {
                     <p class="muted">"MSRV 1.85.0. Runs " <code>"discover"</code> ", " <code>"scan"</code> ", " <code>"capture"</code> ", " <code>"publish"</code> ", " <code>"video"</code> ", " <code>"audit"</code> ", and the " <code>"mcp-bridge"</code> " to the backend."</p>
                 )
                 article_card(
-                    <h3><code>"rupicola-backend"</code> " (API)"</h3>
+                    <h3><code>"rupicola-server"</code> " (API)"</h3>
                     <p class="muted">"Axum + SQLite: accounts, projects, captures, problems, fixes, design records, the media store and the MCP endpoint at " <code>"/mcp"</code> "."</p>
                 )
                 article_card(

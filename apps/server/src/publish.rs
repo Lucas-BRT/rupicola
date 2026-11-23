@@ -20,11 +20,6 @@ use rupicola_api::{
 };
 use std::collections::HashMap;
 
-/// The routes of publishing.
-pub fn routes() -> axum::Router<Shared> {
-    axum::Router::new().route("/projects/{id}/captures/{capture}", axum::routing::put(put))
-}
-
 /// `PUT /v1/projects/{id}/captures/{capture}`: keeps the capture record, whose files the
 /// project must already hold. 201 when it is new, 200 when the same record was kept before,
 /// 409 when the id holds other content.
