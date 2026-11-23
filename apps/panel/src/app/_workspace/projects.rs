@@ -7,7 +7,7 @@ use crate::{
     Account, Arc, Deserialize, PageResult, Panel, StatusCode, auth,
     project::{Filter, catalog, visible_runs},
     records, redirect, safe_name,
-    views::projects::{Projects, projects_page},
+    views::projects::{ProjectName, Projects, projects_page},
 };
 use rupicola_api::NewProject;
 use std::collections::BTreeMap;
@@ -38,14 +38,17 @@ async fn load(cx: &Cx, filter: &Filter) -> PageResult<Projects> {
     let search = query.trim().to_lowercase();
     let empty_catalog = projects.is_empty();
     let total = projects.len();
-    let visible: Vec<(String, String)> = projects
+    let visible: Vec<ProjectName> = projects
         .into_iter()
-        .filter(|(id, label)| {
-            search.is_empty() || id.contains(&search) || label.to_lowercase().contains(&search)
+        .map(|(id, label)| ProjectName { id, label })
+        .filter(|project| {
+            search.is_empty()
+                || project.id.contains(&search)
+                || project.label.to_lowercase().contains(&search)
         })
         .collect();
     let mut summaries = BTreeMap::new();
-    for (id, _) in &visible {
+    for ProjectName { id, .. } in &visible {
         if let Some(entry) = records::design(cx, id).await?.into_iter().next() {
             summaries.insert(
                 id.clone(),

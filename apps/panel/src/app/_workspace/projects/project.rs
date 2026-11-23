@@ -14,8 +14,7 @@ mod videos;
 use crate::app::{_workspace::title, fail};
 use crate::{
     backend::Failure,
-    media,
-    project::{Context, pick_hero_checkpoint},
+    project::{Context, Proof},
     records,
     views::project::{
         Tab,
@@ -90,17 +89,7 @@ async fn overview(cx: &Cx) -> Result<impl View> {
         })
         .count();
     let recent: Vec<_> = related.iter().copied().take(RECENT_CAPTURES).collect();
-    let latest_project_evidence = related
-        .iter()
-        .filter(|run| run.status == "complete")
-        .find_map(|run| {
-            let checkpoint = pick_hero_checkpoint(&run.manifest.checkpoints)?;
-            Some((
-                format!("/run/{}", run.key),
-                media::url(&checkpoint.path),
-                run.scenario.clone(),
-            ))
-        });
+    let latest_project_evidence = Proof::newest(related.iter().copied());
     let data = Overview {
         base: &project.base,
         latest_project_evidence,

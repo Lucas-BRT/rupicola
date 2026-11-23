@@ -2,8 +2,8 @@
 
 use crate::app::{_workspace::title, fail};
 use crate::{
-    PageResult, media,
-    project::{self, Filter, pick_hero_checkpoint},
+    PageResult,
+    project::{self, Filter, Proof},
     records,
     views::dashboard::{Activity, Dashboard, dashboard_board, dashboard_frame},
 };
@@ -72,17 +72,7 @@ async fn load(cx: &Cx, filter: Filter) -> PageResult<Dashboard> {
         .filter(|r| r.status == "complete" && r.inspection == "pending")
         .count();
     let blocked = runs.iter().filter(|r| r.status == "blocked").count();
-    let latest_evidence = runs
-        .iter()
-        .filter(|run| run.status == "complete")
-        .find_map(|run| {
-            let checkpoint = pick_hero_checkpoint(&run.manifest.checkpoints)?;
-            Some((
-                format!("/run/{}", run.key),
-                media::url(&checkpoint.path),
-                run.scenario.clone(),
-            ))
-        });
+    let latest_evidence = Proof::newest(&runs);
     let queue = runs
         .iter()
         .enumerate()

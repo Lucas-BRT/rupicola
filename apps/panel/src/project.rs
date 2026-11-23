@@ -164,6 +164,29 @@ impl Context {
     }
 }
 
+/// The newest verified capture's screenshot and the page it links to.
+pub struct Proof {
+    pub href: String,
+    pub image: String,
+    pub scenario: String,
+}
+
+impl Proof {
+    /// Of `runs`, newest first, the first complete one that has a screenshot to show.
+    pub fn newest<'a>(runs: impl IntoIterator<Item = &'a Run>) -> Option<Self> {
+        runs.into_iter()
+            .filter(|run| run.status == "complete")
+            .find_map(|run| {
+                let checkpoint = pick_hero_checkpoint(&run.manifest.checkpoints)?;
+                Some(Self {
+                    href: format!("/run/{}", run.key),
+                    image: media::url(&checkpoint.path),
+                    scenario: run.scenario.clone(),
+                })
+            })
+    }
+}
+
 pub fn pick_hero_checkpoint(checkpoints: &[Checkpoint]) -> Option<&Checkpoint> {
     checkpoints
         .iter()

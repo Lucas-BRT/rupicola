@@ -4,7 +4,10 @@ use crate::components::{
     },
     layout::page_title,
 };
-use crate::{Run, project::Filter};
+use crate::{
+    Run,
+    project::{Filter, Proof},
+};
 use rupicola_core::design_record::{Kind, Status};
 use topcoat::{
     Result,
@@ -29,8 +32,7 @@ pub struct Dashboard {
     pub activity: Vec<Activity>,
     pub pending: usize,
     pub blocked: usize,
-    /// Link, image and scenario of the newest verified capture.
-    pub latest_evidence: Option<(String, String, String)>,
+    pub latest_evidence: Option<Proof>,
     pub runs: Vec<Run>,
     /// Positions in `runs` of the captures the queue lists.
     pub queue: Vec<usize>,
@@ -64,8 +66,8 @@ pub async fn dashboard_board(cx: &Cx, data: &Dashboard) -> Result<impl View> {
     Ok(view! {
         <div class="studio-board">
             <div class="studio-evidence">
-                if let Some((href, image, scenario)) = latest_evidence {
-                    proof_card(href: href, image: image, scenario: scenario,
+                if let Some(proof) = latest_evidence {
+                    proof_card(href: &proof.href, image: &proof.image, scenario: &proof.scenario,
                         <h2>"Latest evidence"</h2>
                     )
                 }

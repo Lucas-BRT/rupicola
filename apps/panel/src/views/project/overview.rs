@@ -1,7 +1,7 @@
-use crate::Run;
 use crate::components::display::{
     chip, counts, link_button, metric, proof_card, run_list, section_head,
 };
+use crate::{Run, project::Proof};
 use rupicola_core::design_record;
 use std::collections::BTreeSet;
 use topcoat::{
@@ -13,8 +13,7 @@ use topcoat::{
 /// What the overview shows besides the project's name.
 pub struct Overview<'a> {
     pub base: &'a str,
-    /// Link, image and scenario of the newest verified capture.
-    pub latest_project_evidence: Option<(String, String, String)>,
+    pub latest_project_evidence: Option<Proof>,
     pub records: Vec<design_record::Entry>,
     pub captures: usize,
     pub assets: usize,
@@ -43,8 +42,8 @@ pub async fn overview_tab(cx: &Cx, data: Overview<'_>) -> Result<impl View> {
             .filter(|entry| !superseded.contains(entry.id.as_str()))
             .count();
         <div class="overview-hero">
-            if let Some((href, image, scenario)) = &latest_project_evidence {
-                proof_card(href: href, image: image, scenario: scenario,
+            if let Some(proof) = &latest_project_evidence {
+                proof_card(href: &proof.href, image: &proof.image, scenario: &proof.scenario,
                     section_head(title: "Latest evidence", chip("1440×900 · verified"))
                 )
             }

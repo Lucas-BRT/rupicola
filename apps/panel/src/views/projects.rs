@@ -7,14 +7,20 @@ use topcoat::{
     view::{View, component, view},
 };
 
+/// A project's id and the label it goes by.
+pub struct ProjectName {
+    pub id: String,
+    pub label: String,
+}
+
 /// What the project list shows.
 pub struct Projects {
     /// The search the visitor typed, as typed.
     pub query: String,
     /// The search, trimmed and lower-cased.
     pub search: String,
-    /// The projects that match: id and label.
-    pub visible: Vec<(String, String)>,
+    /// The projects that match.
+    pub visible: Vec<ProjectName>,
     pub total: usize,
     pub empty_catalog: bool,
     pub summaries: BTreeMap<String, String>,
@@ -44,7 +50,7 @@ pub async fn projects_page(cx: &Cx, data: &Projects) -> Result<impl View> {
             empty(message: if search.is_empty() { "No projects yet." } else { "No projects match that search." })
         }
         <div class="project-index">
-            for (id, label) in visible {
+            for ProjectName { id, label } in visible {
                 project_card(id: id, label: label, summary: summaries.get(id).map(String::as_str))
             }
         </div>
