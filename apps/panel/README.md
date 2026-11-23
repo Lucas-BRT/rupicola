@@ -17,7 +17,7 @@ rupicola serve --server-url http://127.0.0.1:4730
 Go to http://127.0.0.1:4731 and create the owner account on first access.
 Captures, their media and their review notes live in the backend: publish them with
 `rupicola capture --server-url …` or `rupicola publish`, and the panel reads them from there.
-The panel's own database (`--db`) now only holds design-system versions. Running `rupicola design open` in a checkout registers it before its first capture. The project’s **Design** page shows the brief, art direction, tactics and decisions recorded by the CLI. Use **Projects → Create a project** to prepare a
+The panel's own database (`--db`) now only holds design-system versions. The project’s **Design** page shows the brief, art direction, tactics and decisions agents recorded in the backend. Use **Projects → Create a project** to prepare a
 project before its first upload.
 
 Tailwind's standalone compiler is fetched at build time. Set `TAILWIND_CLI` to

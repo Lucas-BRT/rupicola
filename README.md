@@ -80,21 +80,12 @@ rupicola discover /path/to/project --json
 rupicola scan /path/to/project --json
 rupicola scan page.rs --framework leptos --json
 rupicola check /path/to/rupicola --json
-rupicola problem list --project my-app --json
-rupicola problem claim <problem-id> --agent codex-ui --activity "Inspecting evidence and violated norms"
-rupicola problem progress <problem-id> --agent codex-ui --stage verifying --step 3 --total-steps 4 --pct 80 --activity "Running Playwright matrix verification"
-rupicola fix record --project my-app --problem <problem-id> --title "Fix hairline seams" --summary "Unified 1px grid seams" --before-url /media/0/before/shot.png --after-url /media/0/after/shot.png
-rupicola propose list --project my-app --json
-rupicola storage status --project my-app
-rupicola storage clean --mode strip-frames --project my-app
-rupicola storage offload --fix <fix-id> --project my-app
 rupicola diff before.png after.png --out diff.png
 rupicola frames frames-dir
 rupicola video frames-dir --out anim.mp4 --fps 60
 rupicola video --raw --width 560 --height 780 --fps 60 --pixel-format premultiplied-rgba --save-frames frames-dir --out anim.mp4
 rupicola palette reference.png
 rupicola sheet shots --out sheet.png
-rupicola matrix --cmd '<capture command>' --out shots --states default,empty --themes light,dark --dry-run
 rupicola audit tree.json --json
 rupicola rules --json
 rupicola modules --json
@@ -111,7 +102,7 @@ rupicola modules --json
 | `2` | Candidates requiring contextual review |
 | `3` | No supported analysis, or unsupported files without candidates |
 
-`diff`, `frames` and `audit` exit `0` when clean and `2` when they find differences or problems; `matrix` exits `1` when a capture failed; `video` exits `0` on a valid MP4 and `1` on input or `ffmpeg` errors (including missing `ffmpeg`). Use `video` and `rupicola::capture::RamCapture` whenever you need to audit UI animations or transitions in the background without Xvfb or touching the user's live desktop: render offscreen frames into RAM at deterministic timestamps (e.g., `iced_tiny_skia` -> `tiny_skia::Pixmap`), measure per-frame CPU raster time, inspect lossless PNGs with `frames`/`sheet`/`diff`, and assemble a CFR MP4 (`libx264`, `yuv420p`, even-dimension padding) with `video` for smooth motion review. Use a real compositor capture (PipeWire `ScreenCast` v5 `persist_mode = 2` + `restore_token`) only when compositor-level behavior (`xdg_popup`, `autosize`, real 60 Hz `wl_callback`) must be verified. These helpers never launch an application themselves (`matrix` runs only the command you give it), and measure, not certify. See [visual verification](reference/visual-verification.md). Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
+`diff`, `frames` and `audit` exit `0` when clean and `2` when they find differences or problems; `video` exits `0` on a valid MP4 and `1` on input or `ffmpeg` errors (including missing `ffmpeg`). Use `video` and `rupicola::capture::RamCapture` whenever you need to audit UI animations or transitions in the background without Xvfb or touching the user's live desktop: render offscreen frames into RAM at deterministic timestamps (e.g., `iced_tiny_skia` -> `tiny_skia::Pixmap`), measure per-frame CPU raster time, inspect lossless PNGs with `frames`/`sheet`/`diff`, and assemble a CFR MP4 (`libx264`, `yuv420p`, even-dimension padding) with `video` for smooth motion review. Use a real compositor capture (PipeWire `ScreenCast` v5 `persist_mode = 2` + `restore_token`) only when compositor-level behavior (`xdg_popup`, `autosize`, real 60 Hz `wl_callback`) must be verified. These helpers never launch an application themselves, and measure, not certify. See [visual verification](reference/visual-verification.md). Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
 
 Traversal skips hidden directories, nested symlinks, generated output, `target/` and dependency folders. Tests/examples/fixtures/benches are excluded unless `--include-tests` is supplied. An explicit symlink root is resolved before traversal.
 
@@ -126,68 +117,30 @@ Paths are relative to the directory containing `.rupicola`. A standalone `// rup
 
 Project decisions live in `.rupicola/context.md` when explicitly requested. Visit recording is opt-in. See [project context](reference/project-context.md), [reports](reference/reports.md) and [verification](reference/verification.md).
 
-## Capture and review a web scenario
+## Capture a web scenario
 
 ```sh
-rupicola capture settings.toml --out .rupicola/captures/before --video
-rupicola capture-review .rupicola/captures/before/manifest.json --note "The popup opens and its heading is visible."
-cargo install --path apps/panel --locked
-rupicola serve --captures .rupicola/captures
+export RUPICOLA_SERVER_URL=https://rupicola.example.com
+rupicola auth set-token            # once: the token the backend issued
+rupicola capture settings.toml --video
 ```
 
-The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel reads captures from the backend and supports shared review behind an HTTPS reverse proxy. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
+The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews, then publishes them to the backend named by `RUPICOLA_SERVER_URL` or `--server-url`. Without a server the capture stays in the directory given by `--out`. In a Git checkout the project is detected from Git; `rupicola link PROJECT_ID` chooses an explicit ID. `rupicola publish DIR` uploads a capture made earlier.
 
-## Run the local panel in the background
+The backend (`apps/backend`) owns accounts, projects, captures, problems, fixes, design records and the media store. The Topcoat panel (`rupicola serve --server-url …`) and the CLI are clients of its API. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
 
-On Linux, install the CLI and panel once, then register the panel with the user
-systemd manager:
+## Agents: design context, problems and fixes
 
-```sh
-cargo install --path apps/cli --locked
-cargo install --path apps/panel --locked
-rupicola setup
-```
+Agents reach the backend through the MCP bridge (`rupicola mcp-bridge`, below). Its tools list and record design context (`design_list`, `design_record`), review captures (`capture_review`), file and triage problems (`problem_*`) and record fixes (`fix_*`). Use `brief`, `direction`, `tactic` or `decision` for design records; `supersedes` names the record a new one replaces and `evidence` an artifact of the project's captures.
 
-Run captures from a Git checkout without `--out`. Rupicola detects the local Git
-repository, groups its worktrees under the same ID and writes evidence to the
-shared directory. Use `rupicola link PROJECT_ID` to choose an explicit ID. Captures and inspection notes
-remain available on disk while the service is stopped and appear when the
-service resumes. Use `rupicola doctor` to check the link and service.
-`setup --print-unit` previews the unit.
+## Visual QA Pipeline & Web Panel (Captures → Problems → Fixes)
 
-Open http://127.0.0.1:4731. The background service is local. Shared HTTPS
-publication still uses the [panel's explicit publish command](apps/panel/README.md).
+The Topcoat web panel (`rupicola-panel`) organizes visual engineering into a structured pipeline per project, all read from the backend:
 
-## Record project design context
-
-The skill calls `rupicola design open` from the checkout before design work.
-The project appears in **Projects** on the local panel even with no captures.
-
-```sh
-rupicola design open
-rupicola design add direction --title "Graphite and copper" \
-  --note "Keep capture media prominent and use copper for the review action." --surface "Review"
-rupicola design add tactic --status proposed --title "Aligned comparison" \
-  --note "Put paired screenshots on equal tracks when the review pane has room."
-```
-
-Use `brief`, `direction`, `tactic` or `decision`. Add `--supersedes ENTRY_ID`
-to revise a record while preserving history, `--reference URL` to attach a
-design reference, or `--evidence /path/to/manifest.json` to attach a capture
-stored in the same project's shared directory.
-
-The panel reads the design register beside its database. For the per-user
-service, this is the same local data directory that the CLI uses. Shared
-HTTPS capture publication does not sync the design register.
-
-## Visual QA Pipeline & Web Panel (Captures → Problems → Fixes → Storage)
-
-The Topcoat web panel (`rupicola-panel`) organizes visual engineering into a structured pipeline per project:
-
-- **`Captures` (`/projects/{id}/captures`):** Unified research hub combining matrix runs, screenshots, contact sheets, and interaction recordings with a **Screen health** filter (`All captured screens`, `Clean / verified only`, `With problems only`, `Unanalyzed`), inline `Run inspection matrix` launcher (`page-check`, `all-pages`, `responsive-matrix`, `interaction-map`, `exhaustive`), and 1-click problem extraction (`Extract problems` / `Flag problem`).
-- **`Problems` (`/projects/{id}/problems`):** Structured triage queue linking captured evidence assets, violated **Global Norms** (`SKILL.md` / `reference/`) and **Project Design Norms**, root-cause diagnosis, proposed solution, and a live **Agent & Task Execution Tracker** (`AGENT`, `STAGE`, `STEP X / Y · Z%`, `<progress>` bar, activity log, and `2.5s` live polling via `/projects/{id}/problems/status.json`). Problems marked `Intentional` or `False positive` are automatically suppressed in subsequent captures.
-- **`Fixes` (`/projects/{id}/fixes`):** Interactive Before/After verification workbench supporting both static screenshots (`.png`) and motion recordings (`.mp4` / `.webm`) across **`Split Slider`**, **`Side by Side`**, **`Video Player (Slow-Mo 1× / 0.5× / 0.25×)`**, and **`Pixel Diff`**, plus applied tactics, modified files, intermediate steps timeline, and user approval (`Approve Fix` / `Request Changes`).
-- **`Design` (`/projects/{id}/design`):** The project design register, versioned systems, interactive screen templates, and proposals. The old Proposes list redirects to Design; existing HTML previews and attachments keep their URLs.
+- **`Captures` (`/projects/{id}/captures`):** Research hub with screenshots, contact sheets and interaction recordings, a **Screen health** filter (`All captured screens`, `Clean / verified only`, `With problems only`, `Unanalyzed`) and 1-click problem extraction (`Extract problems` / `Flag problem`).
+- **`Problems` (`/projects/{id}/problems`):** Structured triage queue linking captured evidence, violated **Global Norms** (`SKILL.md` / `reference/`) and **Project Design Norms**, root-cause diagnosis and proposed solution. Problems marked `Intentional` or `False positive` are suppressed when later captures are analysed.
+- **`Fixes` (`/projects/{id}/fixes`):** Before/After verification workbench for screenshots (`.png`) and recordings (`.mp4` / `.webm`) across **`Split Slider`**, **`Side by Side`**, **`Video Player (Slow-Mo 1× / 0.5× / 0.25×)`** and **`Pixel Diff`**, plus applied tactics, modified files, a steps timeline and review (`Approve Fix` / `Request Changes`).
+- **`Design` (`/projects/{id}/design`):** The project design register, versioned systems and interactive screen templates.
 
 ### Review a design system
 

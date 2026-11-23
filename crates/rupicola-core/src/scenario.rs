@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -759,77 +759,6 @@ fn analyze_clip(
     clip.frames = selected_frames;
     clip.analysis_path = Some(analysis_path);
     Ok(video_error)
-}
-
-/// Add a human or agent observation without claiming visual verification from capture alone.
-///
-/// # Errors
-///
-/// Returns an error if the note is empty, the manifest is invalid or unreadable, the evidence is outside the run or missing, or the review cannot be written.
-pub fn review(path: &Path, note: String, evidence: Option<PathBuf>) -> Result<()> {
-    if note.trim().is_empty() {
-        bail!("provide a concrete inspection note");
-    }
-    let path = fs::canonicalize(path).with_context(|| format!("{}", path.display()))?;
-    let directory = path
-        .parent()
-        .ok_or_else(|| anyhow!("run directory is missing"))?;
-    let lock = directory.join(".review.lock");
-    fs::create_dir(&lock).with_context(|| format!("acquire {}", lock.display()))?;
-    let _lock = ReviewLock(lock);
-    let contents = fs::read(&path).with_context(|| format!("{}", path.display()))?;
-    let mut manifest: serde_json::Value =
-        serde_json::from_slice(&contents).with_context(|| format!("{}", path.display()))?;
-    if manifest["version"].as_u64() != Some(1) {
-        bail!("capture review requires a v1 evidence manifest");
-    }
-    if let Some(reference) = &evidence {
-        let artifacts: BrowserResult =
-            serde_json::from_value(manifest.clone()).context("invalid evidence manifest")?;
-        if reference
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-            || !artifacts.contains(reference)
-            || !fs::canonicalize(directory.join(reference))
-                .is_ok_and(|target| target.starts_with(directory) && target.is_file())
-        {
-            bail!("evidence must name an existing artifact relative to the run");
-        }
-    }
-    let finding = serde_json::to_value(Finding { note, evidence })?;
-    let object = manifest
-        .as_object_mut()
-        .ok_or_else(|| anyhow!("invalid evidence manifest"))?;
-    object
-        .entry("findings")
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .ok_or_else(|| anyhow!("manifest findings must be an array"))?
-        .push(finding);
-    object.insert("inspection".into(), serde_json::json!("reviewed"));
-    write_json(&path, &manifest)
-}
-
-impl BrowserResult {
-    fn contains(&self, path: &Path) -> bool {
-        self.checkpoints
-            .iter()
-            .any(|checkpoint| checkpoint.path == path)
-            || self.clips.iter().any(|clip| {
-                clip.frames.iter().any(|frame| frame.path == path)
-                    || [&clip.analysis_path, &clip.sheet_path, &clip.video_path]
-                        .iter()
-                        .any(|artifact| artifact.as_deref() == Some(path))
-            })
-    }
-}
-
-struct ReviewLock(PathBuf);
-
-impl Drop for ReviewLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.0);
-    }
 }
 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {

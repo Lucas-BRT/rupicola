@@ -60,7 +60,8 @@ id = "opened"
 
 Actions use Playwright locator selectors and support `click`, `hover`, `fill` (with `value`), `press` (with `key`), and `ready` (wait for a visible element). Checkpoints and clips need distinct IDs with ASCII letters, digits, hyphens or underscores. A clip captures a baseline, performs its trigger, then samples the viewport. Keep each clip at 2–60 post-trigger samples spanning at most 10 seconds. Use another profile for dark theme, a different viewport or reduced motion.
 
-In a Git checkout, omit `--out` to write directly to the local panel directory.
+In a Git checkout, omit `--out` to capture into a scratch directory that is removed
+after publishing to the backend (`--server-url` or `RUPICOLA_SERVER_URL`).
 Rupicola detects the project from Git or uses an explicit `rupicola link`.
 The `[project]` section is optional in this mode. With `--out`, supply that
 section to choose the project recorded in the manifest.
@@ -71,14 +72,8 @@ Open the checkpoints and clip contact sheets. The clip's `analysis.json` records
 
 The run retains the baseline, midpoint and last PNG, plus frames near changes or flagged steps where available. The manifest points to those frames and the analysis, contact sheet and optional MP4. The run removes the other PNG samples after processing.
 
-Compare the same checkpoint across runs with `rupicola diff` or use the optional local panel. Record a concrete observation after inspecting the evidence:
+Compare the same checkpoint across runs with `rupicola diff` or in the panel. Record a concrete observation after inspecting the evidence, with the `capture_review` MCP tool or the panel's review form; `evidence_artifact_id` points at one of the capture's artifacts.
 
-```sh
-rupicola capture-review .rupicola/captures/settings-before/manifest.json \
-  --note 'Popup becomes visible but keyboard focus stays on the toolbar button.' \
-  --evidence checkpoints/opened.png
-```
-
-Capture status and inspection status are independent. The command appends a finding and marks inspection recorded. After an authorized fix, rerun the same scenario into a new directory with the updated revision, then inspect and record new observations. If an interrupted review leaves `.review.lock`, remove the empty lock directory only after confirming there is no review in progress.
+Capture status and inspection status are independent. A review appends a finding and marks inspection recorded. After an authorized fix, rerun the same scenario with the updated revision, then inspect and record new observations.
 
 The [Playwright Browser API](https://playwright.dev/docs/api/class-browser) documents the context settings used here.
