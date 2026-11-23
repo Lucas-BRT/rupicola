@@ -80,13 +80,6 @@ rupicola discover /path/to/project --json
 rupicola scan /path/to/project --json
 rupicola scan page.rs --framework leptos --json
 rupicola check /path/to/rupicola --json
-rupicola diff before.png after.png --out diff.png
-rupicola frames frames-dir
-rupicola video frames-dir --out anim.mp4 --fps 60
-rupicola video --raw --width 560 --height 780 --fps 60 --pixel-format premultiplied-rgba --save-frames frames-dir --out anim.mp4
-rupicola palette reference.png
-rupicola sheet shots --out sheet.png
-rupicola audit tree.json --json
 rupicola rules --json
 rupicola modules --json
 ```
@@ -102,7 +95,7 @@ rupicola modules --json
 | `2` | Candidates requiring contextual review |
 | `3` | No supported analysis, or unsupported files without candidates |
 
-`diff`, `frames` and `audit` exit `0` when clean and `2` when they find differences or problems; `video` exits `0` on a valid MP4 and `1` on input or `ffmpeg` errors (including missing `ffmpeg`). Use `video` and `rupicola::capture::RamCapture` whenever you need to audit UI animations or transitions in the background without Xvfb or touching the user's live desktop: render offscreen frames into RAM at deterministic timestamps (e.g., `iced_tiny_skia` -> `tiny_skia::Pixmap`), measure per-frame CPU raster time, inspect lossless PNGs with `frames`/`sheet`/`diff`, and assemble a CFR MP4 (`libx264`, `yuv420p`, even-dimension padding) with `video` for smooth motion review. Use a real compositor capture (PipeWire `ScreenCast` v5 `persist_mode = 2` + `restore_token`) only when compositor-level behavior (`xdg_popup`, `autosize`, real 60 Hz `wl_callback`) must be verified. These helpers never launch an application themselves, and measure, not certify. See [visual verification](reference/visual-verification.md). Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality.
+Discovery and skill validation return `1` on diagnostics. A clean scan does not establish UI quality. See [visual verification](reference/visual-verification.md).
 
 Traversal skips hidden directories, nested symlinks, generated output, `target/` and dependency folders. Tests/examples/fixtures/benches are excluded unless `--include-tests` is supplied. An explicit symlink root is resolved before traversal.
 
@@ -117,14 +110,14 @@ Paths are relative to the directory containing `.rupicola`. A standalone `// rup
 
 Project decisions live in `.rupicola/context.md` when explicitly requested. Visit recording is opt-in. See [project context](reference/project-context.md), [reports](reference/reports.md) and [verification](reference/verification.md).
 
-## Capture a web scenario
+## Publish captures & work with a backend
 
 ```sh
 rupicola login --server-url https://rupicola.example.com   # once: asks for the password, stores a token
-rupicola capture settings.toml --video
+rupicola publish DIR
 ```
 
-The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews, then publishes them to the backend named by `--server-url`, `RUPICOLA_SERVER_URL` or, failing both, the one `rupicola login` stored. Without a backend the capture stays in the directory given by `--out`. `rupicola whoami` shows who the stored token acts as and `rupicola logout` forgets it; the token stays valid on the backend until it is revoked from a signed-in session. In a Git checkout the project is detected from Git; `rupicola link PROJECT_ID` chooses an explicit ID. `rupicola publish DIR` uploads a capture made earlier.
+`rupicola publish DIR` uploads a finished capture bundle (`manifest.json` and its media files, produced by a server-managed or external capture driver) to the backend named by `--server-url`, `RUPICOLA_SERVER_URL` or, failing both, the one `rupicola login` stored. `rupicola whoami` shows who the stored token acts as and `rupicola logout` forgets it; the token stays valid on the backend until it is revoked from a signed-in session. In a Git checkout the project is detected from Git; `rupicola link PROJECT_ID` chooses an explicit ID.
 
 ### Work with a backend from the terminal
 
@@ -140,7 +133,7 @@ rupicola design [list|add --file F]
 
 `create`, `step` and `add` take the JSON of the API's `NewProblem`, `NewFix`, `NewStep` and `NewDesignEntry` (`--file -` reads standard input). Design systems are served by the API and the panel, not yet by the CLI.
 
-The server (`apps/server`) owns accounts, projects, captures, problems, fixes, design records and the media store. The Topcoat panel (`rupicola serve --server-url …`) and the CLI are clients of its API. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
+The server (`apps/server`) owns accounts, projects, captures, problems, fixes, design records and the media store. The Topcoat panel (`rupicola-panel`) and the CLI (`rupicola`) are clients of its API. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md).
 
 ## Agents: design context, problems and fixes
 
@@ -153,15 +146,11 @@ The Topcoat web panel (`rupicola-panel`) organizes visual engineering into a str
 - **`Captures` (`/projects/{id}/captures`):** Research hub with screenshots, contact sheets and interaction recordings, a **Screen health** filter (`All captured screens`, `Clean / verified only`, `With problems only`, `Unanalyzed`) and 1-click problem extraction (`Extract problems` / `Flag problem`).
 - **`Problems` (`/projects/{id}/problems`):** Structured triage queue linking captured evidence, violated **Global Norms** (`SKILL.md` / `reference/`) and **Project Design Norms**, root-cause diagnosis and proposed solution. Problems marked `Intentional` or `False positive` are suppressed when later captures are analysed.
 - **`Fixes` (`/projects/{id}/fixes`):** Before/After verification workbench for screenshots (`.png`) and recordings (`.mp4` / `.webm`) across **`Split Slider`**, **`Side by Side`**, **`Video Player (Slow-Mo 1× / 0.5× / 0.25×)`** and **`Pixel Diff`**, plus applied tactics, modified files, a steps timeline and review (`Approve Fix` / `Request Changes`).
-- **`Design` (`/projects/{id}/design`):** The project design register, versioned systems and interactive screen templates.
+- **`Design` (`/projects/{id}/design`):** The project design register and versioned design systems.
 
 ### Review a design system
 
-Open **Design → System** and create a draft. Fill in identity and usage, semantic colors, typography, spacing, component guidance, and template content. **Screens** renders a live component library plus Home, Work queue, Settings, and Evidence review examples with the same tokens. The queue filters real example rows, settings update the demo, and evidence uses bundled images and WebM clips. Example actions do not write project data.
-
-Select **Validate examples**. The panel checks token syntax and contrast, then drives Chromium at 320 and 1440 CSS pixels through the component states, landing navigation, queue filters and empty state, settings form, and image and clip comparison. The report links captures of each example. When a system is already adopted, it captures that baseline with the same content and viewport. If the browser is missing, validation is blocked. Saving a change invalidates the previous report, and an unvalidated draft cannot be submitted. Submitting freezes the preview. A change to the adopted baseline before submission requires validation again. Review, variations, and explicit adoption live under **Design → Proposals**.
-
-The panel Docker image includes the browser runner. For a native panel, install Node.js and Playwright on the panel host with its Chromium browser. If Playwright is not available via Node's default module lookup, set `RUPICOLA_PLAYWRIGHT_MODULE` to the absolute path of the installed module. `RUPICOLA_CHROMIUM` optionally selects a system Chromium executable.
+Open **Design → System** and create or inspect a draft (identity and usage, semantic colors, typography, spacing, and component guidance). Review, variations, and explicit adoption live under **Design → Proposals**.
 - **`Storage` (`/projects/{id}/storage`):** Disk usage telemetry grouped **By Fix**, **By Date**, **By Capture Run**, and **By Asset Category**, with selective cleanup (`Strip raw clip frames`, `Prune unpinned runs`) and external bucket offload (`S3-Compatible / Cloudflare R2 / MinIO / B2`, `rclone`, or mounted volume) with optional automatic offload when a Fix is approved.
 
 ## Docker & Open-Internet Deployment (Dokploy / Traefik)
@@ -183,7 +172,7 @@ Security posture for open-internet multi-device deployments:
 - **Zero raw host port exposure in `compose.yml`:** traffic enters exclusively through Traefik over TLS (`dokploy-network`, container port `4731`).
 - **Bootstrap & Auth hardening:** the backend requires `RUPICOLA_SETUP_CODE` (>= 32 chars, SHA-256 constant-time check) for initial owner creation unless it listens on loopback only. Passwords use **Argon2id** with sliding-window rate-limiting (8 failed attempts / 5 min lockout), concurrency semaphore (`429 Too Many Requests`), constant-time dummy verification against user enumeration, `HttpOnly; SameSite=Lax; Secure` session cookies, strict `Host` and `Origin` header pinning, per-session CSRF tokens, and authenticated web password rotation (`Settings → Change password`).
 - **Container hardening:** runs as non-root `uid 10001:10001` (`rupicola`) with `read_only: true`, `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`, `pids_limit: 128`, `mem_limit: 512m`, and a native self-contained `./rupicola-panel --healthcheck` probe.
-- **Multi-device capture publishing:** publish from any workstation or CI runner with `rupicola capture <scenario> --server-url https://atelier.example.com` or `rupicola publish <run-dir> --server-url https://atelier.example.com`, using the token `rupicola login` stored (`rupicola auth set-token` stores one issued some other way).
+- **Multi-device capture publishing:** publish from any workstation or CI runner with `rupicola publish <run-dir> --server-url https://atelier.example.com`, using the token `rupicola login` stored (`rupicola auth set-token` stores one issued some other way).
 
 ## Development
 

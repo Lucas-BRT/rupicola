@@ -16,7 +16,7 @@ rupicola serve --server-url http://127.0.0.1:4730
 
 Go to http://127.0.0.1:4731 and create the owner account on first access.
 Captures, their media and their review notes live in the backend: publish them with
-`rupicola capture --server-url …` or `rupicola publish`, and the panel reads them from there.
+`rupicola publish`, and the panel reads them from there.
 The panel keeps no data of its own: accounts, projects, captures, problems, fixes, design records and design systems live in the backend. The project’s **Design** page shows the brief, art direction, tactics and decisions agents recorded in the backend. Use **Projects → Create a project** to prepare a
 project before its first upload.
 
@@ -92,8 +92,7 @@ The container runs as non-root `10001:10001` with a read-only root filesystem, `
 The panel does not take uploads. Publish captures to the backend with the CLI:
 
 ```sh
-rupicola capture scenario.toml --server-url https://atelier.example.org
 rupicola publish path/to/capture --server-url https://atelier.example.org
 ```
 
-Both use the token stored by `rupicola login`. Uploaded runs start with inspection pending.
+It uses the token stored by `rupicola login`. Uploaded runs start with inspection pending.

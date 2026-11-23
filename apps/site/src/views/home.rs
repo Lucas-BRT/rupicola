@@ -64,9 +64,9 @@ pub async fn home_page(cx: &Cx, panel_url: &str, public_url: &str) -> Result<imp
                     </div>
                 )
                 card(
-                    eyebrow("Quick Capture")
-                    <h2>"Capture a scripted flow in one command"</h2>
-                    code_block(label: "Terminal", code: "rupicola capture scenario.toml --server-url https://rupicola.example --json")
+                    eyebrow("Publish Captures")
+                    <h2>"Upload a capture bundle in one command"</h2>
+                    code_block(label: "Terminal", code: "rupicola publish ./capture-dir --server-url https://rupicola.example --json")
                 )
             )
         )

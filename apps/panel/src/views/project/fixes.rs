@@ -132,7 +132,7 @@ async fn record_form(
                 field(id: "fix-tactics", name: "tactics", label: "Applied tactics (comma-separated)",
                     attrs: attributes! { value="hairline-seam-unification,oklch-surface,min-block-size-24px" maxlength="400" })
                 field(id: "fix-files", name: "files", label: "Modified files (comma-separated)",
-                    attrs: attributes! { value="apps/panel/src/panel.css,apps/panel/src/pages.rs" maxlength="400" })
+                    attrs: attributes! { value="apps/panel/assets/panel.css,apps/panel/src/views/settings.rs" maxlength="400" })
                 text_area(id: "fix-summary", name: "summary", label: "Solution summary",
                     attrs: attributes! { required="" rows="2" maxlength="2000" })
                 text_area(id: "fix-steps", name: "steps", label: "Intermediate steps (one per line: Step Title :: Detail :: Verification)",
