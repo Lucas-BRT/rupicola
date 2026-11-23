@@ -119,6 +119,8 @@ fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Resul
             && ![
                 "apps/panel/src/panel.js",
                 "apps/panel/src/design_system/validator.cjs",
+                "apps/backend/design/validator.cjs",
+                "apps/backend/design/examples.js",
                 "apps/panel/src/design_system/examples.js",
                 "apps/panel/tests/design-review.cjs",
                 "apps/panel/dev.sh",

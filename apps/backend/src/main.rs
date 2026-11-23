@@ -7,6 +7,7 @@ mod captures;
 mod credentials;
 mod db;
 mod design;
+mod design_system;
 mod error;
 mod fixes;
 mod mcp;
@@ -98,6 +99,7 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .route("/invites/redeem", routing::post(credentials::redeem))
         .route_layer(sign_in_limit);
     let api = Router::new()
+        .merge(design_system::routes())
         .route("/setup", routing::get(auth::setup_status))
         .route("/me", routing::get(auth::me))
         .route("/sessions/current", routing::delete(auth::sign_out))

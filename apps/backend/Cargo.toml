@@ -17,6 +17,7 @@ axum.workspace = true
 clap = { workspace = true, features = ["env"] }
 governor.workspace = true
 rupicola-api.workspace = true
+rupicola-core.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true

@@ -20,6 +20,8 @@ pub struct AppState {
     /// Whether the first administrator may be created without a setup code
     /// (only while listening on loopback).
     pub open_setup: bool,
+    /// Lets one browser validation of a design system run at a time.
+    pub design_validation: tokio::sync::Semaphore,
 }
 
 impl AppState {
@@ -63,6 +65,7 @@ impl AppState {
             lockout: Lockout::default(),
             setup_code: setup_code.map(crate::auth::digest),
             open_setup,
+            design_validation: tokio::sync::Semaphore::new(1),
         }))
     }
 }
