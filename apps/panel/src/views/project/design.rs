@@ -30,7 +30,7 @@ pub fn render<'a>(cx: &'a Cx, account: &'a Account, data: Design<'a>) -> Child<'
     } = data;
     let design_tab = tab;
     Child::new(view! { cx =>
-        (design_system::render(cx, account, role, base, design_tab, studio))
+        (crate::views::design_system::render(cx, account, role, base, design_tab, studio))
         if design_tab == "records" {
             if role == Role::Owner {
                 <details class="surface panel-padding design-editor">

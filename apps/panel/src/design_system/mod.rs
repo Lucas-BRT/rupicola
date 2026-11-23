@@ -1,5 +1,3 @@
-mod view;
-
 use crate::{
     Account, BoxError, PageResult, Panel, Response, StatusCode, auth, db_error, redirect, safe_name,
 };
@@ -15,29 +13,27 @@ use std::{
 use topcoat::router::Body;
 use turso::{Connection, transaction::TransactionBehavior};
 
-pub use view::render;
-
 const SCREEN: &str = include_str!("screen.html");
 const VALIDATOR: &str = include_str!("validator.cjs");
 const PREVIEW_POLICY: &str = "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; media-src data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'";
 
 #[derive(Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum HeadingStyle {
+pub(crate) enum HeadingStyle {
     #[default]
     Editorial,
     Product,
 }
 
 impl HeadingStyle {
-    const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Editorial => "Editorial serif",
             Self::Product => "Product sans",
         }
     }
 
-    const fn font(self) -> &'static str {
+    pub(crate) const fn font(self) -> &'static str {
         match self {
             Self::Editorial => "Georgia,serif",
             Self::Product => "system-ui,sans-serif",
@@ -47,11 +43,11 @@ impl HeadingStyle {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
-struct Guidance {
-    button: String,
-    form: String,
-    table: String,
-    comparison: String,
+pub(crate) struct Guidance {
+    pub(crate) button: String,
+    pub(crate) form: String,
+    pub(crate) table: String,
+    pub(crate) comparison: String,
 }
 
 impl Default for Guidance {
@@ -67,30 +63,30 @@ impl Default for Guidance {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
-struct Document {
-    name: String,
-    brand: String,
-    landing_title: String,
-    queue_title: String,
-    queue_item: String,
-    settings_title: String,
-    direction: String,
-    usage: String,
-    screen_title: String,
-    scenario: String,
-    before_label: String,
-    after_label: String,
-    canvas: String,
-    surface: String,
-    ink: String,
-    accent: String,
-    action_ink: String,
-    success: String,
-    error: String,
-    spacing: u8,
-    radius: u8,
-    heading: HeadingStyle,
-    guidance: Guidance,
+pub(crate) struct Document {
+    pub(crate) name: String,
+    pub(crate) brand: String,
+    pub(crate) landing_title: String,
+    pub(crate) queue_title: String,
+    pub(crate) queue_item: String,
+    pub(crate) settings_title: String,
+    pub(crate) direction: String,
+    pub(crate) usage: String,
+    pub(crate) screen_title: String,
+    pub(crate) scenario: String,
+    pub(crate) before_label: String,
+    pub(crate) after_label: String,
+    pub(crate) canvas: String,
+    pub(crate) surface: String,
+    pub(crate) ink: String,
+    pub(crate) accent: String,
+    pub(crate) action_ink: String,
+    pub(crate) success: String,
+    pub(crate) error: String,
+    pub(crate) spacing: u8,
+    pub(crate) radius: u8,
+    pub(crate) heading: HeadingStyle,
+    pub(crate) guidance: Guidance,
 }
 
 impl Default for Document {
@@ -124,7 +120,7 @@ impl Default for Document {
 }
 
 impl Document {
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         [
             (&self.name, 120),
             (&self.brand, 120),
@@ -160,7 +156,7 @@ impl Document {
             .all(|value| color(value).is_some())
     }
 
-    fn contrast(&self) -> Result<(), &'static str> {
+    pub(crate) fn contrast(&self) -> Result<(), &'static str> {
         for (front, back, error) in [
             (
                 &self.ink,
@@ -288,7 +284,7 @@ fn fingerprint(doc: &Document) -> String {
 
 #[derive(Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-enum Phase {
+pub(crate) enum Phase {
     Draft,
     Review,
     Approved,
@@ -296,7 +292,7 @@ enum Phase {
 }
 
 impl Phase {
-    const fn key(self) -> &'static str {
+    pub(crate) const fn key(self) -> &'static str {
         match self {
             Self::Draft => "draft",
             Self::Review => "review",
@@ -305,7 +301,7 @@ impl Phase {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Draft => "Draft",
             Self::Review => "In review",
@@ -316,42 +312,42 @@ impl Phase {
 }
 
 #[derive(Deserialize, Serialize)]
-struct Note {
-    actor: String,
-    time: i64,
-    target: String,
-    action: String,
-    text: String,
+pub(crate) struct Note {
+    pub(crate) actor: String,
+    pub(crate) time: i64,
+    pub(crate) target: String,
+    pub(crate) action: String,
+    pub(crate) text: String,
 }
 
 #[derive(Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum Outcome {
+pub(crate) enum Outcome {
     Passed,
     Failed,
     Blocked,
 }
 
 #[derive(Deserialize, Serialize)]
-struct Shot {
-    name: String,
-    png: String,
+pub(crate) struct Shot {
+    pub(crate) name: String,
+    pub(crate) png: String,
 }
 
 #[derive(Deserialize, Serialize)]
-struct Report {
+pub(crate) struct Report {
     #[serde(default)]
-    fingerprint: String,
-    baseline: Option<String>,
-    outcome: Outcome,
-    browser: Option<String>,
-    checks: Vec<String>,
-    shots: Vec<Shot>,
-    error: Option<String>,
+    pub(crate) fingerprint: String,
+    pub(crate) baseline: Option<String>,
+    pub(crate) outcome: Outcome,
+    pub(crate) browser: Option<String>,
+    pub(crate) checks: Vec<String>,
+    pub(crate) shots: Vec<Shot>,
+    pub(crate) error: Option<String>,
 }
 
 impl Report {
-    fn error(outcome: Outcome, error: impl Into<String>) -> Self {
+    pub(crate) fn error(outcome: Outcome, error: impl Into<String>) -> Self {
         Self {
             fingerprint: String::new(),
             baseline: None,
@@ -363,7 +359,7 @@ impl Report {
         }
     }
 
-    fn passed(&self) -> bool {
+    pub(crate) fn passed(&self) -> bool {
         self.outcome == Outcome::Passed
     }
 }
@@ -371,20 +367,25 @@ impl Report {
 #[derive(Deserialize, Serialize)]
 pub struct Version {
     #[serde(skip)]
-    id: String,
+    pub(crate) id: String,
     #[serde(skip)]
-    generation: i64,
-    parent: Option<String>,
-    author: String,
-    phase: Phase,
-    document: Document,
-    notes: Vec<Note>,
-    report: Option<Report>,
-    frozen_screen: Option<String>,
+    pub(crate) generation: i64,
+    pub(crate) parent: Option<String>,
+    pub(crate) author: String,
+    pub(crate) phase: Phase,
+    pub(crate) document: Document,
+    pub(crate) notes: Vec<Note>,
+    pub(crate) report: Option<Report>,
+    pub(crate) frozen_screen: Option<String>,
 }
 
 impl Version {
-    fn draft(id: String, parent: Option<String>, author: String, document: Document) -> Self {
+    pub(crate) fn draft(
+        id: String,
+        parent: Option<String>,
+        author: String,
+        document: Document,
+    ) -> Self {
         Self {
             id,
             generation: 0,
@@ -398,7 +399,7 @@ impl Version {
         }
     }
 
-    fn ready(&self, adopted: Option<&str>) -> bool {
+    pub(crate) fn ready(&self, adopted: Option<&str>) -> bool {
         self.report.as_ref().is_some_and(|report| {
             report.passed()
                 && report.baseline.as_deref() == adopted
@@ -406,7 +407,7 @@ impl Version {
         })
     }
 
-    fn submit(&mut self, adopted: Option<&str>) -> PageResult<()> {
+    pub(crate) fn submit(&mut self, adopted: Option<&str>) -> PageResult<()> {
         if self.phase != Phase::Draft || !self.ready(adopted) {
             return Err(StatusCode::CONFLICT);
         }
@@ -415,7 +416,7 @@ impl Version {
         Ok(())
     }
 
-    fn note(&mut self, actor: &str, action: &str, target: &str, text: String) {
+    pub(crate) fn note(&mut self, actor: &str, action: &str, target: &str, text: String) {
         self.notes.push(Note {
             actor: actor.to_owned(),
             time: auth::now(),
@@ -442,9 +443,9 @@ pub async fn init(db: &Connection) -> Result<(), BoxError> {
 }
 
 pub struct Studio {
-    items: Vec<(String, String, Phase)>,
-    selected: Option<Version>,
-    active: Option<String>,
+    pub(crate) items: Vec<(String, String, Phase)>,
+    pub(crate) selected: Option<Version>,
+    pub(crate) active: Option<String>,
 }
 
 pub async fn load(panel: &Panel, project: &str, selected: Option<&str>) -> PageResult<Studio> {

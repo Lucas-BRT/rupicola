@@ -1,4 +1,4 @@
-use super::{HeadingStyle, Outcome, Phase, Studio, Version};
+use crate::design_system::{HeadingStyle, Outcome, Phase, Studio, Version};
 use crate::{Account, auth::Role};
 use topcoat::{
     context::Cx,
