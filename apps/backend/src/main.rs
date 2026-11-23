@@ -17,6 +17,7 @@ mod problems;
 mod projects;
 mod publish;
 mod removal;
+mod search;
 mod security;
 mod selections;
 mod settings;
@@ -131,6 +132,7 @@ fn modules() -> Router<state::Shared> {
         .merge(problems::routes())
         .merge(fixes::routes())
         .merge(removal::routes())
+        .merge(search::routes())
 }
 
 /// Version 1 of the API, with paths relative to [`rupicola_api::PREFIX`].

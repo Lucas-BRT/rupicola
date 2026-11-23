@@ -351,6 +351,17 @@ pub struct Capture {
     pub deleted: Option<Tombstone>,
 }
 
+/// `GET /v1/projects/{id}/captures/search`: one page of captures, newest first.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CapturePage {
+    pub items: Vec<CaptureSummary>,
+    /// The same captures in full, when the search asked for `include=details`.
+    #[serde(default)]
+    pub details: Vec<Capture>,
+    /// What to send as `cursor` for the next page; none on the last one.
+    pub next: Option<String>,
+}
+
 /// One row of `GET /v1/projects/{id}/captures`, newest first.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct CaptureSummary {
