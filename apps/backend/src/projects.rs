@@ -71,26 +71,9 @@ pub async fn access(
             .fetch_optional(&state.db)
             .await?;
     role.as_deref()
-        .and_then(parse_role)
+        .and_then(|text| text.parse().ok())
         .map(Access::Person)
         .ok_or(ApiError::NotFound)
-}
-
-pub(crate) fn parse_role(text: &str) -> Option<Role> {
-    match text {
-        "owner" => Some(Role::Owner),
-        "reviewer" => Some(Role::Reviewer),
-        "reader" => Some(Role::Reader),
-        _ => None,
-    }
-}
-
-pub(crate) const fn role_text(role: Role) -> &'static str {
-    match role {
-        Role::Owner => "owner",
-        Role::Reviewer => "reviewer",
-        Role::Reader => "reader",
-    }
 }
 
 /// Longest project id and label.
@@ -162,7 +145,7 @@ impl From<ProjectRow> for Project {
             id: row.id,
             label: row.label,
             created_at: row.created_at,
-            role: row.role.as_deref().and_then(parse_role),
+            role: row.role.as_deref().and_then(|text| text.parse().ok()),
         }
     }
 }
@@ -186,7 +169,7 @@ impl MemberRow {
     fn into_member(self) -> Option<Member> {
         Some(Member {
             handle: self.handle,
-            role: parse_role(&self.role)?,
+            role: self.role.parse().ok()?,
         })
     }
 }
@@ -412,14 +395,14 @@ pub async fn put_member(
     )
     .bind(&id)
     .bind(&handle)
-    .bind(role_text(form.role))
+    .bind(form.role.as_str())
     .execute(&mut *tx)
     .await?;
     audit(
         &mut *tx,
         Some(&id),
         actor,
-        &format!("Set {handle} as {}", role_text(form.role)),
+        &format!("Set {handle} as {}", form.role.as_str()),
     )
     .await?;
     tx.commit().await?;

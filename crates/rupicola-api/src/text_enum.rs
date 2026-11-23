@@ -14,11 +14,14 @@ impl fmt::Display for UnknownValue {
 
 impl std::error::Error for UnknownValue {}
 
-/// Declares a kebab-case enumeration stored as text: serde, `as_str`, `Display`, `FromStr`.
+/// Declares a kebab-case enumeration stored as text: serde, `as_str`, `Display`, `FromStr`,
+/// ordered as declared.
 macro_rules! text_enum {
     ($(#[$meta:meta])* $name:ident { $($(#[$vmeta:meta])* $variant:ident => $text:literal,)+ }) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, Debug, ::serde::Deserialize, PartialEq, Eq, ::serde::Serialize)]
+        #[derive(
+            Clone, Copy, Debug, ::serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, ::serde::Serialize,
+        )]
         pub enum $name {
             $($(#[$vmeta])* #[serde(rename = $text)] $variant,)+
         }

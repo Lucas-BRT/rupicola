@@ -5,7 +5,7 @@
 use crate::{
     auth::{self, Principal, now_ms, token},
     error::ApiError,
-    projects::{access, audit, parse_role, person, role_text},
+    projects::{access, audit, person},
     state::Shared,
 };
 use axum::{
@@ -80,7 +80,7 @@ impl InviteRow {
     fn into_invite(self) -> Option<Invite> {
         Some(Invite {
             id: self.digest,
-            role: parse_role(&self.role)?,
+            role: self.role.parse().ok()?,
             created_by: self.created_by,
             expires_at: self.expires_at,
         })
@@ -317,7 +317,7 @@ pub async fn create_invite(
     )
     .bind(&invite.id)
     .bind(&project)
-    .bind(role_text(invite.role))
+    .bind(invite.role.as_str())
     .bind(&actor)
     .bind(invite.expires_at)
     .execute(&mut *tx)
@@ -326,7 +326,7 @@ pub async fn create_invite(
         &mut *tx,
         Some(&project),
         &actor,
-        &format!("Invited a {}", role_text(invite.role)),
+        &format!("Invited a {}", invite.role.as_str()),
     )
     .await?;
     tx.commit().await?;
@@ -481,10 +481,12 @@ pub async fn redeem(
             .bind(&handle)
             .fetch_optional(&mut *tx)
             .await?;
-    let offered = parse_role(&role).ok_or(ApiError::invalid("unknown role"))?;
+    let offered = role
+        .parse::<Role>()
+        .map_err(|_| ApiError::invalid("unknown role"))?;
     let kept = current
         .as_deref()
-        .and_then(parse_role)
+        .and_then(|text| text.parse::<Role>().ok())
         .map_or(offered, |held| held.max(offered));
     sqlx::query(
         "INSERT INTO members (project_id, handle, role) VALUES (?1, ?2, ?3)
@@ -492,14 +494,14 @@ pub async fn redeem(
     )
     .bind(&project)
     .bind(&handle)
-    .bind(role_text(kept))
+    .bind(kept.as_str())
     .execute(&mut *tx)
     .await?;
     audit(
         &mut *tx,
         Some(&project),
         &handle,
-        &format!("Joined as {}", role_text(kept)),
+        &format!("Joined as {}", kept.as_str()),
     )
     .await?;
     tx.commit().await?;

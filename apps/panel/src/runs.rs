@@ -3,7 +3,7 @@
 //! id of every artifact standing where a file path used to.
 
 use super::{PageResult, Run, StatusCode, backend};
-use rupicola_api::{Artifact, Capture, CaptureStatus, Inspection, Project};
+use rupicola_api::{Artifact, Capture, Project};
 use rupicola_core::capture_manifest::{
     Checkpoint, Clip, Environment, Finding, Frame, Manifest, Project as ManifestProject,
 };
@@ -13,20 +13,6 @@ use topcoat::context::Cx;
 const RECENT_PER_PROJECT: usize = 50;
 /// Version of the manifest shape the screens read.
 const MANIFEST_VERSION: u32 = 1;
-
-fn status_name(status: CaptureStatus) -> &'static str {
-    match status {
-        CaptureStatus::Complete => "complete",
-        CaptureStatus::Blocked => "blocked",
-    }
-}
-
-fn inspection_name(inspection: Inspection) -> &'static str {
-    match inspection {
-        Inspection::Pending => "pending",
-        Inspection::Reviewed => "reviewed",
-    }
-}
 
 /// What a screen links an artifact by: its id.
 fn reference(artifact: &Artifact) -> String {
@@ -44,9 +30,9 @@ fn manifest_of(project: &Project, capture: &Capture) -> Manifest {
         scenario: capture.scenario.clone(),
         revision: capture.revision.clone(),
         created_at_ms: capture.created_at,
-        status: status_name(capture.status).to_owned(),
+        status: capture.status.to_string(),
         blocker: capture.blocker.clone(),
-        inspection: inspection_name(capture.inspection).to_owned(),
+        inspection: capture.inspection.to_string(),
         environment: Environment {
             color_scheme: environment.color_scheme.clone().unwrap_or_default(),
             reduced_motion: environment.reduced_motion,
@@ -99,8 +85,8 @@ fn run_of(project: &Project, capture: &Capture) -> Run {
         project_id: project.id.clone(),
         project: project.label.clone(),
         scenario: capture.scenario.clone(),
-        status: status_name(capture.status).to_owned(),
-        inspection: inspection_name(capture.inspection).to_owned(),
+        status: capture.status.to_string(),
+        inspection: capture.inspection.to_string(),
         created_at_ms: capture.created_at,
         manifest: manifest_of(project, capture),
     }
@@ -179,7 +165,8 @@ pub async fn summaries<'a>(
 mod tests {
     use super::*;
     use rupicola_api::{
-        Checkpoint as ApiCheckpoint, Environment as ApiEnvironment, Finding as ApiFinding,
+        CaptureStatus, Checkpoint as ApiCheckpoint, Environment as ApiEnvironment,
+        Finding as ApiFinding, Inspection,
     };
 
     const ARTIFACT: &str = "artifact-1";

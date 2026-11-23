@@ -94,16 +94,16 @@ pub struct Me {
     pub project: Option<String>,
 }
 
-/// What a caller may do in one project.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Role {
-    /// Reads everything in the project.
-    Reader,
-    /// Also triages problems and reviews captures and fixes.
-    Reviewer,
-    /// Also manages the project, its members and its credentials.
-    Owner,
+text_enum! {
+    /// What a caller may do in one project.
+    Role {
+        /// Reads everything in the project.
+        Reader => "reader",
+        /// Also triages problems and reviews captures and fixes.
+        Reviewer => "reviewer",
+        /// Also manages the project, its members and its credentials.
+        Owner => "owner",
+    }
 }
 
 /// A project as seen by the caller.
@@ -182,19 +182,19 @@ pub struct Environment {
     pub browser: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CaptureStatus {
-    Complete,
-    /// The capture could not finish; `blocker` says why.
-    Blocked,
+text_enum! {
+    CaptureStatus {
+        Complete => "complete",
+        /// The capture could not finish; `blocker` says why.
+        Blocked => "blocked",
+    }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Inspection {
-    Pending,
-    Reviewed,
+text_enum! {
+    Inspection {
+        Pending => "pending",
+        Reviewed => "reviewed",
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

@@ -223,7 +223,7 @@ pub async fn access_lists(
         .map(|member| AccessItem {
             key: member.handle.clone(),
             label: member.handle,
-            detail: role_name(member.role).to_owned(),
+            detail: member.role.to_string(),
         })
         .collect();
     let audit = panel
@@ -239,12 +239,4 @@ pub async fn access_lists(
         })
         .collect();
     Ok((members, audit))
-}
-
-const fn role_name(role: rupicola_api::Role) -> &'static str {
-    match role {
-        rupicola_api::Role::Owner => "owner",
-        rupicola_api::Role::Reviewer => "reviewer",
-        rupicola_api::Role::Reader => "reader",
-    }
 }

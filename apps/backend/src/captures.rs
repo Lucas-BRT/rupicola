@@ -236,22 +236,6 @@ const fn status_text(status: CaptureStatus) -> &'static str {
     }
 }
 
-fn parse_status(text: &str) -> CaptureStatus {
-    if text == "blocked" {
-        CaptureStatus::Blocked
-    } else {
-        CaptureStatus::Complete
-    }
-}
-
-fn parse_inspection(text: &str) -> Inspection {
-    if text == "reviewed" {
-        Inspection::Reviewed
-    } else {
-        Inspection::Pending
-    }
-}
-
 /// `GET /v1/projects/{id}/captures`
 pub async fn list(
     State(state): State<Shared>,
@@ -334,8 +318,8 @@ impl From<SummaryRow> for CaptureSummary {
         Self {
             id: row.id,
             scenario: row.scenario,
-            status: parse_status(&row.status),
-            inspection: parse_inspection(&row.inspection),
+            status: row.status.parse().unwrap_or(CaptureStatus::Complete),
+            inspection: row.inspection.parse().unwrap_or(Inspection::Pending),
             created_at: row.created_at,
             preview: row.preview,
         }
@@ -471,9 +455,9 @@ async fn load(state: &Shared, id: &str) -> Result<Capture, ApiError> {
         project_id: capture.project_id,
         scenario: capture.scenario,
         revision: capture.revision,
-        status: parse_status(&capture.status),
+        status: capture.status.parse().unwrap_or(CaptureStatus::Complete),
         blocker: capture.blocker,
-        inspection: parse_inspection(&capture.inspection),
+        inspection: capture.inspection.parse().unwrap_or(Inspection::Pending),
         environment: serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?,
         created_at: capture.created_at,
         checkpoints,
