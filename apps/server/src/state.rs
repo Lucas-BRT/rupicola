@@ -21,8 +21,6 @@ pub struct AppState {
     /// Whether the first administrator may be created without a setup code
     /// (only while listening on loopback).
     pub open_setup: bool,
-    /// Lets one browser validation of a design system run at a time.
-    pub design_validation: tokio::sync::Semaphore,
     /// What uploads may be before any setting changes it.
     pub limits: LimitDefaults,
     /// Whether the server lets any project remove a cited capture.
@@ -78,7 +76,6 @@ impl AppState {
             lockout: Lockout::default(),
             setup_code: setup_code.map(crate::domain::secret::digest),
             open_setup,
-            design_validation: tokio::sync::Semaphore::new(1),
             limits,
             cited_deletion: std::sync::atomic::AtomicBool::new(true),
         }))

@@ -9,8 +9,6 @@ const SCREEN: &str = include_str!("../../design/screen.html");
 const EXAMPLES_HTML: &str = include_str!("../../design/examples.html");
 const EXAMPLES_CSS: &str = include_str!("../../design/examples.css");
 const EXAMPLES_JS: &str = include_str!("../../design/examples.js");
-/// The browser checks, which are part of what a validation covers.
-pub const VALIDATOR: &str = include_str!("../../design/validator.cjs");
 
 /// WCAG 2.2 AA contrast for normal text.
 const MIN_TEXT_CONTRAST: f64 = 4.5;
@@ -191,12 +189,11 @@ pub fn render_screen(doc: &Document) -> String {
     })
 }
 
-/// Identifies what a validation covered: the document, the screen made from it and the checks.
+/// Identifies what a validation covered: the document and the screen made from it.
 pub fn fingerprint(doc: &Document) -> String {
     let mut hash = Sha256::new();
     hash.update(serde_json::to_vec(doc).expect("document contains only serializable fields"));
     hash.update(render_screen(doc).as_bytes());
-    hash.update(VALIDATOR.as_bytes());
     format!("{:x}", hash.finalize())
 }
 

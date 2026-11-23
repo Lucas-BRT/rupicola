@@ -41,8 +41,6 @@ const TARGETS: [&str; 6] = [
     "media-unavailable",
     "form",
 ];
-/// Seconds a caller is told to wait while another validation runs.
-const VALIDATION_RETRY_SECS: u64 = 5;
 
 /// A version as stored.
 struct Stored {
@@ -383,7 +381,7 @@ pub async fn act(
     Ok(Json(stored.dto(active.as_deref())))
 }
 
-/// Runs the browser checks on a draft and keeps the report with it.
+/// Runs token and contrast checks on a draft and keeps the report with it.
 async fn validate_version(
     state: &crate::state::AppState,
     project: &str,
@@ -393,38 +391,7 @@ async fn validate_version(
     if version.phase != SystemPhase::Draft {
         return Err(ApiError::Conflict("only a draft can be validated"));
     }
-    let baseline = match active {
-        Some(id) => {
-            let mut doc = read(state, project, id).await?.document;
-            let draft = &version.document;
-            for (to, from) in [
-                (&mut doc.name, &draft.name),
-                (&mut doc.brand, &draft.brand),
-                (&mut doc.landing_title, &draft.landing_title),
-                (&mut doc.queue_title, &draft.queue_title),
-                (&mut doc.queue_item, &draft.queue_item),
-                (&mut doc.settings_title, &draft.settings_title),
-                (&mut doc.screen_title, &draft.screen_title),
-                (&mut doc.scenario, &draft.scenario),
-                (&mut doc.before_label, &draft.before_label),
-                (&mut doc.after_label, &draft.after_label),
-            ] {
-                to.clone_from(from);
-            }
-            Some(render_screen(&doc))
-        }
-        None => None,
-    };
-    let _busy = state
-        .design_validation
-        .try_acquire()
-        .map_err(|_| ApiError::TooManyRequests {
-            retry_after: VALIDATION_RETRY_SECS,
-        })?;
-    let document = version.document.clone();
-    let mut report = tokio::task::spawn_blocking(move || validate(&document, baseline.as_deref()))
-        .await
-        .map_err(corrupt)?;
+    let mut report = validate(&version.document, None);
     if adopted(state, project).await?.as_deref() != active {
         return Err(ApiError::Conflict(
             "another system was adopted meanwhile; validate again",

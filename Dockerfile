@@ -49,21 +49,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD ["./rupicola-site", "--healthcheck"]
 CMD ["./rupicola-site"]
 
-# ---- browser used by the Design review gate ----------------------------------------------------------------
-FROM node:24.22.0-bookworm-slim AS design-browser
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/rupicola-browsers
-RUN npm install --prefix /opt/rupicola-validator --no-audit --no-fund --no-package-lock playwright-core@1.64.1 \
-    && node /opt/rupicola-validator/node_modules/playwright-core/cli.js install --only-shell chromium
-
 # ---- server runtime ----------------------------------------------------------------------------------------
-# The backend validates design systems in Chromium, so it carries Node.js and the browser.
 FROM debian:bookworm-20261104-slim AS server
-COPY --from=design-browser /usr/local/bin/node /usr/local/bin/node
-COPY --from=design-browser /opt/rupicola-validator /opt/rupicola-validator
-COPY --from=design-browser /opt/rupicola-browsers /opt/rupicola-browsers
-RUN node /opt/rupicola-validator/node_modules/playwright-core/cli.js install-deps chromium \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --no-create-home --uid 10001 rupicola
+RUN useradd --system --no-create-home --uid 10001 rupicola
 
 WORKDIR /app
 COPY --from=builder /app/target/website/rupicola-server ./rupicola-server
@@ -74,9 +62,7 @@ RUN mkdir -p /data \
 USER 10001:10001
 ENV HOST=0.0.0.0 \
     PORT=4730 \
-    RUPICOLA_DB=/data/backend.db \
-    RUPICOLA_PLAYWRIGHT_MODULE=/opt/rupicola-validator/node_modules/playwright-core \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/rupicola-browsers
+    RUPICOLA_DB=/data/backend.db
 
 EXPOSE 4730
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
