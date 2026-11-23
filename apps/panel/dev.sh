@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STATE_DIR="$ROOT/.rupicola"
 DATA_DIR="$STATE_DIR/dev-data"
-CAPTURES="${RUPICOLA_DEV_CAPTURES:-$DATA_DIR/captures}"
 DB="${RUPICOLA_DEV_DB:-$DATA_DIR/panel.db}"
 PORT="${RUPICOLA_DEV_PORT:-4731}"
 SERVER_URL="${RUPICOLA_DEV_SERVER_URL:-http://127.0.0.1:4730}"
@@ -47,16 +46,16 @@ wait_ready() {
 cmd="${1:-reload}"
 case "$cmd" in
   reload)
-    mkdir -p "$CAPTURES"
+    mkdir -p "$DATA_DIR"
     cargo build --manifest-path "$ROOT/Cargo.toml" --target-dir "$ROOT/target" -p rupicola-panel --quiet
     BIN="$ROOT/target/debug/rupicola-panel"
     stop_dev
     if command -v systemd-run >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
       systemd-run --user --unit="$DEV_UNIT" \
         --description="Rupicola panel (dev)" \
-        "$BIN" --captures "$CAPTURES" --db "$DB" --port "$PORT" --server-url "$SERVER_URL" >/dev/null
+        "$BIN" --db "$DB" --port "$PORT" --server-url "$SERVER_URL" >/dev/null
     else
-      nohup "$BIN" --captures "$CAPTURES" --db "$DB" --port "$PORT" --server-url "$SERVER_URL" >"$LOG_FILE" 2>&1 < /dev/null &
+      nohup "$BIN" --db "$DB" --port "$PORT" --server-url "$SERVER_URL" >"$LOG_FILE" 2>&1 < /dev/null &
       echo $! >"$PID_FILE"
     fi
     wait_ready

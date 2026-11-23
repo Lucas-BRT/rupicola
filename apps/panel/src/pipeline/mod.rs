@@ -1,6 +1,6 @@
 use super::{
-    Arc, Cx, Deserialize, FilePath, PageResult, Panel, PathBuf, Response, Run, StatusCode, auth,
-    db_error, design_record, fix_record, pages, problem_record, redirect, storage, view,
+    Arc, Cx, Deserialize, PageResult, Panel, Response, Run, StatusCode, auth, design_record,
+    fix_record, pages, problem_record, redirect, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::{Account, Role};
@@ -13,13 +13,6 @@ pub struct AssetOption {
     pub name: String,
     pub url: String,
     pub kind: &'static str,
-}
-
-pub fn data_root(panel: &Panel) -> PathBuf {
-    panel
-        .design
-        .parent()
-        .map_or_else(|| PathBuf::from(".rupicola"), FilePath::to_path_buf)
 }
 
 fn severity_badge(sev: Severity) -> BadgeVariant {
@@ -91,15 +84,10 @@ fn effective_after_url(fix: &FixRecord, pair: &ComparisonPair) -> String {
 pub mod captures;
 pub mod fixes;
 pub mod problems;
-pub mod storage_view;
 
 pub use captures::{AnalyzeRunForm, analyze_run_action, render_captures};
 pub use fixes::{CreateFixForm, ReviewFixForm, create_fix_action, render_fixes, review_fix_action};
 pub use problems::{
     CreateProblemForm, TriageProblemForm, create_problem_action, render_problems,
     triage_problem_action,
-};
-pub use storage_view::{
-    StorageCleanForm, StorageConfigForm, StorageOffloadForm, clean_storage_action,
-    offload_storage_action, render_storage, save_storage_config_action,
 };

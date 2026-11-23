@@ -1,11 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    error::Error,
-    fs,
-    net::Ipv4Addr,
-    path::{Path as FilePath, PathBuf},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, error::Error, fs, net::Ipv4Addr, path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use http::{StatusCode, header};
@@ -82,7 +75,7 @@ mod records;
 mod routes;
 mod runs;
 use auth::Account;
-use rupicola_core::{design_record, fix_record, problem_record, storage};
+use rupicola_core::{design_record, fix_record, problem_record};
 
 type BoxError = Box<dyn Error + Send + Sync>;
 type PageResult<T> = Result<T, StatusCode>;
@@ -90,9 +83,6 @@ type PageResult<T> = Result<T, StatusCode>;
 #[derive(Parser)]
 #[command(about = "Browse local Rupicola visual evidence")]
 struct Args {
-    /// Capture directories to index. May be repeated.
-    #[arg(long, default_value = ".rupicola/captures")]
-    captures: Vec<PathBuf>,
     /// Local, rebuildable index file.
     #[arg(long, default_value = ".rupicola/panel.db")]
     db: PathBuf,
@@ -113,7 +103,6 @@ struct Args {
 }
 
 struct Panel {
-    design: PathBuf,
     index: Mutex<Connection>,
     origin: String,
     localhost_origin: String,
@@ -215,10 +204,6 @@ async fn main() -> Result<(), BoxError> {
         .1
         .to_owned();
     let panel = Arc::new(Panel {
-        design: db_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join(design_record::DIRECTORY),
         index: Mutex::new(index),
         origin: origin.clone(),
         localhost_origin: format!("http://localhost:{port}"),

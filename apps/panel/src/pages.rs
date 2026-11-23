@@ -1,7 +1,7 @@
 use super::{
     Account, Arc, BTreeMap, Checkpoint, Cx, Deserialize, Html, IntoResponse, PageResult, Panel,
     Response, Run, StatusCode, auth, db_error, design_record, design_system, media, pipeline,
-    records, redirect, runs, safe_name, storage, view,
+    records, redirect, runs, safe_name, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
@@ -372,7 +372,6 @@ async fn project_view(
                 | "problems"
                 | "fixes"
                 | "design"
-                | "storage"
                 | "runs"
                 | "images"
                 | "videos"
@@ -513,7 +512,6 @@ async fn project_view(
         "problems" => "Problems",
         "fixes" => "Fixes",
         "design" => "Design",
-        "storage" => "Storage",
         "settings" => "Project settings",
         _ => "Overview",
     };
@@ -547,11 +545,6 @@ async fn project_view(
     } else {
         None
     };
-    let storage_report = if section == "storage" {
-        Some(storage::analyze(&pipeline::data_root(&panel), Some(&id)))
-    } else {
-        None
-    };
     let content = shell!(cx, &page_title, account, panel, "projects", {
         <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span><span>(&label)</span></nav>
         <header class="page-title project-masthead">
@@ -566,7 +559,6 @@ async fn project_view(
                 ("problems", "Problems"),
                 ("fixes", "Fixes"),
                 ("design", "Design"),
-                ("storage", "Storage"),
                 ("settings", "Settings"),
             ] {
                 if slug != "settings" || role == Role::Owner {
@@ -664,17 +656,6 @@ async fn project_view(
                 &fixes_list,
                 &problems_list,
                 &all_assets,
-            ))
-        }
-        if let Some(report) = &storage_report {
-            (pipeline::render_storage(
-                cx,
-                &account,
-                role,
-                &id,
-                &base,
-                &filter,
-                report,
             ))
         }
         if let Some(studio) = &studio {

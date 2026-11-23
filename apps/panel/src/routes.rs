@@ -36,9 +36,6 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(triage_problem)
         .route(create_fix)
         .route(review_fix)
-        .route(save_storage_config)
-        .route(clean_storage)
-        .route(offload_storage)
         .route(record_design)
         .route(design_version)
         .route(edit_design_version)
@@ -395,51 +392,6 @@ async fn review_fix(cx: &Cx, Form(form): Form<pipeline::ReviewFixForm>) -> Resul
         )
         .await,
     )
-}
-
-#[route(POST "/projects/{project}/storage/config")]
-async fn save_storage_config(
-    cx: &Cx,
-    Form(form): Form<pipeline::StorageConfigForm>,
-) -> Result<Response> {
-    let panel = panel(cx);
-    let account = account(cx);
-    let id: String = path_param::<Project>(cx).into();
-    let result = tokio::task::spawn_blocking(move || {
-        pipeline::save_storage_config_action(&panel, &account, &id, &form)
-    })
-    .await
-    .unwrap_or_else(|error| Err(super::db_error(error)));
-    respond(cx, result)
-}
-
-#[route(POST "/projects/{project}/storage/clean")]
-async fn clean_storage(cx: &Cx, Form(form): Form<pipeline::StorageCleanForm>) -> Result<Response> {
-    let panel = panel(cx);
-    let account = account(cx);
-    let id: String = path_param::<Project>(cx).into();
-    let result = tokio::task::spawn_blocking(move || {
-        pipeline::clean_storage_action(&panel, &account, &id, &form)
-    })
-    .await
-    .unwrap_or_else(|error| Err(super::db_error(error)));
-    respond(cx, result)
-}
-
-#[route(POST "/projects/{project}/storage/offload")]
-async fn offload_storage(
-    cx: &Cx,
-    Form(form): Form<pipeline::StorageOffloadForm>,
-) -> Result<Response> {
-    let panel = panel(cx);
-    let account = account(cx);
-    let id: String = path_param::<Project>(cx).into();
-    let result = tokio::task::spawn_blocking(move || {
-        pipeline::offload_storage_action(&panel, &account, &id, form)
-    })
-    .await
-    .unwrap_or_else(|error| Err(super::db_error(error)));
-    respond(cx, result)
 }
 
 #[route(POST "/projects/{project}/design/version")]
