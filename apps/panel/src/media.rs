@@ -1,5 +1,5 @@
 use super::{
-    Account, Arc, Body, Manifest, PageResult, Panel, Request, Response, StatusCode, auth, header,
+    Account, Arc, Body, Capture, PageResult, Panel, Request, Response, StatusCode, auth, header,
 };
 use rupicola_client::ArtifactBody;
 
@@ -50,15 +50,21 @@ fn response_of(artifact: ArtifactBody) -> PageResult<Response> {
     Ok(response)
 }
 
-pub fn declared(manifest: &Manifest, file: &str) -> bool {
-    manifest.checkpoints.iter().any(|item| item.path == file)
-        || manifest.clips.iter().any(|clip| {
+pub fn declared(capture: &Capture, artifact_id: &str) -> bool {
+    capture
+        .checkpoints
+        .iter()
+        .any(|item| item.artifact.id == artifact_id)
+        || capture.clips.iter().any(|clip| {
             [
-                clip.video_path.as_deref(),
-                clip.sheet_path.as_deref(),
-                clip.analysis_path.as_deref(),
+                clip.video.as_ref().map(|a| a.id.as_str()),
+                clip.sheet.as_ref().map(|a| a.id.as_str()),
+                clip.analysis.as_ref().map(|a| a.id.as_str()),
             ]
-            .contains(&Some(file))
-                || clip.frames.iter().any(|frame| frame.path == file)
+            .contains(&Some(artifact_id))
+                || clip
+                    .frames
+                    .iter()
+                    .any(|frame| frame.artifact.id == artifact_id)
         })
 }

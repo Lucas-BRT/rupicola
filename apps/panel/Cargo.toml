@@ -9,7 +9,6 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-rupicola-core.workspace = true
 http.workspace = true
 clap = { workspace = true, features = ["env"] }
 serde.workspace = true

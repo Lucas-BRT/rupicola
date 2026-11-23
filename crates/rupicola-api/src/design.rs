@@ -12,12 +12,37 @@ text_enum! {
     }
 }
 
+impl DesignKind {
+    /// Human-readable label shown in the UI.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Brief => "Brief",
+            Self::Direction => "Art direction",
+            Self::Tactic => "Tactics",
+            Self::Decision => "Decisions",
+        }
+    }
+}
+
 text_enum! {
     /// Where a design record stands.
     DesignStatus {
         Proposed => "proposed",
         Adopted => "adopted",
         Rejected => "rejected",
+    }
+}
+
+impl DesignStatus {
+    /// Human-readable label shown in the UI.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Proposed => "Proposed",
+            Self::Adopted => "Adopted",
+            Self::Rejected => "Rejected",
+        }
     }
 }
 

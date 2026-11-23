@@ -8,7 +8,7 @@ use crate::{
     Run,
     project::{Filter, Proof},
 };
-use rupicola_core::design_record::{Kind, Status};
+use rupicola_api::{DesignKind, DesignStatus};
 use topcoat::{
     Result,
     context::Cx,
@@ -21,8 +21,8 @@ pub struct Activity {
     pub label: String,
     pub timestamp_ms: u64,
     pub title: String,
-    pub kind: Kind,
-    pub status: Status,
+    pub kind: DesignKind,
+    pub status: DesignStatus,
 }
 
 /// What the dashboard shows.

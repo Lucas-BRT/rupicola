@@ -14,6 +14,21 @@ text_enum! {
     }
 }
 
+impl ProblemStatus {
+    /// Human-readable label shown in the UI.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Open",
+            Self::InProgress => "In progress",
+            Self::Intentional => "Intentional",
+            Self::FalsePositive => "False positive",
+            Self::NeedsReprocess => "Needs reprocess",
+            Self::Resolved => "Resolved",
+        }
+    }
+}
+
 text_enum! {
     Severity {
         Critical => "critical",
@@ -23,12 +38,37 @@ text_enum! {
     }
 }
 
+impl Severity {
+    /// Human-readable label shown in the UI.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Critical => "Critical",
+            Self::Major => "Major",
+            Self::Minor => "Minor",
+            Self::Polish => "Polish",
+        }
+    }
+}
+
 text_enum! {
     /// How a problem was found.
     ProblemOrigin {
         AgentMeasured => "agent-measured",
         AgentVisual => "agent-visual",
         UserReported => "user-reported",
+    }
+}
+
+impl ProblemOrigin {
+    /// Human-readable label shown in the UI.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::AgentMeasured => "Agent · Measured",
+            Self::AgentVisual => "Agent · Visual review",
+            Self::UserReported => "User reported",
+        }
     }
 }
 

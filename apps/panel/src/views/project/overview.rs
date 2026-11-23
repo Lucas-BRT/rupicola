@@ -1,8 +1,8 @@
 use crate::components::display::{
     chip, counts, link_button, metric, proof_card, run_list, section_head,
 };
-use crate::{Run, project::Proof};
-use rupicola_core::design_record;
+use crate::{Run, project::Proof, records};
+use rupicola_api::{DesignEntry, DesignKind};
 use std::collections::BTreeSet;
 use topcoat::{
     Result,
@@ -14,7 +14,7 @@ use topcoat::{
 pub struct Overview<'a> {
     pub base: &'a str,
     pub latest_project_evidence: Option<Proof>,
-    pub records: Vec<design_record::Entry>,
+    pub records: Vec<DesignEntry>,
     pub captures: usize,
     pub assets: usize,
     pub open_problems_count: usize,
@@ -36,7 +36,7 @@ pub async fn overview_tab(cx: &Cx, data: Overview<'_>) -> Result<impl View> {
         recent,
     } = data;
     Ok(view! {
-        let superseded: BTreeSet<&str> = design_record::superseded(&records);
+        let superseded: BTreeSet<&str> = records::superseded_design(&records);
         let current = records
             .iter()
             .filter(|entry| !superseded.contains(entry.id.as_str()))
@@ -51,19 +51,19 @@ pub async fn overview_tab(cx: &Cx, data: Overview<'_>) -> Result<impl View> {
                 section_head(title: "Design context",
                     link_button(href: format!("{base}/design"), "Open design")
                 )
-                if let Some(entry) = records.iter().find(|entry| !superseded.contains(entry.id.as_str()) && matches!(entry.kind, design_record::Kind::Brief | design_record::Kind::Direction)) {
+                if let Some(entry) = records.iter().find(|entry| !superseded.contains(entry.id.as_str()) && matches!(entry.entry.kind, DesignKind::Brief | DesignKind::Direction)) {
                     <div class="brief-featured">
-                        <p class="studio-kind">(entry.kind.label()) " · " (entry.status.label())</p>
-                        <h3>(&entry.title)</h3>
-                        <p class="project-brief-note">(&entry.note)</p>
+                        <p class="studio-kind">(entry.entry.kind.label()) " · " (entry.entry.status.label())</p>
+                        <h3>(&entry.entry.title)</h3>
+                        <p class="project-brief-note">(&entry.entry.note)</p>
                     </div>
                 }
-                if records.iter().any(|entry| !superseded.contains(entry.id.as_str()) && matches!(entry.kind, design_record::Kind::Tactic | design_record::Kind::Decision)) {
+                if records.iter().any(|entry| !superseded.contains(entry.id.as_str()) && matches!(entry.entry.kind, DesignKind::Tactic | DesignKind::Decision)) {
                     <ul class="brief-ledger">
-                        for entry in records.iter().filter(|entry| !superseded.contains(entry.id.as_str()) && matches!(entry.kind, design_record::Kind::Tactic | design_record::Kind::Decision)).take(3) {
+                        for entry in records.iter().filter(|entry| !superseded.contains(entry.id.as_str()) && matches!(entry.entry.kind, DesignKind::Tactic | DesignKind::Decision)).take(3) {
                             <li>
-                                chip((entry.kind.label()))
-                                <strong>(&entry.title)</strong>
+                                chip((entry.entry.kind.label()))
+                                <strong>(&entry.entry.title)</strong>
                             </li>
                         }
                     </ul>

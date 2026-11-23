@@ -1,13 +1,12 @@
 use super::{
-    AssetOption, Cx, FixRecord, FixStatus, Problem, Role, badge, effective_after_url,
-    fix_status_badge, is_video_url, view,
+    AssetOption, ComparisonPair, Cx, FixRecord, FixStatus, Problem, Role, badge,
+    effective_after_url, fix_status_badge, is_video_url, view,
 };
 use crate::Account;
 use crate::components::{
     display::{chip, counts, kind_label, metric, moment},
     form::{csrf, field, select_field, stack_form, text_area},
 };
-use crate::fix_record::ComparisonPair;
 use crate::project::Filter;
 use topcoat::{
     Result,
@@ -44,7 +43,7 @@ pub async fn fixes_tab(
 
         let filtered: Vec<&FixRecord> = fixes
             .iter()
-            .filter(|f| status_filter.is_empty() || f.status.slug() == status_filter)
+            .filter(|f| status_filter.is_empty() || f.status.as_str() == status_filter)
             .collect();
 
         counts(label: "Fixes overview",
@@ -62,7 +61,7 @@ pub async fn fixes_tab(
                 <select id="f-status" name="status">
                     <option value="">"All fixes"</option>
                     for st in FixStatus::ALL {
-                        <option value=(st.slug()) if status_filter == st.slug() { selected="" }>(st.label())</option>
+                        <option value=(st.as_str()) if status_filter == st.as_str() { selected="" }>(st.label())</option>
                     }
                 </select>
                 <button class="button" type="submit">"Filter"</button>

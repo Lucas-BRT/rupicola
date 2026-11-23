@@ -4,7 +4,7 @@
 use crate::{
     Account, PageResult, Panel, Run, StatusCode, auth, auth::Role, backend, media, runs, safe_name,
 };
-use rupicola_core::capture_manifest::Checkpoint;
+use rupicola_api::Checkpoint;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use topcoat::context::Cx;
@@ -77,35 +77,35 @@ pub async fn catalog(cx: &Cx, runs: &[Run]) -> PageResult<BTreeMap<String, Strin
 pub fn assets(related: &[&Run], id: &str) -> Vec<AssetOption> {
     let mut all_assets = Vec::new();
     for run in related {
-        let manifest = &run.manifest;
-        if manifest.project.id != id {
+        let capture = &run.capture;
+        if capture.project_id != id {
             continue;
         }
-        for item in &manifest.checkpoints {
+        for item in &capture.checkpoints {
             all_assets.push(AssetOption {
                 run_key: run.key.clone(),
                 scenario: run.scenario.clone(),
                 name: item.id.clone(),
-                url: media::url(&item.path),
+                url: media::url(&item.artifact.id),
                 kind: "Screenshot",
             });
         }
-        for clip in &manifest.clips {
-            if let Some(path) = &clip.video_path {
+        for clip in &capture.clips {
+            if let Some(video) = &clip.video {
                 all_assets.push(AssetOption {
                     run_key: run.key.clone(),
                     scenario: run.scenario.clone(),
                     name: clip.id.clone(),
-                    url: media::url(path),
+                    url: media::url(&video.id),
                     kind: "Recording",
                 });
             }
-            if let Some(path) = &clip.sheet_path {
+            if let Some(sheet) = &clip.sheet {
                 all_assets.push(AssetOption {
                     run_key: run.key.clone(),
                     scenario: run.scenario.clone(),
                     name: format!("{} · sheet", clip.id),
-                    url: media::url(path),
+                    url: media::url(&sheet.id),
                     kind: "Contact sheet",
                 });
             }
@@ -177,10 +177,10 @@ impl Proof {
         runs.into_iter()
             .filter(|run| run.status == "complete")
             .find_map(|run| {
-                let checkpoint = pick_hero_checkpoint(&run.manifest.checkpoints)?;
+                let checkpoint = pick_hero_checkpoint(&run.capture.checkpoints)?;
                 Some(Self {
                     href: format!("/run/{}", run.key),
-                    image: media::url(&checkpoint.path),
+                    image: media::url(&checkpoint.artifact.id),
                     scenario: run.scenario.clone(),
                 })
             })

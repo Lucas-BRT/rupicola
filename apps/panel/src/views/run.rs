@@ -4,8 +4,7 @@ use crate::components::{
     layout::{breadcrumbs, page_title},
 };
 use crate::{Account, media};
-use rupicola_api::CaptureSummary;
-use rupicola_core::capture_manifest::{Checkpoint, Clip, Finding, Manifest};
+use rupicola_api::{Capture as ApiCapture, CaptureSummary, Checkpoint, Clip, Finding};
 use std::collections::BTreeMap;
 use topcoat::{
     Result,
@@ -15,7 +14,8 @@ use topcoat::{
 
 /// What the capture page shows.
 pub struct Capture {
-    pub manifest: Manifest,
+    pub record: ApiCapture,
+    pub project_label: String,
     pub candidates: Vec<CaptureSummary>,
     pub requested: Option<String>,
     pub before_images: BTreeMap<String, String>,
@@ -32,7 +32,8 @@ pub struct Capture {
 #[component]
 pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
     let Capture {
-        manifest: run,
+        record: run,
+        project_label,
         candidates,
         requested,
         before_images,
@@ -48,7 +49,7 @@ pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
     Ok(view! {
         breadcrumbs(
             <a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span>
-            <a href=(project_url)>(&run.project.label)</a>
+            <a href=(project_url)>(project_label)</a>
         )
         page_title(title: &run.scenario, class: "project-masthead",
             link_button(href: format!("{project_url}/captures"), "Project captures")
@@ -78,12 +79,13 @@ pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
 
 /// The capture's state, environment and revision.
 #[component]
-async fn summary(cx: &Cx, run: &Manifest, width: &str, height: &str) -> Result<impl View> {
+async fn summary(cx: &Cx, run: &ApiCapture, width: &str, height: &str) -> Result<impl View> {
+    let scheme = run.environment.color_scheme.as_deref().unwrap_or("");
     Ok(view! {
-        <p class="metadata run-metadata"><span class="status">(&run.status)</span> <span>"Inspection " (&run.inspection)</span> <code>(&run.environment.renderer)</code></p>
+        <p class="metadata run-metadata"><span class="status">(run.status.as_str())</span> <span>"Inspection " (run.inspection.as_str())</span> if let Some(renderer) = &run.environment.renderer { <code>(renderer)</code> }</p>
         <p class="muted">
             (format!("{} × {}", width, height))
-            if !run.environment.color_scheme.is_empty() { " · " (&run.environment.color_scheme) }
+            if !scheme.is_empty() { " · " (scheme) }
             if run.environment.reduced_motion { " · Reduced motion" }
         </p>
         if let Some(revision) = &run.revision { <p>"Revision " <code>(revision)</code></p> }
@@ -128,7 +130,7 @@ async fn findings(cx: &Cx, items: &[Finding]) -> Result<impl View> {
                 for finding in items {
                     <li>
                         (&finding.note)
-                        if let Some(evidence) = &finding.evidence {
+                        if let Some(evidence) = &finding.evidence_artifact_id {
                             " " <a href=(url(evidence))>"Evidence"</a>
                         }
                     </li>
@@ -162,8 +164,8 @@ async fn screenshots(
                             </figure>
                         }
                         <figure>
-                            <a href=(url(&item.path))>
-                                <img src=(url(&item.path)) alt=(format!("Screenshot: {}", item.id)) loading="lazy">
+                            <a href=(url(&item.artifact.id))>
+                                <img src=(url(&item.artifact.id)) alt=(format!("Screenshot: {}", item.id)) loading="lazy">
                             </a>
                             <figcaption>
                                 if before_images.contains_key(item.id.as_str()) { "Current run · " }
@@ -197,20 +199,20 @@ async fn clip_card(cx: &Cx, clip: &Clip, width: &str, height: &str) -> Result<im
     Ok(view! {
         <article>
             <h3>(&clip.id)</h3>
-            if let Some(video) = &clip.video_path {
-                <video controls="" playsinline="" preload="metadata" loading="lazy" src=(url(video))
+            if let Some(video) = &clip.video {
+                <video controls="" playsinline="" preload="metadata" loading="lazy" src=(url(&video.id))
                     width=(width) height=(height) aria-label=(&clip.id)
-                    if let Some(first) = clip.frames.first() { poster=(url(&first.path)) }></video>
+                    if let Some(first) = clip.frames.first() { poster=(url(&first.artifact.id)) }></video>
             }
             if !clip.frames.is_empty() {
                 <div class="frames">
                     for frame in &clip.frames {
                         <figure>
-                            <a href=(url(&frame.path))>
-                                <img src=(url(&frame.path)) alt=(format!("{} at {:.0} ms", clip.id, frame.target_ms)) loading="lazy">
+                            <a href=(url(&frame.artifact.id))>
+                                <img src=(url(&frame.artifact.id)) alt=(format!("{} at {:.0} ms", clip.id, frame.target_ms)) loading="lazy">
                             </a>
                             <figcaption>
-                                if clip.video_path.is_some() {
+                                if clip.video.is_some() {
                                     <button type="button" data-seek=(format!("{}", frame.video_ms.unwrap_or(frame.target_ms) / 1000.0))>
                                         (format!("{:.0} ms", frame.video_ms.unwrap_or(frame.target_ms)))
                                     </button>
@@ -223,8 +225,8 @@ async fn clip_card(cx: &Cx, clip: &Clip, width: &str, height: &str) -> Result<im
                 </div>
             }
             <p class="downloads">
-                if let Some(path) = &clip.sheet_path { <a href=(url(path))>"Contact sheet"</a> }
-                if let Some(path) = &clip.analysis_path { <a href=(url(path))>"Frame analysis"</a> }
+                if let Some(sheet) = &clip.sheet { <a href=(url(&sheet.id))>"Contact sheet"</a> }
+                if let Some(analysis) = &clip.analysis { <a href=(url(&analysis.id))>"Frame analysis"</a> }
             </p>
         </article>
     })
@@ -249,7 +251,7 @@ async fn review_form(
                     <select id="evidence" name="evidence">
                         <option value="">"No checkpoint"</option>
                         for checkpoint in checkpoints {
-                            <option value=(&checkpoint.path)>(&checkpoint.id)</option>
+                            <option value=(&checkpoint.artifact.id)>(&checkpoint.id)</option>
                         }
                     </select>
                 }

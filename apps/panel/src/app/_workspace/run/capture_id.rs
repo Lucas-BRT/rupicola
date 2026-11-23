@@ -39,9 +39,10 @@ async fn page(cx: &Cx) -> Result<impl View> {
 async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture> {
     let found = runs::find(cx, &id).await?;
     let key = found.key;
-    let run = found.manifest;
-    let role = auth::role_of(cx, &run.project.id).await?;
-    let candidates: Vec<_> = runs::summaries(cx, &run.project.id)
+    let project_label = found.project;
+    let run = found.capture;
+    let role = auth::role_of(cx, &run.project_id).await?;
+    let candidates: Vec<_> = runs::summaries(cx, &run.project_id)
         .await?
         .iter()
         .filter(|entry| {
@@ -57,7 +58,7 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
         .filter(|before| candidates.iter().any(|candidate| candidate.id == *before))
     {
         Some(before) => {
-            let before = runs::find(cx, before).await?.manifest;
+            let before = runs::find(cx, before).await?.capture;
             let differs = before.environment != run.environment;
             Some((before.checkpoints, differs))
         }
@@ -70,7 +71,7 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
         .flat_map(|(checkpoints, _)| {
             checkpoints
                 .iter()
-                .map(|item| (item.id.clone(), media::url(&item.path)))
+                .map(|item| (item.id.clone(), media::url(&item.artifact.id)))
         })
         .collect();
     Ok(Capture {
@@ -78,9 +79,10 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
         height: run.environment.height.unwrap_or(480).max(1).to_string(),
         may_review: role != Role::Reader,
         comparing: before.is_some(),
-        project_url: format!("/projects/{}", run.project.id),
+        project_url: format!("/projects/{}", run.project_id),
+        project_label,
         form_url: format!("/run/{key}"),
-        manifest: run,
+        record: run,
         candidates,
         requested,
         before_images,
@@ -124,7 +126,7 @@ async fn record_inspection(
         || note.len() > 8000
         || evidence
             .as_ref()
-            .is_some_and(|artifact| !media::declared(&run.manifest, artifact))
+            .is_some_and(|artifact| !media::declared(&run.capture, artifact))
     {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }

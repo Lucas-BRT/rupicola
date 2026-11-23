@@ -4,7 +4,7 @@ use crate::components::{
 };
 use crate::views::design_system::design_studio;
 use crate::{Account, auth::Role, media, project::AssetOption, records, systems::Studio};
-use rupicola_core::design_record;
+use rupicola_api::{DesignEntry, DesignKind};
 use std::collections::BTreeSet;
 use topcoat::{
     Result,
@@ -19,13 +19,13 @@ pub async fn design_tab(
     base: &str,
     role: Role,
     tab: &str,
-    records: Vec<design_record::Entry>,
+    records: Vec<DesignEntry>,
     all_assets: Vec<AssetOption>,
     studio: Studio,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
     Ok(view! {
-        let superseded: BTreeSet<&str> = design_record::superseded(&records);
+        let superseded: BTreeSet<&str> = records::superseded_design(&records);
         design_studio(account: account, role: role, base: base, tab: tab, studio: &studio)
         if tab == "records" {
             if role == Role::Owner {
@@ -37,9 +37,9 @@ pub async fn design_tab(
                     <p>"Ask your agent to record the brief, art direction, tactics and decisions as the design takes shape."</p>
                 </section>
             }
-            for kind in [design_record::Kind::Brief, design_record::Kind::Direction, design_record::Kind::Tactic, design_record::Kind::Decision] {
-                if records.iter().any(|entry| entry.kind == kind && !superseded.contains(entry.id.as_str())) {
-                    design_chapter(kind: kind, records: &records, superseded: &superseded)
+            for kind in DesignKind::ALL {
+                if records.iter().any(|entry| entry.entry.kind == *kind && !superseded.contains(entry.id.as_str())) {
+                    design_chapter(kind: *kind, records: &records, superseded: &superseded)
                 }
             }
             if !superseded.is_empty() {
@@ -55,7 +55,7 @@ async fn record_editor(
     cx: &Cx,
     base: &str,
     token: &str,
-    records: &[design_record::Entry],
+    records: &[DesignEntry],
     superseded: &BTreeSet<&str>,
     all_assets: &[AssetOption],
 ) -> Result<impl View> {
@@ -88,7 +88,7 @@ async fn record_editor(
                     select_field(id: "design-replaces", name: "supersedes", label: "Replace an active record of the same type (optional)",
                         <option value="">"None"</option>
                         for entry in records.iter().filter(|entry| !superseded.contains(entry.id.as_str())) {
-                            <option value=(&entry.id)>(entry.kind.label()) " · " (&entry.title)</option>
+                            <option value=(&entry.id)>(entry.entry.kind.label()) " · " (&entry.entry.title)</option>
                         }
                     )
                 }
@@ -102,15 +102,15 @@ async fn record_editor(
 #[component]
 async fn design_chapter(
     cx: &Cx,
-    kind: design_record::Kind,
-    records: &[design_record::Entry],
+    kind: DesignKind,
+    records: &[DesignEntry],
     superseded: &BTreeSet<&str>,
 ) -> Result<impl View> {
     Ok(view! {
         <section class="design-chapter">
             <h2>(kind.label())</h2>
             <ul class="findings-list">
-                for entry in records.iter().filter(|entry| entry.kind == kind && !superseded.contains(entry.id.as_str())) {
+                for entry in records.iter().filter(|entry| entry.entry.kind == kind && !superseded.contains(entry.id.as_str())) {
                     record_item(entry: entry)
                 }
             </ul>
@@ -120,20 +120,20 @@ async fn design_chapter(
 
 /// One design record with its status, author, time and links.
 #[component]
-async fn record_item(cx: &Cx, entry: &design_record::Entry) -> Result<impl View> {
+async fn record_item(cx: &Cx, entry: &DesignEntry) -> Result<impl View> {
     Ok(view! {
         <li>
-            <h3>(&entry.title)</h3>
-            <p class="muted">(entry.status.label())
-                if let Some(surface) = &entry.surface { " · " (surface) }
+            <h3>(&entry.entry.title)</h3>
+            <p class="muted">(entry.entry.status.label())
+                if let Some(surface) = &entry.entry.surface { " · " (surface) }
                 if let Some(author) = &entry.author { " · " (author) }
-                " · " moment(epoch_ms: entry.timestamp_ms)
+                " · " moment(epoch_ms: records::millis(entry.created_at))
             </p>
-            <p class="whitespace-pre-wrap">(&entry.note)</p>
-            if let Some(url) = entry.reference.as_deref().filter(|url| url.starts_with("https://") || url.starts_with("http://")) {
+            <p class="whitespace-pre-wrap">(&entry.entry.note)</p>
+            if let Some(url) = entry.entry.reference.as_deref().filter(|url| url.starts_with("https://") || url.starts_with("http://")) {
                 <a href=(url) rel="noreferrer">"Design reference"</a>
             }
-            if let Some(artifact) = entry.evidence.as_deref() {
+            if let Some(artifact) = entry.entry.evidence.as_deref() {
                 " " <a href=(media::url(artifact))>"Capture evidence"</a>
             }
         </li>
@@ -144,7 +144,7 @@ async fn record_item(cx: &Cx, entry: &design_record::Entry) -> Result<impl View>
 #[component]
 async fn history(
     cx: &Cx,
-    records: &[design_record::Entry],
+    records: &[DesignEntry],
     superseded: &BTreeSet<&str>,
 ) -> Result<impl View> {
     Ok(view! {
@@ -154,9 +154,9 @@ async fn history(
                 <ul class="findings-list">
                     for entry in records.iter().filter(|entry| superseded.contains(entry.id.as_str())) {
                         <li>
-                            <h3>(&entry.title)</h3>
-                            <p class="muted">(entry.kind.label()) " · " (entry.status.label()) " · Superseded"</p>
-                            <p class="whitespace-pre-wrap">(&entry.note)</p>
+                            <h3>(&entry.entry.title)</h3>
+                            <p class="muted">(entry.entry.kind.label()) " · " (entry.entry.status.label()) " · Superseded"</p>
+                            <p class="whitespace-pre-wrap">(&entry.entry.note)</p>
                         </li>
                     }
                 </ul>

@@ -12,6 +12,19 @@ text_enum! {
     }
 }
 
+impl FixStatus {
+    /// Human-readable label shown in the UI.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::PendingReview => "Pending review",
+            Self::Approved => "Approved",
+            Self::ChangesRequested => "Changes requested",
+            Self::Superseded => "Superseded",
+        }
+    }
+}
+
 text_enum! {
     /// What a selection is to a fix.
     FixSelectionRole {

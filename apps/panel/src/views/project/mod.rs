@@ -14,10 +14,10 @@ pub use problems::problems_tab;
 use crate::components::badge::{BadgeVariant, badge};
 use crate::components::layout::{breadcrumbs, tab_link, tabs};
 use crate::project::AssetOption;
-use crate::{Run, auth, design_record, fix_record, problem_record};
+use crate::records::{ComparisonPair, FixRecord, Problem};
+use crate::{Run, auth};
 use auth::Role;
-use fix_record::{ComparisonPair, FixRecord, FixStatus};
-use problem_record::{Problem, ProblemStatus, Severity};
+use rupicola_api::{DesignEntry, FixStatus, ProblemStatus, Severity};
 use topcoat::{
     Result,
     context::Cx,

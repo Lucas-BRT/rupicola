@@ -52,7 +52,7 @@ async fn load(cx: &Cx, filter: &Filter) -> PageResult<Projects> {
         if let Some(entry) = records::design(cx, id).await?.into_iter().next() {
             summaries.insert(
                 id.clone(),
-                format!("{} · {}", entry.title, entry.status.label()),
+                format!("{} · {}", entry.entry.title, entry.entry.status.label()),
             );
         }
     }

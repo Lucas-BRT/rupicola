@@ -2,8 +2,8 @@ use std::{error::Error, net::Ipv4Addr, sync::Arc};
 
 use clap::Parser;
 use http::{StatusCode, header};
+use rupicola_api::Capture;
 use rupicola_client::{Api, HttpApi};
-use rupicola_core::capture_manifest::Manifest;
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use topcoat::router::{
@@ -28,7 +28,6 @@ mod runs;
 mod systems;
 mod views;
 use auth::Account;
-use rupicola_core::{design_record, fix_record, problem_record};
 
 type BoxError = Box<dyn Error + Send + Sync>;
 type PageResult<T> = Result<T, StatusCode>;
@@ -69,7 +68,7 @@ struct Run {
     status: String,
     inspection: String,
     created_at_ms: i64,
-    manifest: Manifest,
+    capture: Capture,
 }
 
 #[tokio::main]

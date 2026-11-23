@@ -1,83 +1,12 @@
 //! Captures as the panel shows them. The backend owns them: this reads a project's
-//! captures through the [`Api`] and shapes each into the [`Run`] the screens expect, with the
-//! id of every artifact standing where a file path used to.
+//! captures through the [`Api`] and wraps each with its project label.
 
 use super::{PageResult, Run, StatusCode, backend};
-use rupicola_api::{Artifact, Capture, Project};
-use rupicola_core::capture_manifest::{
-    Checkpoint, Clip, Environment, Finding, Frame, Manifest, Project as ManifestProject,
-};
+use rupicola_api::{Capture, Project};
 use topcoat::context::Cx;
 
 /// Newest captures read in full per project when listing; older ones are not shown.
 const RECENT_PER_PROJECT: usize = 50;
-/// Version of the manifest shape the screens read.
-const MANIFEST_VERSION: u32 = 1;
-
-/// What a screen links an artifact by: its id.
-fn reference(artifact: &Artifact) -> String {
-    artifact.id.clone()
-}
-
-fn manifest_of(project: &Project, capture: &Capture) -> Manifest {
-    let environment = &capture.environment;
-    Manifest {
-        version: MANIFEST_VERSION,
-        project: ManifestProject {
-            id: project.id.clone(),
-            label: project.label.clone(),
-        },
-        scenario: capture.scenario.clone(),
-        revision: capture.revision.clone(),
-        created_at_ms: capture.created_at,
-        status: capture.status.to_string(),
-        blocker: capture.blocker.clone(),
-        inspection: capture.inspection.to_string(),
-        environment: Environment {
-            color_scheme: environment.color_scheme.clone().unwrap_or_default(),
-            reduced_motion: environment.reduced_motion,
-            width: environment.width,
-            height: environment.height,
-            renderer: environment.renderer.clone().unwrap_or_default(),
-        },
-        checkpoints: capture
-            .checkpoints
-            .iter()
-            .map(|checkpoint| Checkpoint {
-                id: checkpoint.id.clone(),
-                path: reference(&checkpoint.artifact),
-            })
-            .collect(),
-        clips: capture
-            .clips
-            .iter()
-            .map(|clip| Clip {
-                id: clip.id.clone(),
-                frames: clip
-                    .frames
-                    .iter()
-                    .map(|frame| Frame {
-                        path: reference(&frame.artifact),
-                        target_ms: frame.target_ms,
-                        video_ms: frame.video_ms,
-                    })
-                    .collect(),
-                analysis_path: clip.analysis.as_ref().map(reference),
-                video_path: clip.video.as_ref().map(reference),
-                sheet_path: clip.sheet.as_ref().map(reference),
-            })
-            .collect(),
-        findings: capture
-            .findings
-            .iter()
-            .map(|finding| Finding {
-                note: finding.note.clone(),
-                evidence: finding.evidence_artifact_id.clone(),
-                author: finding.author.clone(),
-            })
-            .collect(),
-    }
-}
 
 fn run_of(project: &Project, capture: &Capture) -> Run {
     Run {
@@ -88,7 +17,7 @@ fn run_of(project: &Project, capture: &Capture) -> Run {
         status: capture.status.to_string(),
         inspection: capture.inspection.to_string(),
         created_at_ms: capture.created_at,
-        manifest: manifest_of(project, capture),
+        capture: capture.clone(),
     }
 }
 
@@ -165,7 +94,7 @@ pub async fn summaries<'a>(
 mod tests {
     use super::*;
     use rupicola_api::{
-        CaptureStatus, Checkpoint as ApiCheckpoint, Environment as ApiEnvironment,
+        Artifact, CaptureStatus, Checkpoint as ApiCheckpoint, Environment as ApiEnvironment,
         Finding as ApiFinding, Inspection,
     };
 
@@ -231,12 +160,17 @@ mod tests {
         assert_eq!(run.project, "Demo");
         assert_eq!(run.status, "blocked");
         assert_eq!(run.inspection, "pending");
-        let manifest = &run.manifest;
-        assert_eq!(manifest.checkpoints[0].path, ARTIFACT);
-        assert_eq!(manifest.environment.width, Some(640));
-        assert_eq!(manifest.environment.color_scheme, "dark");
-        assert_eq!(manifest.blocker.as_deref(), Some("no browser"));
-        assert_eq!(manifest.findings[0].evidence.as_deref(), Some(ARTIFACT));
-        assert_eq!(manifest.findings[0].note, NOTE);
+        assert_eq!(run.capture.checkpoints[0].artifact.id, ARTIFACT);
+        assert_eq!(run.capture.environment.width, Some(640));
+        assert_eq!(
+            run.capture.environment.color_scheme.as_deref(),
+            Some("dark")
+        );
+        assert_eq!(run.capture.blocker.as_deref(), Some("no browser"));
+        assert_eq!(
+            run.capture.findings[0].evidence_artifact_id.as_deref(),
+            Some(ARTIFACT)
+        );
+        assert_eq!(run.capture.findings[0].note, NOTE);
     }
 }

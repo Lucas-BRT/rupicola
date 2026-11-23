@@ -7,7 +7,6 @@ use crate::{
     records,
     views::dashboard::{Activity, Dashboard, dashboard_board, dashboard_frame},
 };
-use rupicola_core::design_record;
 use topcoat::{
     Result,
     context::Cx,
@@ -49,7 +48,7 @@ async fn load(cx: &Cx, filter: Filter) -> PageResult<Dashboard> {
     let mut activity: Vec<Activity> = Vec::new();
     for (id, label) in &projects {
         let records = records::design(cx, id).await?;
-        let superseded = design_record::superseded(&records);
+        let superseded = records::superseded_design(&records);
         activity.extend(
             records
                 .iter()
@@ -58,10 +57,10 @@ async fn load(cx: &Cx, filter: Filter) -> PageResult<Dashboard> {
                 .map(|entry| Activity {
                     project: id.clone(),
                     label: label.clone(),
-                    timestamp_ms: entry.timestamp_ms,
-                    title: entry.title.clone(),
-                    kind: entry.kind,
-                    status: entry.status,
+                    timestamp_ms: records::millis(entry.created_at),
+                    title: entry.entry.title.clone(),
+                    kind: entry.entry.kind,
+                    status: entry.entry.status,
                 }),
         );
     }

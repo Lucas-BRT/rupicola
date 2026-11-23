@@ -1,5 +1,5 @@
 use super::{
-    AssetOption, Cx, Problem, ProblemStatus, Role, Severity, badge, design_record,
+    AssetOption, Cx, DesignEntry, Problem, ProblemStatus, Role, Severity, badge,
     problem_status_badge, severity_badge, view,
 };
 use crate::Account;
@@ -23,7 +23,7 @@ pub async fn problems_tab(
     filter: Filter,
     problems: Vec<Problem>,
     assets: Vec<AssetOption>,
-    design_entries: Vec<design_record::Entry>,
+    design_entries: Vec<DesignEntry>,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
     Ok(view! {
@@ -63,8 +63,8 @@ pub async fn problems_tab(
         let filtered: Vec<&Problem> = problems
             .iter()
             .filter(|p| {
-                (status_filter.is_empty() || p.status.slug() == status_filter)
-                    && (severity_filter.is_empty() || p.severity.slug() == severity_filter)
+                (status_filter.is_empty() || p.status.as_str() == status_filter)
+                    && (severity_filter.is_empty() || p.severity.as_str() == severity_filter)
                     && (q.is_empty()
                         || p.title.to_lowercase().contains(&q)
                         || p.diagnosis.to_lowercase().contains(&q)
@@ -106,7 +106,7 @@ async fn report_form(
     prefill_asset: &str,
     prefill_name: &str,
     assets: &[AssetOption],
-    design_entries: &[design_record::Entry],
+    design_entries: &[DesignEntry],
 ) -> Result<impl View> {
     Ok(view! {
         <details class="surface panel-padding design-editor" if !prefill_asset.is_empty() { open="" }>
@@ -160,7 +160,7 @@ async fn report_form(
                 select_field(id: "prob-project-rule", name: "project_rule", label: "Violated project design norm",
                     <option value="Design#flyio-copper-broadsheet:Fly.io Copper Broadsheet Direction">"Design#flyio-copper-broadsheet — Fly.io Copper Broadsheet Direction"</option>
                     for d in design_entries.iter().take(12) {
-                        <option value=(format!("Design#{}:{}", d.id, d.title))>(d.kind.label()) " · " (&d.title)</option>
+                        <option value=(format!("Design#{}:{}", d.id, d.entry.title))>(d.entry.kind.label()) " · " (&d.entry.title)</option>
                     }
                 )
                 text_area(id: "prob-diagnosis", name: "diagnosis", label: "Diagnosis (what is broken & why)",
@@ -193,14 +193,14 @@ async fn problem_toolbar(
                 <select id="p-status" name="status">
                     <option value="">"All statuses"</option>
                     for st in ProblemStatus::ALL {
-                        <option value=(st.slug()) if status_filter == st.slug() { selected="" }>(st.label())</option>
+                        <option value=(st.as_str()) if status_filter == st.as_str() { selected="" }>(st.label())</option>
                     }
                 </select>
                 <label for="p-sev">"Severity"</label>
                 <select id="p-sev" name="kind">
                     <option value="">"All severities"</option>
-                    for sev in [Severity::Critical, Severity::Major, Severity::Minor, Severity::Polish] {
-                        <option value=(sev.slug()) if severity_filter == sev.slug() { selected="" }>(sev.label())</option>
+                    for sev in Severity::ALL {
+                        <option value=(sev.as_str()) if severity_filter == sev.as_str() { selected="" }>(sev.label())</option>
                     }
                 </select>
                 <button class="button" type="submit">"Filter"</button>
