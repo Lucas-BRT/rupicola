@@ -121,6 +121,10 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .route("/projects/{id}/members", routing::get(projects::members))
         .route("/projects/{id}/limits", routing::get(limits::get))
         .route(
+            "/projects/{id}/blobs/missing",
+            routing::post(captures::missing),
+        )
+        .route(
             "/projects/{id}/members/{handle}",
             routing::put(projects::put_member).delete(projects::delete_member),
         )

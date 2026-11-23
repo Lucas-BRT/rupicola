@@ -20,7 +20,7 @@ use axum::{
 };
 use rupicola_api::{
     Artifact, BlobRef, Capture, CaptureStatus, CaptureSummary, Checkpoint, Clip, Finding, Frame,
-    Inspection, NewCapture, NewFinding, Role,
+    Inspection, Missing, MissingQuery, NewCapture, NewFinding, Role,
 };
 use std::collections::HashSet;
 
@@ -51,6 +51,25 @@ pub async fn put_blob(
     } else {
         StatusCode::OK
     })
+}
+
+/// `POST /v1/projects/{id}/blobs/missing`: which of these files the project does not have
+/// yet, so a client uploads only those, with the limits to upload them under.
+pub async fn missing(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(project): Path<String>,
+    Json(query): Json<MissingQuery>,
+) -> Result<Json<Missing>, ApiError> {
+    match access(&state, &principal, &project).await? {
+        Access::Device => {}
+        person @ Access::Person(_) => person.require(Role::Reviewer)?,
+    }
+    query.validate().map_err(ApiError::invalid)?;
+    Ok(Json(Missing {
+        missing: blobs::BlobIndex::missing(&state.db, &project, &query.sha256).await?,
+        limits: state.limits.effective(&state, &project).await?,
+    }))
 }
 
 /// `HEAD /v1/blobs/{sha256}`: 200 when stored, so clients skip the upload.
@@ -216,6 +235,8 @@ pub async fn create(
         .bind(item.video_ms)
         .execute(&mut *tx)
         .await?;
+        // The project now cites the file, so it is no longer missing for it.
+        blobs::BlobIndex::record(&mut tx, &project, &item.file.sha256, *size).await?;
     }
     let actor = principal.handle.as_deref().unwrap_or("device");
     crate::projects::audit(
@@ -840,5 +861,88 @@ mod tests {
                 "{path}: {response}"
             );
         }
+    }
+
+    fn missing_body(hashes: &[&str]) -> String {
+        serde_json::to_string(&serde_json::json!({ "sha256": hashes })).unwrap()
+    }
+
+    #[tokio::test]
+    async fn only_the_files_a_project_does_not_hold_are_missing_and_once_each() {
+        let (port, [ana, _, carla]) = demo().await;
+        call(
+            port,
+            "POST",
+            "/v1/projects",
+            Some(&carla),
+            Some(r#"{"id":"other","label":"Other"}"#),
+        )
+        .await;
+        let home = upload(port, &ana, b"home pixels").await;
+        let frame = upload(port, &ana, b"frame pixels").await;
+        let fresh = digest(b"never uploaded");
+        let ask = |token: &str, project: &str, hashes: &[&str]| {
+            let (token, path, body) = (
+                token.to_owned(),
+                format!("/v1/projects/{project}/blobs/missing"),
+                missing_body(hashes),
+            );
+            async move { call(port, "POST", &path, Some(&token), Some(&body)).await }
+        };
+        // Stored, but no capture of the project cites them yet.
+        let before = ask(&ana, "demo", &[&home, &fresh, &home]).await;
+        assert_eq!(status(&before), StatusCode::OK, "{before}");
+        let before: rupicola_api::Missing = json(&before);
+        assert_eq!(
+            before.missing,
+            [home.clone(), fresh.clone()],
+            "in order and once each"
+        );
+        assert!(before.limits.max_blob_bytes > 0, "the limits come along");
+        let created = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures",
+            Some(&ana),
+            Some(&capture_json(&home, &frame)),
+        )
+        .await;
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
+        let after: rupicola_api::Missing = json(&ask(&ana, "demo", &[&home, &frame, &fresh]).await);
+        assert_eq!(after.missing, std::slice::from_ref(&fresh));
+        let elsewhere: rupicola_api::Missing = json(&ask(&carla, "other", &[&home]).await);
+        assert_eq!(
+            elsewhere.missing,
+            [home],
+            "another project does not learn of the blob"
+        );
+    }
+
+    #[tokio::test]
+    async fn asking_what_is_missing_needs_upload_rights_and_plain_hashes() {
+        let (port, [ana, bruno, carla]) = demo().await;
+        let path = "/v1/projects/demo/blobs/missing";
+        let good = missing_body(&[&digest(b"x")]);
+        let reader = call(port, "POST", path, Some(&bruno), Some(&good)).await;
+        assert_eq!(
+            status(&reader),
+            StatusCode::FORBIDDEN,
+            "a reader does not upload"
+        );
+        let outsider = call(port, "POST", path, Some(&carla), Some(&good)).await;
+        assert_eq!(status(&outsider), StatusCode::NOT_FOUND);
+        let shouting = missing_body(&[&digest(b"x").to_uppercase()]);
+        let bad = call(port, "POST", path, Some(&ana), Some(&shouting)).await;
+        assert_eq!(status(&bad), StatusCode::UNPROCESSABLE_ENTITY, "{bad}");
+        let many: Vec<String> = (0..=rupicola_api::MAX_MISSING_BATCH)
+            .map(|i| digest(i.to_string().as_bytes()))
+            .collect();
+        let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+        let too_many = call(port, "POST", path, Some(&ana), Some(&missing_body(&refs))).await;
+        assert_eq!(
+            status(&too_many),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{too_many}"
+        );
     }
 }
