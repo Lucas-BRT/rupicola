@@ -8,6 +8,16 @@ use std::{
 };
 
 const LINK: &str = ".rupicola/project.toml";
+const MAX_IDENTIFIER_LEN: usize = 64;
+
+fn valid_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_IDENTIFIER_LEN
+        && value.as_bytes()[0].is_ascii_alphanumeric()
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+}
 
 fn directory(variable: &str, fallback: &str) -> Result<PathBuf> {
     if let Some(path) = env::var_os(variable)
@@ -57,7 +67,7 @@ fn linked() -> Result<Option<Link>> {
 }
 
 pub fn link(project: String) -> Result<()> {
-    if !rupicola_core::scenario::identifier(&project) {
+    if !valid_identifier(&project) {
         bail!("Use a project ID containing only letters, digits, hyphens and underscores");
     }
     let cwd = env::current_dir()?;

@@ -1,6 +1,5 @@
 //! Static, offline helpers for the Rupicola skill.
 //! No inspected project code is compiled or executed by these functions.
-pub mod capture;
 pub mod capture_manifest;
 pub mod check;
 pub mod design_record;
@@ -9,8 +8,6 @@ pub mod evals;
 pub mod fix_record;
 pub mod problem_record;
 pub mod scan;
-pub mod scenario;
-pub mod visual;
 
 use anyhow::{Context, Result};
 use serde::Serialize;

@@ -1,8 +1,8 @@
-//! Source and skill analysis: discover, scan, check, audit, rules and modules.
+//! Source and skill analysis: discover, scan, check, rules and modules.
 
 use crate::{
-    Context, EXIT_CLEAN, EXIT_ERROR, EXIT_FINDINGS, EXIT_UNSUPPORTED, FRAMEWORKS, Result, TOPICS,
-    check, discover, json, scan, visual,
+    EXIT_CLEAN, EXIT_ERROR, EXIT_FINDINGS, EXIT_UNSUPPORTED, FRAMEWORKS, Result, TOPICS, check,
+    discover, json, scan,
 };
 use std::path::PathBuf;
 
@@ -134,39 +134,6 @@ impl CheckArgs {
             }
         }
         Ok(u8::from(!result.diagnostics.is_empty()))
-    }
-}
-
-#[derive(clap::Args)]
-pub struct AuditArgs {
-    tree: PathBuf,
-    #[arg(long)]
-    json: bool,
-}
-
-impl AuditArgs {
-    pub(super) fn run(self) -> Result<u8> {
-        let AuditArgs {
-            tree,
-            json: output_json,
-        } = self;
-        let text = std::fs::read_to_string(&tree).with_context(|| format!("{}", tree.display()))?;
-        let parsed: visual::Tree =
-            serde_json::from_str(&text).with_context(|| format!("{}", tree.display()))?;
-        let findings = visual::audit(&parsed);
-        if output_json {
-            json(&findings)?;
-        } else {
-            for f in &findings {
-                println!("{} {}: {}", f.rule, f.node, f.message);
-            }
-            println!("{} nodes, {} findings", parsed.nodes.len(), findings.len());
-        }
-        Ok(if findings.is_empty() {
-            EXIT_CLEAN
-        } else {
-            EXIT_FINDINGS
-        })
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "rupicola-core"
-description = "Shared domain, capture, scan, and record logic for Rupicola"
+description = "Shared domain, scan, and record logic for Rupicola"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,10 +10,6 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-thiserror.workspace = true
-tokio = { workspace = true, features = ["process"] }
-rupicola-protocol.workspace = true
-rupicola-capture = { workspace = true, features = ["async"] }
 clap = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
@@ -21,16 +17,13 @@ toml.workspace = true
 syn.workspace = true
 proc-macro2.workspace = true
 pulldown-cmark.workspace = true
-png.workspace = true
-tempfile.workspace = true
 
 [features]
 # Derives `clap::ValueEnum` on the record enums for command-line front ends.
 clap = ["dep:clap"]
 
 [dev-dependencies]
-async-trait.workspace = true
-tokio = { workspace = true, features = ["macros", "rt"] }
+tempfile.workspace = true
 
 [lints]
 workspace = true

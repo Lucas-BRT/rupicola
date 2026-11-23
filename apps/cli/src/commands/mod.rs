@@ -6,7 +6,6 @@ mod captures;
 mod client;
 mod design;
 mod fixes;
-mod images;
 mod panel;
 mod problems;
 mod projects;
@@ -14,12 +13,11 @@ mod remote;
 
 use crate::{AuthAction, EXIT_CLEAN, Result, service};
 use account::{LoginArgs, Logout, WhoamiArgs};
-use analysis::{AuditArgs, CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs};
+use analysis::{CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs};
 use captures::CapturesArgs;
 use clap::Subcommand;
 use design::DesignArgs;
 use fixes::FixesArgs;
-use images::{DiffArgs, FramesArgs, PaletteArgs, SheetArgs, VideoArgs};
 use panel::ServeArgs;
 use problems::ProblemsArgs;
 use projects::ProjectsArgs;
@@ -58,22 +56,10 @@ pub enum Command {
     Scan(ScanArgs),
     /// Validate the skill catalog, direct links and source records.
     Check(CheckArgs),
-    /// Compare two PNG screenshots (pixel difference, changed region, optional diff image).
-    Diff(DiffArgs),
-    /// Analyze a directory of animation frames (PNG) for stalls, jumps and settling.
-    Frames(FramesArgs),
     /// Link the current checkout to a project in the local panel.
     Link { project: String },
     /// Serve project evidence using the optional rupicola-panel executable.
     Serve(ServeArgs),
-    /// Assemble PNG frames or a raw RGBA/BGRA stdin stream into a constant-framerate MP4 via ffmpeg.
-    Video(VideoArgs),
-    /// Extract a dominant-color palette and suggested roles from a PNG.
-    Palette(PaletteArgs),
-    /// Combine PNGs from a directory into one contact-sheet image.
-    Sheet(SheetArgs),
-    /// Check a JSON UI tree (rectangles, names, colors) for size, name, contrast and layout problems.
-    Audit(AuditArgs),
     /// List the supported static rules.
     Rules(RulesArgs),
     /// List framework and UX module paths; does not load their contents.
@@ -99,17 +85,11 @@ impl Command {
             Self::Discover(args) => args.run(),
             Self::Scan(args) => args.run(),
             Self::Check(args) => args.run(),
-            Self::Diff(args) => args.run(),
-            Self::Frames(args) => args.run(),
             Self::Link { project } => {
                 service::link(project)?;
                 Ok(EXIT_CLEAN)
             }
             Self::Serve(args) => args.run(),
-            Self::Video(args) => args.run(),
-            Self::Palette(args) => args.run(),
-            Self::Sheet(args) => args.run(),
-            Self::Audit(args) => args.run(),
             Self::Rules(args) => args.run(),
             Self::Modules(args) => args.run(),
         }

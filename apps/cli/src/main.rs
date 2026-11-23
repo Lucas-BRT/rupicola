@@ -4,9 +4,9 @@ mod mcp_bridge;
 mod publish;
 mod service;
 mod session;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
-use rupicola_core::{FRAMEWORKS, TOPICS, capture, check, discover, scan, visual};
+use rupicola_core::{FRAMEWORKS, TOPICS, check, discover, scan};
 use std::process::ExitCode;
 
 /// Process exit codes, documented in the README: success with nothing to
@@ -16,13 +16,6 @@ const EXIT_CLEAN: u8 = 0;
 const EXIT_ERROR: u8 = 1;
 const EXIT_FINDINGS: u8 = 2;
 const EXIT_UNSUPPORTED: u8 = 3;
-/// Colors a palette reports unless told otherwise.
-const DEFAULT_PALETTE_COLORS: usize = 8;
-/// Contact sheet layout unless told otherwise.
-const DEFAULT_SHEET_COLUMNS: usize = 4;
-const DEFAULT_SHEET_THUMB_WIDTH: u32 = 320;
-/// Ratios are printed as percentages.
-const PERCENT: f64 = 100.0;
 /// The CLI runs on a thread with a larger stack: the default main-thread stack
 /// overflowed on Windows.
 const MAIN_STACK_BYTES: usize = 8 * 1024 * 1024;

@@ -1,7 +1,6 @@
 //! What a design document must satisfy: token completeness and WCAG contrast checks.
 
 use rupicola_api::Document;
-use rupicola_core::visual::Rgb;
 use sha2::{Digest, Sha256};
 
 /// WCAG 2.2 AA contrast for normal text.
@@ -23,10 +22,55 @@ const SPACING: std::ops::RangeInclusive<u8> = 8..=32;
 /// Largest corner radius, in pixels.
 const MAX_RADIUS: u8 = 16;
 
+const CHANNEL_MAX_F: f64 = 255.0;
+const SRGB_LINEAR_THRESHOLD: f64 = 0.04045;
+const SRGB_LINEAR_SLOPE: f64 = 12.92;
+const SRGB_OFFSET: f64 = 0.055;
+const SRGB_GAMMA: f64 = 2.4;
+const LUMA_RED: f64 = 0.2126;
+const LUMA_GREEN: f64 = 0.7152;
+const LUMA_BLUE: f64 = 0.0722;
+const CONTRAST_FLARE: f64 = 0.05;
+const HEX_RADIX: u32 = 16;
+
+#[derive(Clone, Copy)]
+struct Rgb {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+impl Rgb {
+    fn luminance(self) -> f64 {
+        LUMA_RED * linear(self.r) + LUMA_GREEN * linear(self.g) + LUMA_BLUE * linear(self.b)
+    }
+
+    fn contrast(self, other: Self) -> f64 {
+        let (a, b) = (self.luminance(), other.luminance());
+        let (hi, lo) = if a > b { (a, b) } else { (b, a) };
+        (hi + CONTRAST_FLARE) / (lo + CONTRAST_FLARE)
+    }
+}
+
+fn linear(channel: u8) -> f64 {
+    let c = f64::from(channel) / CHANNEL_MAX_F;
+    if c <= SRGB_LINEAR_THRESHOLD {
+        c / SRGB_LINEAR_SLOPE
+    } else {
+        ((c + SRGB_OFFSET) / (1.0 + SRGB_OFFSET)).powf(SRGB_GAMMA)
+    }
+}
+
 fn color(text: &str) -> Option<Rgb> {
-    (text.len() == TOKEN_COLOR_LEN && text.starts_with('#'))
-        .then(|| text.parse().ok())
-        .flatten()
+    let hex = text
+        .strip_prefix('#')
+        .filter(|_| text.len() == TOKEN_COLOR_LEN)?;
+    let byte = |range: std::ops::Range<usize>| u8::from_str_radix(&hex[range], HEX_RADIX).ok();
+    Some(Rgb {
+        r: byte(0..2)?,
+        g: byte(2..4)?,
+        b: byte(4..6)?,
+    })
 }
 
 /// Whether every text is present and bounded and every token is a plain color or size.
