@@ -7,7 +7,7 @@ publish = false
 description = "Lightweight landing page and documentation server for Rupicola"
 
 [dependencies]
-clap = { version = "=4.6.7", features = ["derive"] }
+clap = { version = "=4.6.9", features = ["derive"] }
 http = "=1.5.0"
 pulldown-cmark = "=0.13.6"
 tokio = { version = "=1.54.1", features = ["macros", "net", "rt-multi-thread"] }
