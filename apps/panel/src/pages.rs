@@ -1,7 +1,7 @@
 use super::{
     Account, Arc, BTreeMap, Checkpoint, Cx, Deserialize, Html, IntoResponse, PageResult, Panel,
     Response, Run, StatusCode, auth, db_error, design_record, design_system, media, pipeline,
-    proposes, records, redirect, runs, safe_name, storage, view,
+    records, redirect, runs, safe_name, storage, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
@@ -372,7 +372,6 @@ async fn project_view(
                 | "problems"
                 | "fixes"
                 | "design"
-                | "proposes"
                 | "storage"
                 | "runs"
                 | "images"
@@ -413,10 +412,7 @@ async fn project_view(
         .ok_or(StatusCode::NOT_FOUND)?;
     let related: Vec<_> = runs.iter().filter(|run| run.project_id == id).collect();
     let base = format!("/projects/{id}");
-    let design = if matches!(
-        section.as_str(),
-        "design" | "proposes" | "overview" | "problems"
-    ) {
+    let design = if matches!(section.as_str(), "design" | "overview" | "problems") {
         records::design(&panel, &account, &id).await?
     } else {
         Vec::new()
@@ -517,7 +513,6 @@ async fn project_view(
         "problems" => "Problems",
         "fixes" => "Fixes",
         "design" => "Design",
-        "proposes" => "Proposes",
         "storage" => "Storage",
         "settings" => "Project settings",
         _ => "Overview",
@@ -545,23 +540,10 @@ async fn project_view(
     let design_tab = match filter.view.as_deref() {
         Some("system") => "system",
         Some("screens") => "screens",
-        Some("proposals") => "proposals",
         _ => "records",
     };
     let studio = if section == "design" {
         Some(design_system::load(&panel, &id, filter.version.as_deref()).await?)
-    } else {
-        None
-    };
-    let propose_state = if section == "design" && design_tab == "proposals" {
-        Some(proposes::load(
-            &panel,
-            &id,
-            proposes::ProposeFilter {
-                kind: filter.kind.clone(),
-                status: filter.status.clone(),
-            },
-        )?)
     } else {
         None
     };
@@ -697,9 +679,6 @@ async fn project_view(
         }
         if let Some(studio) = &studio {
             (design_system::render(cx, &account, role, &base, design_tab, studio))
-        }
-        if let Some(state) = &propose_state {
-            (proposes::render_section(cx, &account, role, &id, &base, state))
         }
         if section == "design" && design_tab == "records" {
             if role == Role::Owner {
@@ -1130,7 +1109,6 @@ pub struct DesignForm {
     reference: Option<String>,
     evidence: Option<String>,
     supersedes: Option<String>,
-    return_to: Option<String>,
 }
 
 pub async fn record_design(
@@ -1146,14 +1124,8 @@ pub async fn record_design(
     if auth::role(&panel, &account, &id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    let return_to_proposals = form.return_to.as_deref() == Some("proposes");
     save_design(&panel, &account, &id, form).await?;
-    let target = if return_to_proposals {
-        format!("/projects/{id}/design?view=proposals")
-    } else {
-        format!("/projects/{id}/design")
-    };
-    Ok(redirect(&target))
+    Ok(redirect(&format!("/projects/{id}/design")))
 }
 
 async fn save_design(

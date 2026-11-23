@@ -55,6 +55,17 @@ const MIGRATIONS: &[(i64, &[&str])] = &[
             "DROP TABLE IF EXISTS captures_v1",
         ],
     ),
+    // Problems, fixes and design records live in the backend now, and the proposals
+    // and provider settings that were indexed beside them are gone.
+    (
+        3,
+        &[
+            "DROP TABLE IF EXISTS problems_v1",
+            "DROP TABLE IF EXISTS fixes_v1",
+            "DROP TABLE IF EXISTS proposals_v1",
+            "DROP TABLE IF EXISTS ai_providers_v1",
+        ],
+    ),
 ];
 
 /// Applies every migration newer than the recorded schema version.

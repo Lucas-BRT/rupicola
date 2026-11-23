@@ -1,6 +1,6 @@
 use super::{
     Account, Arc, Body, Cx, IntoResponse, PageResult, Panel, Request, Response, Router, StatusCode,
-    auth, design_system, header, media, pages, pipeline, proposes, status,
+    auth, design_system, header, media, pages, pipeline, status,
 };
 use topcoat::{
     Result,
@@ -12,7 +12,6 @@ use topcoat::{
 
 path_param!(project);
 path_param!(section);
-path_param!(proposal);
 path_param!(version);
 path_param!(proof_name);
 path_param!(problem);
@@ -32,10 +31,6 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(project)
         .route(project_section)
         .route(project_action)
-        .route(create_proposal)
-        .route(review_proposal)
-        .route(preview_proposal)
-        .route(proposal_asset)
         .route(analyze_run_problems)
         .route(create_problem)
         .route(triage_problem)
@@ -159,20 +154,6 @@ async fn project_section(cx: &Cx) -> Result<Response> {
     let project_id: String = path_param::<Project>(cx).into();
     let section: String = path_param::<Section>(cx).into();
     let filter: pages::Filter = parse_query_params(cx)?;
-    if section == "proposes" && super::safe_name(&project_id) {
-        let mut query = url::form_urlencoded::Serializer::new(String::new());
-        query.append_pair("view", "proposals");
-        if let Some(kind) = filter.kind {
-            query.append_pair("kind", &kind);
-        }
-        if let Some(status) = filter.status {
-            query.append_pair("status", &status);
-        }
-        return Ok(super::redirect(&format!(
-            "/projects/{project_id}/design?{}",
-            query.finish()
-        )));
-    }
     respond(
         cx,
         pages::project_section(panel(cx), account(cx), (project_id, section), filter).await,
@@ -315,68 +296,6 @@ async fn script() -> Result<([(http::HeaderName, &'static str); 1], &'static str
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
         include_str!("panel.js"),
     ))
-}
-
-#[route(POST "/projects/{project}/proposes/create")]
-async fn create_proposal(cx: &Cx, body: Body) -> Result<Response> {
-    respond(
-        cx,
-        proposes::create(
-            panel(cx),
-            account(cx),
-            path_param::<Project>(cx).into(),
-            request::headers(cx).clone(),
-            body,
-        )
-        .await,
-    )
-}
-
-#[route(POST "/projects/{project}/proposes/{proposal}/review")]
-async fn review_proposal(cx: &Cx, Form(form): Form<proposes::ReviewForm>) -> Result<Response> {
-    let panel = panel(cx);
-    let account = account(cx);
-    let id = (
-        path_param::<Project>(cx).into(),
-        path_param::<Proposal>(cx).into(),
-    );
-    let result = tokio::task::spawn_blocking(move || proposes::review(&panel, &account, id, &form))
-        .await
-        .unwrap_or_else(|error| Err(super::db_error(error)));
-    respond(cx, result)
-}
-
-#[route(GET "/projects/{project}/proposes/{proposal}/preview")]
-async fn preview_proposal(cx: &Cx) -> Result<Response> {
-    respond(
-        cx,
-        proposes::preview(
-            panel(cx),
-            account(cx),
-            (
-                path_param::<Project>(cx).into(),
-                path_param::<Proposal>(cx).into(),
-            ),
-        )
-        .await,
-    )
-}
-
-#[route(GET "/projects/{project}/proposes/{proposal}/assets/{asset}")]
-async fn proposal_asset(cx: &Cx) -> Result<Response> {
-    respond(
-        cx,
-        proposes::asset(
-            panel(cx),
-            account(cx),
-            (
-                path_param::<Project>(cx).into(),
-                path_param::<Proposal>(cx).into(),
-                path_param::<Asset>(cx).into(),
-            ),
-        )
-        .await,
-    )
 }
 
 #[route(POST "/projects/{project}/design/record")]

@@ -78,13 +78,11 @@ mod design_system;
 mod media;
 mod pages;
 mod pipeline;
-mod proposes;
 mod records;
-mod records_index;
 mod routes;
 mod runs;
 use auth::Account;
-use rupicola_core::{design_record, fix_record, problem_record, proposal_record, storage};
+use rupicola_core::{design_record, fix_record, problem_record, storage};
 
 type BoxError = Box<dyn Error + Send + Sync>;
 type PageResult<T> = Result<T, StatusCode>;
@@ -181,12 +179,6 @@ async fn main() -> Result<(), BoxError> {
     let index = database.connect()?;
     db::migrate(&index).await?;
     design_system::init(&index).await?;
-    records_index::init(&index).await?;
-    let sync_root = args.captures.first().and_then(|p| p.parent()).map_or_else(
-        || FilePath::new(".rupicola").to_path_buf(),
-        FilePath::to_path_buf,
-    );
-    records_index::sync_from_disk(&index, &sync_root).await?;
     let bind_ip = args
         .bind
         .or_else(|| std::env::var("HOST").ok().and_then(|h| h.parse().ok()))
