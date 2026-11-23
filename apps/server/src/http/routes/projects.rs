@@ -2,10 +2,10 @@
 //! `/projects/{id}`.
 
 use super::super::handlers::{
-    captures, credentials, design, fixes, limits, problems, projects, publish, removal, search,
-    selections, settings, topics,
+    captures, credentials, design, design_systems as design_system_handlers, fixes, limits,
+    problems, projects, publish, removal, search, selections, settings, topics,
 };
-use crate::{design_system, state::Shared};
+use crate::state::Shared;
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {
@@ -75,14 +75,20 @@ fn design_systems() -> Router<Shared> {
     Router::new()
         .route(
             "/",
-            routing::get(design_system::list).post(design_system::create),
+            routing::get(design_system_handlers::list).post(design_system_handlers::create),
         )
-        .route("/{version}", routing::get(design_system::get))
-        .route("/{version}/document", routing::put(design_system::edit))
-        .route("/{version}/actions", routing::post(design_system::act))
+        .route("/{version}", routing::get(design_system_handlers::get))
+        .route(
+            "/{version}/document",
+            routing::put(design_system_handlers::edit),
+        )
+        .route(
+            "/{version}/actions",
+            routing::post(design_system_handlers::act),
+        )
         .route(
             "/{version}/proofs/{name}",
-            routing::get(design_system::proof),
+            routing::get(design_system_handlers::proof),
         )
 }
 

@@ -2,7 +2,6 @@
 //! It is the only process that touches the database and the media store.
 
 mod config;
-mod design_system;
 mod domain;
 mod http;
 mod repositories;

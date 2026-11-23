@@ -7,6 +7,7 @@ pub mod blob;
 pub mod capture;
 pub mod credential;
 pub mod design;
+pub mod design_system;
 pub mod error;
 pub mod fix;
 pub mod limits;

@@ -5,6 +5,7 @@ pub mod account;
 pub mod captures;
 pub mod credentials;
 pub mod design;
+pub mod design_systems;
 pub mod fixes;
 pub mod limits;
 pub mod lineage;
