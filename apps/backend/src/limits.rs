@@ -81,34 +81,59 @@ impl LimitDefaults {
         )
     }
 
-    /// The limits that hold for `project`: the defaults, then the server's settings, then the
-    /// project's, which can only tighten.
+    /// The limits the server allows: the defaults, then what an administrator set.
+    ///
+    /// # Errors
+    ///
+    /// When the settings cannot be read.
+    pub async fn server(&self, state: &Shared) -> Result<Limits, ApiError> {
+        let mut limits = self.0.clone();
+        for (key, value) in Self::stored(state, None).await? {
+            limits.set(key, value);
+        }
+        Ok(limits.clamped())
+    }
+
+    /// The limits that hold for `project`: the server's, then what its owner set, which can
+    /// only tighten.
     ///
     /// # Errors
     ///
     /// When the settings cannot be read.
     pub async fn effective(&self, state: &Shared, project: &str) -> Result<Limits, ApiError> {
-        let mut limits = self.0.clone();
-        let server: Vec<(String, String)> =
-            sqlx::query_as("SELECT key, value FROM server_settings")
-                .fetch_all(&state.db)
-                .await?;
-        for (key, value) in server {
-            if let Some((key, value)) = Self::setting(&key, &value) {
-                limits.set(key, value);
-            }
-        }
-        let own: Vec<(String, String)> =
-            sqlx::query_as("SELECT key, value FROM project_settings WHERE project_id = ?1")
-                .bind(project)
-                .fetch_all(&state.db)
-                .await?;
-        for (key, value) in own {
-            if let Some((key, value)) = Self::setting(&key, &value) {
-                limits.tighten(key, value);
-            }
+        let mut limits = self.server(state).await?;
+        for (key, value) in Self::stored(state, Some(project)).await? {
+            limits.tighten(key, value);
         }
         Ok(limits.clamped())
+    }
+
+    /// The limits stored for the server, or for `project`.
+    ///
+    /// # Errors
+    ///
+    /// When the settings cannot be read.
+    pub async fn stored(
+        state: &Shared,
+        project: Option<&str>,
+    ) -> Result<Vec<(LimitSetting, u64)>, ApiError> {
+        let rows: Vec<(String, String)> = match project {
+            None => {
+                sqlx::query_as("SELECT key, value FROM server_settings")
+                    .fetch_all(&state.db)
+                    .await?
+            }
+            Some(project) => {
+                sqlx::query_as("SELECT key, value FROM project_settings WHERE project_id = ?1")
+                    .bind(project)
+                    .fetch_all(&state.db)
+                    .await?
+            }
+        };
+        Ok(rows
+            .iter()
+            .filter_map(|(key, value)| Self::setting(key, value))
+            .collect())
     }
 
     /// A stored setting that is a limit with a positive whole value. Other settings share the

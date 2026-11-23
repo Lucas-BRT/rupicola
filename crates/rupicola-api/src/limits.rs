@@ -2,6 +2,7 @@
 
 use crate::record::Member;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt;
 
 /// Most hashes one `blobs/missing` call may carry.
@@ -44,6 +45,21 @@ text_enum! {
         UploadTimeoutSecs => "upload_timeout_secs",
         UploadIdleSecs => "upload_idle_secs",
     }
+}
+
+/// `GET /v1/settings` and `GET /v1/projects/{id}/settings`: the limits set at this level, and
+/// the limits that hold once every level is applied.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct LimitSettings {
+    /// Only what was set here; a limit that is absent comes from the level above.
+    pub set: BTreeMap<LimitSetting, u64>,
+    pub effective: Limits,
+}
+
+/// `PUT /v1/settings/{key}` and `PUT /v1/projects/{id}/settings/{key}`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct LimitValue {
+    pub value: u64,
 }
 
 /// A file or a capture that does not fit in the limits.

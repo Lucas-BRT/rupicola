@@ -15,6 +15,7 @@ mod mcp;
 mod problems;
 mod projects;
 mod security;
+mod settings;
 mod state;
 #[cfg(test)]
 mod testkit;
@@ -122,6 +123,7 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .route_layer(sign_in_limit);
     let api = Router::new()
         .merge(design_system::routes())
+        .merge(settings::routes())
         .route("/setup", routing::get(auth::setup_status))
         .route("/me", routing::get(auth::me))
         .route("/sessions/current", routing::delete(auth::sign_out))
@@ -138,7 +140,6 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
                 .delete(projects::delete),
         )
         .route("/projects/{id}/members", routing::get(projects::members))
-        .route("/projects/{id}/limits", routing::get(limits::get))
         .route(
             "/projects/{id}/blobs/missing",
             routing::post(captures::missing),
