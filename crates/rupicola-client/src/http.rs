@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
     Capture, Credentials, Me, NewCapture, NewProject, PREFIX, Project, Register, SessionToken,
-    Setup,
+    Setup, SetupStatus,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -83,6 +83,12 @@ impl HttpApi {
 
 #[async_trait]
 impl Api for HttpApi {
+    async fn setup_required(&self) -> Result<bool> {
+        Self::read::<SetupStatus>(self.request(Method::GET, "/setup", None))
+            .await
+            .map(|status| status.required)
+    }
+
     async fn setup(&self, form: &Setup) -> Result<SessionToken> {
         Self::read(self.request(Method::POST, "/setup", None).json(form)).await
     }

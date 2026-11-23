@@ -8,7 +8,7 @@ use axum::{
 };
 use rupicola_api::{
     Capture, CaptureStatus, Credentials, Environment, ErrorBody, Inspection, Me, NewCapture,
-    NewProject, Project, Role, SessionToken, TokenKind,
+    NewProject, Project, Role, SessionToken, SetupStatus, TokenKind,
 };
 use rupicola_client::{Api, ClientError, HttpApi, McpReply};
 use sha2::{Digest, Sha256};
@@ -153,6 +153,10 @@ async fn serve() -> (HttpApi, Arc<AtomicUsize>) {
             }),
         )
         .route(
+            "/v1/setup",
+            get(|| async { Json(SetupStatus { required: true }) }),
+        )
+        .route(
             "/v1/me",
             get(|headers: HeaderMap| async move {
                 if bearer(&headers) == Some(TOKEN) {
@@ -193,6 +197,7 @@ async fn calls_reach_their_routes_with_the_bearer_token() {
     assert_eq!(session.token, TOKEN);
     assert_eq!(api.me(TOKEN).await.unwrap().handle.as_deref(), Some(HANDLE));
     assert_eq!(api.projects(TOKEN).await.unwrap(), vec![project()]);
+    assert!(api.setup_required().await.unwrap());
     api.sign_out(TOKEN).await.unwrap();
 }
 

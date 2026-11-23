@@ -47,6 +47,13 @@ pub struct Setup {
     pub code: Option<String>,
 }
 
+/// `GET /v1/setup`: whether the first administrator still has to be created, so a client
+/// knows whether to offer sign-in or setup.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct SetupStatus {
+    pub required: bool,
+}
+
 /// A bearer token and when it stops working (Unix milliseconds).
 #[derive(Clone, Deserialize, Serialize)]
 pub struct SessionToken {

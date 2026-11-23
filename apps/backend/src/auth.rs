@@ -14,7 +14,7 @@ use axum::{
     extract::{FromRequestParts, State},
     http::{StatusCode, header, request::Parts},
 };
-use rupicola_api::{Credentials, Me, SessionToken, Setup, TokenKind};
+use rupicola_api::{Credentials, Me, SessionToken, Setup, SetupStatus, TokenKind};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use subtle::ConstantTimeEq;
@@ -306,6 +306,16 @@ pub async fn me(principal: Principal) -> Json<Me> {
         admin: principal.admin,
         project: principal.project,
     })
+}
+
+/// `GET /v1/setup`: whether the first administrator still has to be created.
+pub async fn setup_status(State(state): State<Shared>) -> Result<Json<SetupStatus>, ApiError> {
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM accounts WHERE admin = 1 LIMIT 1")
+        .fetch_optional(&state.db)
+        .await?;
+    Ok(Json(SetupStatus {
+        required: exists.is_none(),
+    }))
 }
 
 /// `POST /v1/setup`: create the first administrator and sign them in. Refused once

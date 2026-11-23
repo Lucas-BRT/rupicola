@@ -27,6 +27,9 @@ pub struct McpReply {
 #[cfg_attr(feature = "mock", mockall::automock)]
 #[async_trait]
 pub trait Api: Send + Sync {
+    /// Whether the first administrator still has to be created with [`Api::setup`].
+    async fn setup_required(&self) -> Result<bool>;
+
     /// Creates the first administrator account and signs it in.
     async fn setup(&self, form: &Setup) -> Result<SessionToken>;
 

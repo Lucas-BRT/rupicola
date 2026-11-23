@@ -97,6 +97,7 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .route("/invites/redeem", routing::post(credentials::redeem))
         .route_layer(sign_in_limit);
     let api = Router::new()
+        .route("/setup", routing::get(auth::setup_status))
         .route("/me", routing::get(auth::me))
         .route("/sessions/current", routing::delete(auth::sign_out))
         .route(
@@ -405,6 +406,18 @@ mod tests {
 
         let again = call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
         assert_eq!(status(&again), StatusCode::CONFLICT, "{again}");
+    }
+
+    #[tokio::test]
+    async fn setup_is_reported_as_required_until_the_first_owner_exists() {
+        let port = start(settings()).await;
+        let before = call(port, "GET", "/v1/setup", None, None).await;
+        assert_eq!(status(&before), StatusCode::OK, "{before}");
+        assert!(json::<rupicola_api::SetupStatus>(&before).required);
+
+        call(port, "POST", "/v1/setup", None, Some(OWNER)).await;
+        let after = call(port, "GET", "/v1/setup", None, None).await;
+        assert!(!json::<rupicola_api::SetupStatus>(&after).required);
     }
 
     #[tokio::test]
