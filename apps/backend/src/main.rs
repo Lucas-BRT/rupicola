@@ -6,6 +6,7 @@ mod blobs;
 mod captures;
 mod credentials;
 mod db;
+mod design;
 mod error;
 mod fixes;
 mod mcp;
@@ -144,6 +145,10 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .route("/fixes/{id}", routing::get(fixes::get))
         .route("/fixes/{id}/steps", routing::post(fixes::add_step))
         .route("/fixes/{id}/reviews", routing::post(fixes::review))
+        .route(
+            "/projects/{id}/design",
+            routing::get(design::list).post(design::create),
+        )
         .route(
             "/tokens",
             routing::get(credentials::list_tokens).post(credentials::create_token),

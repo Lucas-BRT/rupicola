@@ -4,7 +4,9 @@
 //! Tools are the variants of [`Call`]; [`catalog`] describes them. A test keeps the two
 //! in step.
 
-use crate::{auth::Principal, captures, error::ApiError, fixes, problems, projects, state::Shared};
+use crate::{
+    auth::Principal, captures, design, error::ApiError, fixes, problems, projects, state::Shared,
+};
 use axum::{
     Json,
     extract::{Path, State},
@@ -80,6 +82,14 @@ enum Call {
         #[serde(flatten)]
         comment: rupicola_api::NewComment,
     },
+    DesignList {
+        project: String,
+    },
+    DesignRecord {
+        project: String,
+        #[serde(flatten)]
+        entry: rupicola_api::NewDesignEntry,
+    },
     FixList {
         project: String,
     },
@@ -153,6 +163,15 @@ impl Call {
             ),
             Self::ProblemComment { id, comment } => value(
                 &problems::comment(state_arg, principal, Path(id), Json(comment))
+                    .await?
+                    .1
+                    .0,
+            ),
+            Self::DesignList { project } => {
+                value(&design::list(state_arg, principal, Path(project)).await?.0)
+            }
+            Self::DesignRecord { project, entry } => value(
+                &design::create(state_arg, principal, Path(project), Json(entry))
                     .await?
                     .1
                     .0,
@@ -327,6 +346,24 @@ const TOOLS: &[Tool] = &[
         description: "Add a comment to a problem",
         required: &["id", "text"],
         properties: || json!({"id": text(), "text": text()}),
+    },
+    Tool {
+        name: "design_list",
+        description: "List a project's design records (briefs, directions, tactics, decisions), newest first",
+        required: &["project"],
+        properties: || json!({"project": text()}),
+    },
+    Tool {
+        name: "design_record",
+        description: "Record a design brief, direction, tactic or decision; supersedes names the record it replaces",
+        required: &["project", "kind", "status", "title"],
+        properties: || {
+            json!({"project": text(),
+        "kind": {"enum": ["brief", "direction", "tactic", "decision"]},
+        "status": {"enum": ["proposed", "adopted", "rejected"]},
+        "title": text(), "note": text(), "surface": text(), "supersedes": text(),
+        "reference": text(), "evidence": text()})
+        },
     },
     Tool {
         name: "fix_list",

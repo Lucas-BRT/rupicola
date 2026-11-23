@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 
 #[macro_use]
 mod text_enum;
+mod design;
 mod fixes;
 mod problems;
+pub use design::*;
 pub use fixes::*;
 pub use problems::*;
 pub use text_enum::UnknownValue;
