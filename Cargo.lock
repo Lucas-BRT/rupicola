@@ -3064,10 +3064,12 @@ name = "rupicola-panel"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "argon2",
  "base64 0.22.1",
  "clap",
+ "getrandom 0.3.4",
  "http",
+ "rupicola-api",
+ "rupicola-client",
  "rupicola-core",
  "serde",
  "serde_json",

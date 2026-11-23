@@ -34,35 +34,30 @@ access to only the capture roots it needs. Configure the proxy to preserve the
 public Host header, allow requests up to 64 MiB and rate-limit sign-in and
 registration.
 
-Before first startup, provision `RUPICOLA_SETUP_CODE` as a high-entropy secret
-of at least 32 characters. Enter it in the setup form. After the owner account
-exists, remove the environment secret from the service configuration.
+The panel keeps no accounts of its own: it asks the Rupicola backend, whose address
+you give with `--server-url` (or `RUPICOLA_SERVER_URL`). The backend creates the first
+administrator from the setup form; provision its `RUPICOLA_SETUP_CODE` as a high-entropy
+secret of at least 32 characters before first startup and remove it afterwards.
 
 ```sh
 rupicola serve \
   --public-origin https://atelier.example.org \
   --db /srv/rupicola/panel.db \
+  --server-url http://127.0.0.1:4730 \
   --port 4731
 ```
 
 The upstream binds to loopback. Terminate TLS at the proxy and keep the upstream
 private. Back up the Turso database and capture directories together. The run
 index can be rebuilt. Accounts, memberships and access records live in the
-database.
+backend's database.
 
 In **Project settings**, create a Reader or Reviewer invitation. Share its code
 and the registration URL through a private channel. Codes expire after 24 hours.
 Readers can open the project's evidence. Reviewers can also record inspection
 notes. The owner manages projects and access. A member with an account can redeem a new invitation under **Settings → Join a project**.
 
-For password recovery, stop the panel service and reset the account from the host:
-
-```sh
-rupicola-panel --db /srv/rupicola/panel.db recover USERNAME
-```
-
-Pass the replacement password on standard input without shell echo. This
-revokes all sessions for the account. Restart the panel afterward. Signed-in users can also rotate their own password directly in **Settings → Account → Change password**, which verifies the current password with Argon2id and revokes all other active sessions.
+Signed-in users can rotate their own password in **Settings → Account → Change password**, which verifies the current password and ends all other sessions. The backend owns the accounts, so a lost password is reset there.
 
 ## Docker & Dokploy (Open Internet)
 

@@ -1,11 +1,12 @@
 use super::{
-    Account, Arc, BTreeMap, Checkpoint, Connection, Cx, Deserialize, Html, IntoResponse, Manifest,
-    PageResult, Panel, Response, Run, StatusCode, TransactionBehavior, Value, auth, capture_store,
-    db_error, design_record, design_system, fix_record, fs, media, pipeline, problem_record,
-    proposal_record, proposes, read_index, redirect, safe_name, storage, view,
+    Account, Arc, BTreeMap, Checkpoint, Cx, Deserialize, Html, IntoResponse, Manifest, PageResult,
+    Panel, Response, Run, StatusCode, auth, capture_store, db_error, design_record, design_system,
+    fix_record, fs, media, pipeline, problem_record, proposal_record, proposes, read_index,
+    redirect, safe_name, storage, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
+use rupicola_api::{NewInvite, NewProject, PasswordChange, Redeem};
 
 async fn visible_runs(panel: &Panel, account: &Account) -> PageResult<Vec<Run>> {
     let mut runs = read_index(panel).await.map_err(db_error)?;
@@ -21,19 +22,14 @@ async fn catalog(
     account: &Account,
     runs: &[Run],
 ) -> PageResult<BTreeMap<String, String>> {
-    let db = panel.index.lock().await;
-    let (sql, params) = if account.owner {
-        ("SELECT id, label FROM projects", Vec::<Value>::new())
-    } else {
-        (
-            "SELECT p.id, p.label FROM projects p JOIN members m ON p.id = m.project WHERE m.handle = ?",
-            vec![Value::Text(account.handle.clone())],
-        )
-    };
-    let mut rows = db.query(sql, params).await.map_err(db_error)?;
     let mut projects = BTreeMap::new();
-    while let Some(row) = rows.next().await.map_err(db_error)? {
-        projects.insert(row.get(0).map_err(db_error)?, row.get(1).map_err(db_error)?);
+    for project in panel
+        .api
+        .projects(&account.session)
+        .await
+        .map_err(|e| auth::api_error(&e))?
+    {
+        projects.insert(project.id, project.label);
     }
     if account.owner {
         match fs::read_dir(&panel.design) {
@@ -339,24 +335,32 @@ pub async fn create_project(
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    register_project(&panel, &form.id, &form.label).await?;
+    register_project(&panel, &account, &form.id, &form.label).await?;
     Ok(redirect(&format!("/projects/{}", form.id)))
 }
 
-pub(crate) async fn register_project(panel: &Panel, id: &str, label: &str) -> PageResult<()> {
+pub(crate) async fn register_project(
+    panel: &Panel,
+    account: &Account,
+    id: &str,
+    label: &str,
+) -> PageResult<()> {
     let label = label.trim();
     if !safe_name(id) || id.len() > 48 || label.is_empty() || label.len() > 400 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let db = panel.index.lock().await;
-    let created = db
-        .execute("INSERT OR IGNORE INTO projects VALUES (?, ?)", [id, label])
+    panel
+        .api
+        .create_project(
+            &account.session,
+            &NewProject {
+                id: id.to_owned(),
+                label: label.to_owned(),
+            },
+        )
         .await
-        .map_err(db_error)?;
-    if created == 0 {
-        return Err(StatusCode::CONFLICT);
-    }
-    Ok(())
+        .map(|_| ())
+        .map_err(|e| auth::api_error(&e))
 }
 
 pub async fn project(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Html<String>> {
@@ -512,7 +516,7 @@ async fn project_view(
     let mcp_online = proposal_record::mcp_session_active(&pipeline::data_root(&panel)).is_some();
 
     let (members, audit) = if section == "settings" && role == Role::Owner {
-        access_lists(&panel, &id).await?
+        access_lists(&panel, &account, &id).await?
     } else {
         (Vec::new(), Vec::new())
     };
@@ -860,38 +864,45 @@ struct AccessItem {
     key: String,
 }
 
-async fn query_access_items(
-    db: &Connection,
-    sql: &str,
-    param: &str,
-) -> PageResult<Vec<AccessItem>> {
-    let mut rows = db.query(sql, [param]).await.map_err(db_error)?;
-    let mut items = Vec::new();
-    while let Some(row) = rows.next().await.map_err(db_error)? {
-        items.push(AccessItem {
-            label: row.get(0).map_err(db_error)?,
-            detail: row.get(1).map_err(db_error)?,
-            key: row.get(2).map_err(db_error)?,
-        });
-    }
-    Ok(items)
+/// A project's members and its recent access events, as the settings screen lists them.
+async fn access_lists(
+    panel: &Panel,
+    account: &Account,
+    id: &str,
+) -> PageResult<(Vec<AccessItem>, Vec<AccessItem>)> {
+    let members = panel
+        .api
+        .members(&account.session, id)
+        .await
+        .map_err(|e| auth::api_error(&e))?
+        .into_iter()
+        .map(|member| AccessItem {
+            key: member.handle.clone(),
+            label: member.handle,
+            detail: role_name(member.role).to_owned(),
+        })
+        .collect();
+    let audit = panel
+        .api
+        .audit(&account.session, id)
+        .await
+        .map_err(|e| auth::api_error(&e))?
+        .into_iter()
+        .map(|event| AccessItem {
+            key: event.occurred_at.to_string(),
+            label: event.event,
+            detail: event.actor,
+        })
+        .collect();
+    Ok((members, audit))
 }
 
-async fn access_lists(panel: &Panel, id: &str) -> PageResult<(Vec<AccessItem>, Vec<AccessItem>)> {
-    let db = panel.index.lock().await;
-    let members = query_access_items(
-        &db,
-        "SELECT handle, role, handle FROM members WHERE project = ? ORDER BY handle",
-        id,
-    )
-    .await?;
-    let audit = query_access_items(
-        &db,
-        "SELECT event, actor, CAST(occurred * 1000 AS TEXT) FROM audit WHERE project = ? ORDER BY id DESC LIMIT 30",
-        id,
-    )
-    .await?;
-    Ok((members, audit))
+const fn role_name(role: rupicola_api::Role) -> &'static str {
+    match role {
+        rupicola_api::Role::Owner => "owner",
+        rupicola_api::Role::Reviewer => "reviewer",
+        rupicola_api::Role::Reader => "reader",
+    }
 }
 
 #[derive(Deserialize)]
@@ -901,40 +912,37 @@ pub struct ProjectAction {
     value: String,
 }
 
-pub(crate) async fn update_project_access(
-    db: &turso::Connection,
-    actor: &str,
+/// Changes who can reach a project; returns the code of a new invitation.
+pub(crate) async fn change_project_access(
+    panel: &Panel,
+    account: &Account,
     id: &str,
     action: &str,
     value: &str,
-) -> PageResult<String> {
-    let secret = auth::token();
-    let digest = auth::digest(&secret);
+) -> PageResult<Option<String>> {
     let value = value.trim();
-    let (sql, params, event) = match action {
-        "invite" if matches!(value, "reader" | "reviewer") => (
-            "INSERT INTO invites VALUES (?, ?, ?, ?)",
-            Vec::from(turso::params![
-                digest,
-                id,
-                value.to_owned(),
-                auth::now() + 86400
-            ]),
-            "Invitation created",
-        ),
-        "revoke-member" => (
-            "DELETE FROM members WHERE handle = ? AND project = ?",
-            Vec::from(turso::params![value.to_owned(), id]),
-            "Member access removed",
-        ),
-        _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
-    };
-    db.transactional_batch([
-            (sql, params),
-            ("INSERT INTO audit(project, actor, event, occurred) SELECT ?, ?, ?, ? WHERE changes() > 0",
-             Vec::from(turso::params![id, actor, event.to_owned(), auth::now()])),
-        ], TransactionBehavior::Immediate).await.map_err(db_error)?;
-    Ok(secret)
+    let api = &panel.api;
+    match action {
+        "invite" => {
+            let role = match value {
+                "reader" => rupicola_api::Role::Reader,
+                "reviewer" => rupicola_api::Role::Reviewer,
+                _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
+            };
+            let issued = api
+                .create_invite(&account.session, id, &NewInvite { role, hours: None })
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(Some(issued.code))
+        }
+        "revoke-member" => {
+            api.remove_member(&account.session, id, value)
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(None)
+        }
+        _ => Err(StatusCode::UNPROCESSABLE_ENTITY),
+    }
 }
 
 pub async fn project_action(
@@ -950,25 +958,12 @@ pub async fn project_action(
     if !account.owner {
         return Err(StatusCode::FORBIDDEN);
     }
-    let runs = visible_runs(&panel, &account).await?;
-    let label = catalog(&panel, &account, &runs)
-        .await?
-        .remove(&id)
-        .ok_or(StatusCode::NOT_FOUND)?;
     let url = format!("/projects/{id}/settings");
-    let db = panel.index.lock().await;
-    db.execute(
-        "INSERT OR IGNORE INTO projects VALUES (?, ?)",
-        [id.as_str(), label.as_str()],
-    )
-    .await
-    .map_err(db_error)?;
-    let secret =
-        update_project_access(&db, &account.handle, &id, &form.action, &form.value).await?;
-    drop(db);
-    if form.action.starts_with("revoke-") {
+    let Some(secret) =
+        change_project_access(&panel, &account, &id, &form.action, &form.value).await?
+    else {
         return Ok(redirect(&url));
-    }
+    };
     let cx = &Cx::default();
     let content = shell!(cx, "Copy credential", account, panel, "projects", {
         <nav class="breadcrumbs" aria-label="Breadcrumb"><a href=(&url)>"Project settings"</a></nav>
@@ -988,21 +983,6 @@ pub async fn project_action(
 }
 
 pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<String>> {
-    let session_count: i64 = {
-        let db = panel.index.lock().await;
-        db.query(
-            "SELECT COUNT(*) FROM sessions WHERE handle = ? AND expires > ?",
-            Vec::from(turso::params![account.handle.clone(), auth::now()]),
-        )
-        .await
-        .map_err(db_error)?
-        .next()
-        .await
-        .map_err(db_error)?
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
-        .get(0)
-        .map_err(db_error)?
-    };
     let cx = &Cx::default();
     let content = shell!(cx, "Settings", account, panel, "settings", {
         <div class="page-title studio-heading"><h1>"Settings"</h1></div>
@@ -1016,7 +996,6 @@ pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<St
             </section>
             <section class="surface panel-padding">
                 <h2>"Account"</h2><p><strong>(&account.handle)</strong></p>
-                <p class="muted">(session_count) (if session_count == 1 { " active session" } else { " active sessions" })</p>
                 <form method="post" action="/settings">
                     <input type="hidden" name="csrf" value=(&account.csrf)>
                     <button type="submit" class="button">"Sign out other sessions"</button>
@@ -1065,13 +1044,7 @@ pub async fn account_action(
     form: auth::Csrf,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
-    let db = panel.index.lock().await;
-    db.execute(
-        "DELETE FROM sessions WHERE handle = ? AND id <> ?",
-        [account.handle.as_str(), account.session.as_str()],
-    )
-    .await
-    .map_err(db_error)?;
+    auth::sign_out_others(&panel, &account).await?;
     Ok(redirect("/settings"))
 }
 
@@ -1089,67 +1062,14 @@ pub async fn change_password(
     form: PasswordChangeForm,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
-    if !(12..=1024).contains(&form.new_password.len())
-        || !auth::equal(&form.new_password, &form.confirm_password)
-        || form.current_password.len() > 1024
-    {
+    if !auth::equal(&form.new_password, &form.confirm_password) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let stored = {
-        let db = panel.index.lock().await;
-        let mut rows = db
-            .query(
-                "SELECT password FROM accounts WHERE handle = ?",
-                [account.handle.as_str()],
-            )
-            .await
-            .map_err(db_error)?;
-        rows.next()
-            .await
-            .map_err(db_error)?
-            .ok_or(StatusCode::UNAUTHORIZED)?
-            .get::<String>(0)
-            .map_err(db_error)?
+    let change = PasswordChange {
+        current: form.current_password,
+        new: form.new_password,
     };
-    let permit = panel
-        .password_work
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
-    let current = form.current_password;
-    let new_pw = form.new_password;
-    let new_hash = tokio::task::spawn_blocking(move || -> PageResult<String> {
-        use argon2::{Argon2, PasswordHash, PasswordVerifier};
-
-        let _permit = permit;
-        let verified = PasswordHash::new(&stored).is_ok_and(|hash| {
-            Argon2::default()
-                .verify_password(current.as_bytes(), &hash)
-                .is_ok()
-        });
-        if !verified {
-            return Err(StatusCode::FORBIDDEN);
-        }
-        auth::password_hash(&new_pw).map_err(db_error)
-    })
-    .await
-    .map_err(db_error)??;
-    let db = panel.index.lock().await;
-    db.transactional_batch(
-        [
-            (
-                "UPDATE accounts SET password = ? WHERE handle = ?",
-                vec![Value::Text(new_hash), Value::Text(account.handle.clone())],
-            ),
-            (
-                "DELETE FROM sessions WHERE handle = ? AND id <> ?",
-                vec![Value::Text(account.handle), Value::Text(account.session)],
-            ),
-        ],
-        TransactionBehavior::Immediate,
-    )
-    .await
-    .map_err(db_error)?;
+    auth::change_password(&panel, &account, &change).await?;
     Ok(redirect("/settings"))
 }
 
@@ -1238,19 +1158,14 @@ pub async fn accept_invitation(
     form: Invitation,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
-    if account.owner || form.code.len() != 64 {
+    if account.owner {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let digest = auth::digest(&form.code);
-    let db = panel.index.lock().await;
-    let result = db.transactional_batch([
-        ("INSERT OR IGNORE INTO members SELECT project, ?, role FROM invites WHERE digest = ? AND expires > ?",
-         Vec::from(turso::params![account.handle, digest.clone(), auth::now()])),
-        ("DELETE FROM invites WHERE digest = ? AND changes() = 1", Vec::from(turso::params![digest])),
-    ], TransactionBehavior::Immediate).await.map_err(db_error)?;
-    if result[0].rows_affected() == 0 {
-        return Err(StatusCode::CONFLICT);
-    }
+    panel
+        .api
+        .redeem_invite(&account.session, &Redeem { code: form.code })
+        .await
+        .map_err(|e| auth::api_error(&e))?;
     Ok(redirect("/projects"))
 }
 

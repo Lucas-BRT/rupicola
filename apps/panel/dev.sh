@@ -7,6 +7,7 @@ DATA_DIR="$STATE_DIR/dev-data"
 CAPTURES="${RUPICOLA_DEV_CAPTURES:-$DATA_DIR/captures}"
 DB="${RUPICOLA_DEV_DB:-$DATA_DIR/panel.db}"
 PORT="${RUPICOLA_DEV_PORT:-4731}"
+SERVER_URL="${RUPICOLA_DEV_SERVER_URL:-http://127.0.0.1:4730}"
 PID_FILE="$STATE_DIR/panel-dev.pid"
 LOG_FILE="$STATE_DIR/panel-dev.log"
 DEV_UNIT="rupicola-dev.service"
@@ -53,13 +54,13 @@ case "$cmd" in
     if command -v systemd-run >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
       systemd-run --user --unit="$DEV_UNIT" \
         --description="Rupicola panel (dev)" \
-        "$BIN" --captures "$CAPTURES" --db "$DB" --port "$PORT" >/dev/null
+        "$BIN" --captures "$CAPTURES" --db "$DB" --port "$PORT" --server-url "$SERVER_URL" >/dev/null
     else
-      nohup "$BIN" --captures "$CAPTURES" --db "$DB" --port "$PORT" >"$LOG_FILE" 2>&1 < /dev/null &
+      nohup "$BIN" --captures "$CAPTURES" --db "$DB" --port "$PORT" --server-url "$SERVER_URL" >"$LOG_FILE" 2>&1 < /dev/null &
       echo $! >"$PID_FILE"
     fi
     wait_ready
-    echo "panel-dev running at http://127.0.0.1:$PORT (data: $DATA_DIR)"
+    echo "panel-dev running at http://127.0.0.1:$PORT (data: $DATA_DIR, backend: $SERVER_URL)"
     ;;
   stop)
     stop_dev

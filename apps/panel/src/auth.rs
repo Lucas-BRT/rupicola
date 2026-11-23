@@ -1,61 +1,51 @@
+//! Who is signed in, and what they may do. The backend owns accounts, sessions and
+//! membership; the panel keeps the backend's session token in a cookie and asks the backend
+//! on every request.
+
 use super::{
-    Arc, BoxError, Connection, Cx, Deserialize, Html, IntoResponse, PageResult, Panel, Response,
-    StatusCode, TransactionBehavior, Value, ViewExt, db_error, header, redirect, safe_name, status,
-    view,
+    Arc, Cx, Deserialize, Html, IntoResponse, PageResult, Panel, Response, StatusCode, ViewExt,
+    db_error, header, redirect, status, view,
 };
 use crate::components::button::button;
-use argon2::{
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{
-        SaltString,
-        rand_core::{OsRng, RngCore},
-    },
-};
 use http::{HeaderMap, HeaderValue, Method};
+use rupicola_api::{Credentials as SignIn, Me, PasswordChange, Register, Setup, TokenKind};
+use rupicola_client::{Api, ClientError};
 use sha2::{Digest, Sha256};
-use std::io::Read;
 use subtle::ConstantTimeEq;
 use topcoat::view::{View, attributes};
 
-const SESSION_AGE: i64 = 7 * 24 * 60 * 60;
+/// Cookie that holds the backend's session token.
+const SESSION_COOKIE: &str = "rp_session";
+/// Cookie that ties a sign-in or registration form to the browser that loaded it.
+const FORM_COOKIE: &str = "rp_form";
+/// How long a loaded sign-in form stays valid, in seconds.
+const FORM_AGE: i64 = 1800;
+/// Mixed into a session token to derive the CSRF token of its forms.
+const CSRF_SEED: &str = "rupicola-csrf:";
+const MS_PER_SEC: i64 = 1000;
+const BAD_LOGIN: &str = "The username or password is incorrect.";
+const LOGIN_LIMITED: &str = "Too many failed sign-in attempts. Wait 5 minutes before trying again.";
+const REGISTER_LIMITED: &str =
+    "Too many registration attempts. Wait 5 minutes before trying again.";
+const BAD_SETUP_CODE: &str = "The setup or invitation code is invalid.";
+const SETUP_REFUSED: &str =
+    "This setup or invitation could not be used. Check the code and username.";
 
+/// A signed-in person, as the panel sees them for one request.
 #[derive(Clone)]
 pub struct Account {
     pub handle: String,
+    /// Administers the whole backend.
     pub owner: bool,
+    /// The backend's session token.
     pub session: String,
     pub csrf: String,
-}
-
-pub async fn init(db: &Connection) -> Result<(), BoxError> {
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS accounts (
-            handle TEXT PRIMARY KEY, password TEXT NOT NULL, owner INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS sessions (
-            id TEXT PRIMARY KEY, handle TEXT NOT NULL, csrf TEXT NOT NULL, expires INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS projects (
-            id TEXT PRIMARY KEY, label TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS members (
-            project TEXT NOT NULL, handle TEXT NOT NULL, role TEXT NOT NULL, PRIMARY KEY(project, handle)
-        );
-        CREATE TABLE IF NOT EXISTS invites (
-            digest TEXT PRIMARY KEY, project TEXT NOT NULL, role TEXT NOT NULL, expires INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS audit (
-            id INTEGER PRIMARY KEY, project TEXT NOT NULL, actor TEXT NOT NULL, event TEXT NOT NULL,
-            occurred INTEGER NOT NULL
-        );",
-    ).await?;
-    Ok(())
 }
 
 pub fn token() -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    getrandom::fill(&mut bytes).expect("the operating system provides random bytes");
     let mut token = String::with_capacity(2 * bytes.len());
     for byte in bytes {
         token.push(char::from(HEX[usize::from(byte >> 4)]));
@@ -76,6 +66,12 @@ pub fn now() -> i64 {
     i64::try_from(secs).unwrap_or(i64::MAX)
 }
 
+/// The CSRF token of the forms of `session`: stable for the session and unguessable
+/// without it, so the panel keeps no state.
+fn csrf_for(session: &str) -> String {
+    digest(&format!("{CSRF_SEED}{session}"))
+}
+
 fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     let (_, value) = headers
         .get_all(header::COOKIE)
@@ -94,6 +90,41 @@ pub fn cookie_header(panel: &Panel, name: &str, value: &str, age: i64) -> Header
         .unwrap()
 }
 
+/// The status a failed call to the backend becomes.
+pub fn api_error(error: &ClientError) -> StatusCode {
+    match error {
+        ClientError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ClientError::Forbidden => StatusCode::FORBIDDEN,
+        ClientError::NotFound => StatusCode::NOT_FOUND,
+        ClientError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        ClientError::Conflict(_) => StatusCode::CONFLICT,
+        ClientError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+        ClientError::Unavailable(_) | ClientError::Malformed(_) => StatusCode::BAD_GATEWAY,
+    }
+}
+
+/// The account a session token belongs to.
+///
+/// # Errors
+///
+/// 401 when the backend does not know the token or it is not a person's session.
+pub async fn identify(api: &dyn Api, session: &str) -> PageResult<Account> {
+    let me = api.me(session).await.map_err(|e| api_error(&e))?;
+    account_of(me, session)
+}
+
+fn account_of(me: Me, session: &str) -> PageResult<Account> {
+    match (me.kind, me.handle) {
+        (TokenKind::Session, Some(handle)) => Ok(Account {
+            handle,
+            owner: me.admin,
+            session: session.to_owned(),
+            csrf: csrf_for(session),
+        }),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
 pub async fn authenticate(
     panel: &Panel,
     path: &str,
@@ -106,31 +137,10 @@ pub async fn authenticate(
     ) {
         return Ok(None);
     }
-    let Some(id) = cookie(headers, "rp_session") else {
+    let Some(session) = cookie(headers, SESSION_COOKIE) else {
         return Err(StatusCode::UNAUTHORIZED);
     };
-    let id = digest(&id);
-    let account = {
-        let db = panel.index.lock().await;
-        let mut rows = db.query(
-            "SELECT a.handle, a.owner, s.csrf FROM sessions s JOIN accounts a ON s.handle = a.handle
-             WHERE s.id = ? AND s.expires > ?",
-            Vec::from(turso::params![id.clone(), now()]),
-        ).await.map_err(db_error)?;
-        if let Some(row) = rows.next().await.map_err(db_error)? {
-            Some(Account {
-                handle: row.get(0).map_err(db_error)?,
-                owner: row.get::<i64>(1).map_err(db_error)? == 1,
-                csrf: row.get(2).map_err(db_error)?,
-                session: id,
-            })
-        } else {
-            None
-        }
-    };
-    let Some(account) = account else {
-        return Err(StatusCode::UNAUTHORIZED);
-    };
+    let account = identify(panel.api.as_ref(), &session).await?;
     if *method != Method::GET && *method != Method::HEAD && !same_origin(panel, headers) {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -154,87 +164,71 @@ pub fn same_origin(panel: &Panel, headers: &HeaderMap) -> bool {
         })
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Role {
     Owner,
     Reviewer,
     Reader,
 }
 
-pub async fn role(panel: &Panel, account: &Account, project: &str) -> PageResult<Role> {
+impl From<rupicola_api::Role> for Role {
+    fn from(role: rupicola_api::Role) -> Self {
+        match role {
+            rupicola_api::Role::Owner => Self::Owner,
+            rupicola_api::Role::Reviewer => Self::Reviewer,
+            rupicola_api::Role::Reader => Self::Reader,
+        }
+    }
+}
+
+/// What `account` may do in `project`; an administrator may do everything.
+///
+/// # Errors
+///
+/// 404 when the account is not a member, so a project's existence does not leak.
+pub async fn project_role(api: &dyn Api, account: &Account, project: &str) -> PageResult<Role> {
     if account.owner {
         return Ok(Role::Owner);
     }
-    let db = panel.index.lock().await;
-    let mut rows = db
-        .query(
-            "SELECT role FROM members WHERE project = ? AND handle = ?",
-            [project, account.handle.as_str()],
-        )
+    api.projects(&account.session)
         .await
-        .map_err(db_error)?;
-    match rows
-        .next()
-        .await
-        .map_err(db_error)?
-        .map(|row| row.get::<String>(0))
-        .transpose()
-        .map_err(db_error)?
-        .as_deref()
-    {
-        Some("reviewer") => Ok(Role::Reviewer),
-        Some("reader") => Ok(Role::Reader),
-        _ => Err(StatusCode::NOT_FOUND),
-    }
+        .map_err(|e| api_error(&e))?
+        .iter()
+        .find(|candidate| candidate.id == project)
+        .and_then(|candidate| candidate.role)
+        .map(Role::from)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+pub async fn role(panel: &Panel, account: &Account, project: &str) -> PageResult<Role> {
+    project_role(panel.api.as_ref(), account, project).await
 }
 
 pub async fn readable_projects(panel: &Panel, account: &Account) -> PageResult<Vec<String>> {
-    let db = panel.index.lock().await;
-    let mut rows = db
-        .query(
-            "SELECT project FROM members WHERE handle = ?",
-            [account.handle.as_str()],
-        )
+    Ok(panel
+        .api
+        .projects(&account.session)
         .await
-        .map_err(db_error)?;
-    let mut projects = Vec::new();
-    while let Some(row) = rows.next().await.map_err(db_error)? {
-        projects.push(row.get(0).map_err(db_error)?);
-    }
-    Ok(projects)
+        .map_err(|e| api_error(&e))?
+        .into_iter()
+        .map(|project| project.id)
+        .collect())
 }
 
-pub async fn owner_exists(db: &Connection) -> Result<bool, BoxError> {
-    Ok(db
-        .query("SELECT 1 FROM accounts WHERE owner = 1 LIMIT 1", ())
-        .await?
-        .next()
-        .await?
-        .is_some())
-}
-
-async fn has_owner(panel: &Panel) -> PageResult<bool> {
-    let db = panel.index.lock().await;
-    owner_exists(&db).await.map_err(db_error)
+async fn setup_required(panel: &Panel) -> PageResult<bool> {
+    panel.api.setup_required().await.map_err(|e| api_error(&e))
 }
 
 pub async fn login_page(panel: Arc<Panel>) -> PageResult<Response> {
-    if !has_owner(&panel).await? {
+    if setup_required(&panel).await? {
         return Ok(redirect("/register"));
     }
     render(&panel, false, false, "", None, StatusCode::OK).await
 }
 
 pub async fn register_page(panel: Arc<Panel>) -> PageResult<Response> {
-    render(
-        &panel,
-        true,
-        !has_owner(&panel).await?,
-        "",
-        None,
-        StatusCode::OK,
-    )
-    .await
+    let initial = setup_required(&panel).await?;
+    render(&panel, true, initial, "", None, StatusCode::OK).await
 }
 
 #[derive(Deserialize)]
@@ -247,7 +241,7 @@ pub struct Credentials {
 
 fn check_form(panel: &Panel, headers: &HeaderMap, form: &Credentials) -> PageResult<()> {
     if !same_origin(panel, headers)
-        || cookie(headers, "rp_form").is_none_or(|token| !equal(&token, &form.csrf))
+        || cookie(headers, FORM_COOKIE).is_none_or(|token| !equal(&token, &form.csrf))
     {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -266,33 +260,6 @@ pub fn check_csrf(account: &Account, csrf: &str) -> PageResult<()> {
     }
 }
 
-const RATE_WINDOW_SECS: i64 = 300;
-const MAX_FAILED_ATTEMPTS: u32 = 8;
-
-async fn is_rate_limited(panel: &Panel, key: &str) -> bool {
-    let mut map = panel.login_attempts.lock().await;
-    let current = now();
-    map.retain(|_, (_, ts)| current - *ts < RATE_WINDOW_SECS);
-    map.get(key).is_some_and(|(count, ts)| {
-        *count >= MAX_FAILED_ATTEMPTS && current - *ts < RATE_WINDOW_SECS
-    })
-}
-
-async fn record_auth_failure(panel: &Panel, key: &str) {
-    let mut map = panel.login_attempts.lock().await;
-    let current = now();
-    let entry = map.entry(key.to_owned()).or_insert((0, current));
-    if current - entry.1 >= RATE_WINDOW_SECS {
-        *entry = (1, current);
-    } else {
-        entry.0 = entry.0.saturating_add(1);
-    }
-}
-
-async fn clear_auth_failures(panel: &Panel, key: &str) {
-    panel.login_attempts.lock().await.remove(key);
-}
-
 pub async fn login(
     panel: Arc<Panel>,
     headers: HeaderMap,
@@ -300,86 +267,36 @@ pub async fn login(
 ) -> PageResult<Response> {
     check_form(&panel, &headers, &form)?;
     let handle = form.handle.trim().to_ascii_lowercase();
-    if is_rate_limited(&panel, &handle).await {
-        return render(
-            &panel,
-            false,
-            false,
-            &handle,
-            Some("Too many failed sign-in attempts. Wait 5 minutes before trying again."),
-            StatusCode::TOO_MANY_REQUESTS,
-        )
-        .await;
-    }
-    let failure = "The username or password is incorrect.";
-    if !valid_handle(&handle) || form.password.len() > 1024 {
-        return render(
-            &panel,
-            false,
-            false,
-            &handle,
-            Some(failure),
-            StatusCode::UNAUTHORIZED,
-        )
-        .await;
-    }
-    let stored = {
-        let db = panel.index.lock().await;
-        let mut rows = db
-            .query(
-                "SELECT password FROM accounts WHERE handle = ?",
-                [handle.as_str()],
+    let attempt = SignIn {
+        handle: handle.clone(),
+        password: form.password,
+    };
+    match panel.api.sign_in(&attempt).await {
+        Ok(session) => Ok(start_session(&panel, &session)),
+        Err(ClientError::Unauthorized | ClientError::Invalid(_)) => {
+            render(
+                &panel,
+                false,
+                false,
+                &handle,
+                Some(BAD_LOGIN),
+                StatusCode::UNAUTHORIZED,
             )
             .await
-            .map_err(db_error)?;
-        rows.next()
+        }
+        Err(ClientError::RateLimited { .. }) => {
+            render(
+                &panel,
+                false,
+                false,
+                &handle,
+                Some(LOGIN_LIMITED),
+                StatusCode::TOO_MANY_REQUESTS,
+            )
             .await
-            .map_err(db_error)?
-            .map(|row| row.get::<String>(0))
-            .transpose()
-            .map_err(db_error)?
-    };
-    let exists = stored.is_some();
-    let hash = stored.unwrap_or_else(|| panel.dummy_password.clone());
-    let permit = panel
-        .password_work
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
-    let verified = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        PasswordHash::new(&hash).is_ok_and(|hash| {
-            Argon2::default()
-                .verify_password(form.password.as_bytes(), &hash)
-                .is_ok()
-        })
-    })
-    .await
-    .map_err(db_error)?;
-    if !exists || !verified {
-        record_auth_failure(&panel, &handle).await;
-        return render(
-            &panel,
-            false,
-            false,
-            &handle,
-            Some(failure),
-            StatusCode::UNAUTHORIZED,
-        )
-        .await;
+        }
+        Err(error) => Err(api_error(&error)),
     }
-    clear_auth_failures(&panel, &handle).await;
-    create_session(&panel, &handle).await
-}
-
-fn valid_handle(handle: &str) -> bool {
-    (3..=48).contains(&handle.len()) && safe_name(handle)
-}
-
-pub fn password_hash(password: &str) -> Result<String, argon2::password_hash::Error> {
-    Argon2::default()
-        .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
-        .map(|hash| hash.to_string())
 }
 
 pub async fn register(
@@ -389,114 +306,52 @@ pub async fn register(
 ) -> PageResult<Response> {
     check_form(&panel, &headers, &form)?;
     let handle = form.handle.trim().to_ascii_lowercase();
-    let initial = !has_owner(&panel).await?;
-    if is_rate_limited(&panel, "__register__").await {
-        return render(
-            &panel,
-            true,
-            initial,
-            &handle,
-            Some("Too many registration attempts. Wait 5 minutes before trying again."),
-            StatusCode::TOO_MANY_REQUESTS,
-        )
-        .await;
-    }
-    if !valid_handle(&handle) || !(12..=1024).contains(&form.password.len()) {
-        return render(&panel, true, initial, &handle,
-            Some("Use a username with 3–48 letters, numbers, hyphens or underscores and a password of at least 12 characters."),
-            StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-    let code = form.code.as_deref().unwrap_or("").trim();
-    let invite = digest(code);
-    if initial
-        && (panel.secure || panel.bootstrap.is_some())
-        && panel
-            .bootstrap
-            .as_ref()
-            .is_none_or(|expected| !equal(expected, &invite))
-    {
-        record_auth_failure(&panel, "__register__").await;
-        return render(
-            &panel,
-            true,
-            initial,
-            &handle,
-            Some("The setup code is invalid."),
-            StatusCode::FORBIDDEN,
-        )
-        .await;
-    }
-    let permit = panel
-        .password_work
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
-    let password = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        password_hash(&form.password)
-    })
-    .await
-    .map_err(db_error)?
-    .map_err(db_error)?;
-    let created = {
-        let db = panel.index.lock().await;
-        if initial {
-            db.execute(
-                "INSERT OR IGNORE INTO accounts SELECT ?, ?, 1 WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE owner = 1)",
-                [handle.as_str(), password.as_str()],
-            ).await.map_err(db_error)? != 0
-        } else {
-            let expires = now();
-            let results = db.transactional_batch([
-                ("INSERT OR IGNORE INTO accounts SELECT ?, ?, 0 WHERE EXISTS (SELECT 1 FROM invites WHERE digest = ? AND expires > ?)",
-                 Vec::from(turso::params![handle.clone(), password, invite.clone(), expires])),
-                ("INSERT INTO members SELECT project, ?, role FROM invites WHERE digest = ? AND expires > ? AND changes() = 1",
-                 Vec::from(turso::params![handle.clone(), invite.clone(), expires])),
-                ("DELETE FROM invites WHERE digest = ? AND changes() = 1", Vec::from(turso::params![invite])),
-            ], TransactionBehavior::Immediate).await.map_err(db_error)?;
-            results[0].rows_affected() != 0
-        }
+    let initial = setup_required(&panel).await?;
+    let code = form.code.as_deref().unwrap_or("").trim().to_owned();
+    let result = if initial {
+        panel
+            .api
+            .setup(&Setup {
+                handle: handle.clone(),
+                password: form.password,
+                code: (!code.is_empty()).then_some(code),
+            })
+            .await
+    } else {
+        panel
+            .api
+            .register(&Register {
+                code,
+                handle: handle.clone(),
+                password: form.password,
+            })
+            .await
     };
-    if !created {
-        return render(
-            &panel,
-            true,
-            initial,
-            &handle,
-            Some("This setup or invitation could not be used. Check the code and username."),
-            StatusCode::CONFLICT,
-        )
-        .await;
-    }
-    create_session(&panel, &handle).await
+    let (message, status) = match result {
+        Ok(session) => return Ok(start_session(&panel, &session)),
+        Err(ClientError::Invalid(message)) => (message, StatusCode::UNPROCESSABLE_ENTITY),
+        Err(ClientError::Forbidden) => (BAD_SETUP_CODE.to_owned(), StatusCode::FORBIDDEN),
+        Err(ClientError::Conflict(_)) => (SETUP_REFUSED.to_owned(), StatusCode::CONFLICT),
+        Err(ClientError::RateLimited { .. }) => {
+            (REGISTER_LIMITED.to_owned(), StatusCode::TOO_MANY_REQUESTS)
+        }
+        Err(error) => return Err(api_error(&error)),
+    };
+    render(&panel, true, initial, &handle, Some(&message), status).await
 }
 
-async fn create_session(panel: &Panel, handle: &str) -> PageResult<Response> {
-    let session = token();
-    let db = panel.index.lock().await;
-    db.execute("DELETE FROM sessions WHERE expires <= ?", [now()])
-        .await
-        .map_err(db_error)?;
-    db.execute(
-        "INSERT INTO sessions VALUES (?, ?, ?, ?)",
-        Vec::from(turso::params![
-            digest(&session),
-            handle.to_owned(),
-            token(),
-            now() + SESSION_AGE
-        ]),
-    )
-    .await
-    .map_err(db_error)?;
+/// Keeps the backend's session token in a cookie and goes to the dashboard.
+fn start_session(panel: &Panel, session: &rupicola_api::SessionToken) -> Response {
+    let age = ((session.expires_at / MS_PER_SEC) - now()).max(1);
     let mut response = redirect("/dashboard");
     response.headers_mut().append(
         header::SET_COOKIE,
-        cookie_header(panel, "rp_session", &session, SESSION_AGE),
+        cookie_header(panel, SESSION_COOKIE, &session.token, age),
     );
     response
         .headers_mut()
-        .append(header::SET_COOKIE, cookie_header(panel, "rp_form", "", 0));
-    Ok(response)
+        .append(header::SET_COOKIE, cookie_header(panel, FORM_COOKIE, "", 0));
+    response
 }
 
 #[derive(Deserialize)]
@@ -506,19 +361,36 @@ pub struct Csrf {
 
 pub async fn logout(panel: Arc<Panel>, account: Account, form: Csrf) -> PageResult<Response> {
     check_csrf(&account, &form.csrf)?;
-    let db = panel.index.lock().await;
-    db.execute(
-        "DELETE FROM sessions WHERE id = ?",
-        [account.session.as_str()],
-    )
-    .await
-    .map_err(db_error)?;
+    // A session the backend already ended is the outcome asked for.
+    let _ = panel.api.sign_out(&account.session).await;
     let mut response = redirect("/login");
     response.headers_mut().insert(
         header::SET_COOKIE,
-        cookie_header(&panel, "rp_session", "", 0),
+        cookie_header(&panel, SESSION_COOKIE, "", 0),
     );
     Ok(response)
+}
+
+/// Ends the person's other sessions.
+pub async fn sign_out_others(panel: &Panel, account: &Account) -> PageResult<()> {
+    panel
+        .api
+        .sign_out_others(&account.session)
+        .await
+        .map_err(|e| api_error(&e))
+}
+
+/// Changes the person's password.
+pub async fn change_password(
+    panel: &Panel,
+    account: &Account,
+    change: &PasswordChange,
+) -> PageResult<()> {
+    panel
+        .api
+        .change_password(&account.session, change)
+        .await
+        .map_err(|e| api_error(&e))
 }
 
 async fn render(
@@ -530,7 +402,7 @@ async fn render(
     status: StatusCode,
 ) -> PageResult<Response> {
     let nonce = token();
-    let form_cookie = cookie_header(panel, "rp_form", &nonce, 1800);
+    let form_cookie = cookie_header(panel, FORM_COOKIE, &nonce, FORM_AGE);
     let title = match (registering, initial) {
         (true, true) => "Set up Rupicola",
         (true, false) => "Accept an invitation",
@@ -575,9 +447,11 @@ async fn render(
                                 autocomplete=(if registering { "new-password" } else { "current-password" })
                                 if registering { minlength="12" aria-describedby="password-help" }>
                             if registering { <small id="password-help">"At least 12 characters."</small> }
-                            if registering && (!initial || panel.secure || panel.bootstrap.is_some()) {
+                            if registering {
                                 <label for="code">(if initial { "Setup code" } else { "Invitation code" })</label>
-                                <input id="code" name="code" required="" type="password" maxlength="128" autocomplete="off">
+                                <input id="code" name="code" type="password" maxlength="128" autocomplete="off"
+                                    if !initial { required="" }>
+                                if initial { <small>"Needed unless the backend runs on this machine only."</small> }
                             }
                             button(attrs: attributes! { type="submit" class="mt-3 w-full" }, (if registering { "Create account" } else { "Sign in" }))
                         </form>
@@ -609,36 +483,116 @@ pub async fn page(cx: &Cx, view: impl View) -> PageResult<Html<String>> {
     Ok(Html(content.render(cx)))
 }
 
-pub async fn recover(db: &Connection, username: &str) -> Result<(), BoxError> {
-    let handle = username.trim().to_ascii_lowercase();
-    if !valid_handle(&handle) {
-        return Err("invalid username".into());
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rupicola_api::Project;
+    use rupicola_client::MockApi;
+
+    const SESSION: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const OTHER_SESSION: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+    const HANDLE: &str = "ada";
+    const PROJECT: &str = "demo";
+    const OTHER_PROJECT: &str = "elsewhere";
+
+    fn me(kind: TokenKind, admin: bool) -> Me {
+        Me {
+            kind,
+            handle: Some(HANDLE.to_owned()),
+            admin,
+            project: None,
+        }
     }
-    let mut password = String::new();
-    std::io::Read::take(std::io::stdin().lock(), 1026).read_to_string(&mut password)?;
-    let password = password.trim_end_matches(['\r', '\n']);
-    if !(12..=1024).contains(&password.len()) {
-        return Err("supply a 12–1024 byte password on standard input".into());
+
+    fn account(owner: bool) -> Account {
+        Account {
+            handle: HANDLE.to_owned(),
+            owner,
+            session: SESSION.to_owned(),
+            csrf: csrf_for(SESSION),
+        }
     }
-    let hash = password_hash(password)?;
-    let changed = db
-        .transactional_batch(
-            [
-                (
-                    "UPDATE accounts SET password = ? WHERE handle = ?",
-                    vec![Value::Text(hash), Value::Text(handle.clone())],
-                ),
-                (
-                    "DELETE FROM sessions WHERE handle = ?",
-                    vec![Value::Text(handle)],
-                ),
-            ],
-            TransactionBehavior::Immediate,
-        )
-        .await?;
-    if changed[0].rows_affected() == 0 {
-        return Err("account not found".into());
+
+    fn project(id: &str, role: rupicola_api::Role) -> Project {
+        Project {
+            id: id.to_owned(),
+            label: id.to_owned(),
+            created_at: 0,
+            role: Some(role),
+        }
     }
-    println!("Password reset and sessions revoked.");
-    Ok(())
+
+    #[tokio::test]
+    async fn a_session_becomes_an_account_with_a_csrf_token_of_its_own() {
+        let mut api = MockApi::new();
+        api.expect_me()
+            .times(1)
+            .returning(|_| Ok(me(TokenKind::Session, true)));
+        let account = identify(&api, SESSION).await.unwrap();
+        assert_eq!(account.handle, HANDLE);
+        assert!(account.owner);
+        assert_eq!(account.session, SESSION);
+        assert_eq!(account.csrf, csrf_for(SESSION));
+        assert_ne!(csrf_for(SESSION), csrf_for(OTHER_SESSION));
+        assert!(check_csrf(&account, &csrf_for(SESSION)).is_ok());
+        assert_eq!(
+            check_csrf(&account, &csrf_for(OTHER_SESSION)),
+            Err(StatusCode::FORBIDDEN)
+        );
+    }
+
+    #[tokio::test]
+    async fn only_a_persons_session_is_an_account() {
+        for kind in [TokenKind::Machine, TokenKind::Device] {
+            let mut api = MockApi::new();
+            api.expect_me().returning(move |_| Ok(me(kind, false)));
+            assert_eq!(
+                identify(&api, SESSION).await.err(),
+                Some(StatusCode::UNAUTHORIZED)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn what_the_backend_says_becomes_a_status() {
+        let mut api = MockApi::new();
+        api.expect_me()
+            .returning(|_| Err(ClientError::Unauthorized));
+        assert_eq!(
+            identify(&api, SESSION).await.err(),
+            Some(StatusCode::UNAUTHORIZED)
+        );
+        let mut api = MockApi::new();
+        api.expect_me()
+            .returning(|_| Err(ClientError::Unavailable("down".to_owned())));
+        assert_eq!(
+            identify(&api, SESSION).await.err(),
+            Some(StatusCode::BAD_GATEWAY)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_administrator_owns_every_project_without_asking_the_backend() {
+        let mut api = MockApi::new();
+        api.expect_projects().times(0);
+        assert_eq!(
+            project_role(&api, &account(true), PROJECT).await,
+            Ok(Role::Owner)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_member_has_the_role_the_backend_gives_and_a_stranger_finds_nothing() {
+        let mut api = MockApi::new();
+        api.expect_projects()
+            .returning(|_| Ok(vec![project(PROJECT, rupicola_api::Role::Reviewer)]));
+        assert_eq!(
+            project_role(&api, &account(false), PROJECT).await,
+            Ok(Role::Reviewer)
+        );
+        assert_eq!(
+            project_role(&api, &account(false), OTHER_PROJECT).await,
+            Err(StatusCode::NOT_FOUND)
+        );
+    }
 }

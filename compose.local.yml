@@ -12,6 +12,10 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "4730"
+      RUPICOLA_DB: "/data/backend.db"
+      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
+    volumes:
+      - rupicola-backend-data:/data
     read_only: true
     cap_drop:
       - ALL
@@ -30,6 +34,9 @@ services:
       target: panel
     init: true
     restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
     ports:
       - "${RUPICOLA_BIND_IP:-127.0.0.1}:${RUPICOLA_PORT:-4731}:4731"
     environment:
@@ -38,7 +45,7 @@ services:
       XDG_DATA_HOME: "/data"
       RUPICOLA_DB: "/data/panel.db"
       RUPICOLA_CAPTURES: "/data/captures"
-      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
+      RUPICOLA_SERVER_URL: "http://backend:4730"
     volumes:
       - rupicola-local-data:/data
     tmpfs:
@@ -57,3 +64,4 @@ services:
 
 volumes:
   rupicola-local-data:
+  rupicola-backend-data:

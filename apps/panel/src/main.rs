@@ -9,6 +9,7 @@ use std::{
 
 use clap::Parser;
 use http::{StatusCode, header};
+use rupicola_client::{Api, HttpApi};
 use rupicola_core::capture_manifest::{Checkpoint, Manifest};
 use serde::Deserialize;
 use tokio::{net::TcpListener, sync::Mutex};
@@ -23,7 +24,7 @@ use topcoat::{
     view::{ViewExt, view},
 };
 use tower_http::services::ServeFile;
-use turso::{Connection, Value, transaction::TransactionBehavior};
+use turso::Connection;
 
 macro_rules! shell {
     ($cx:ident, $page:expr, $account:ident, $panel:ident, $active:expr, { $($content:tt)* }) => {
@@ -91,8 +92,6 @@ type PageResult<T> = Result<T, StatusCode>;
 #[derive(Parser)]
 #[command(about = "Browse local Rupicola visual evidence")]
 struct Args {
-    #[command(subcommand)]
-    action: Option<Action>,
     /// Capture directories to index. May be repeated.
     #[arg(long, default_value = ".rupicola/captures")]
     captures: Vec<PathBuf>,
@@ -107,15 +106,12 @@ struct Args {
     /// Public HTTPS origin when running behind a reverse proxy (or `RUPICOLA_PUBLIC_ORIGIN`).
     #[arg(long)]
     public_origin: Option<String>,
+    /// Base URL of the Rupicola backend that owns accounts and projects (or `RUPICOLA_SERVER_URL`).
+    #[arg(long, env = "RUPICOLA_SERVER_URL")]
+    server_url: Option<String>,
     /// Run a self-contained health probe against the local listener and exit.
     #[arg(long)]
     healthcheck: bool,
-}
-
-#[derive(clap::Subcommand)]
-enum Action {
-    /// Reset a password from the machine hosting the panel.
-    Recover { username: String },
 }
 
 struct Panel {
@@ -126,11 +122,9 @@ struct Panel {
     localhost_origin: String,
     host: String,
     secure: bool,
-    bootstrap: Option<String>,
-    dummy_password: String,
-    password_work: Arc<tokio::sync::Semaphore>,
+    /// The backend, which owns accounts, sessions and project membership.
+    api: Arc<dyn Api>,
     design_validation: tokio::sync::Semaphore,
-    login_attempts: Mutex<BTreeMap<String, (u32, i64)>>,
     blobs: blobs::Blobs,
     /// [`capture_store::root_key`] of each entry in `roots`, in the same order.
     root_keys: Vec<String>,
@@ -179,6 +173,10 @@ async fn main() -> Result<(), BoxError> {
         return Err("healthcheck failed".into());
     }
 
+    let server_url = args
+        .server_url
+        .ok_or("the panel needs the backend: pass --server-url or set RUPICOLA_SERVER_URL")?;
+    let api: Arc<dyn Api> = Arc::new(HttpApi::new(&server_url)?);
     let db_path = std::env::var_os("RUPICOLA_DB")
         .map(PathBuf::from)
         .unwrap_or(args.db);
@@ -190,7 +188,6 @@ async fn main() -> Result<(), BoxError> {
         .await?;
     let index = database.connect()?;
     db::migrate(&index).await?;
-    auth::init(&index).await?;
     design_system::init(&index).await?;
     records_index::init(&index).await?;
     let sync_root = args.captures.first().and_then(|p| p.parent()).map_or_else(
@@ -198,9 +195,6 @@ async fn main() -> Result<(), BoxError> {
         FilePath::to_path_buf,
     );
     records_index::sync_from_disk(&index, &sync_root).await?;
-    if let Some(Action::Recover { username }) = args.action {
-        return auth::recover(&index, &username).await;
-    }
     let bind_ip = args
         .bind
         .or_else(|| std::env::var("HOST").ok().and_then(|h| h.parse().ok()))
@@ -236,16 +230,6 @@ async fn main() -> Result<(), BoxError> {
         .ok_or("invalid origin")?
         .1
         .to_owned();
-    let bootstrap = std::env::var("RUPICOLA_SETUP_CODE")
-        .ok()
-        .filter(|s| !s.is_empty());
-    if bootstrap.as_ref().is_some_and(|secret| secret.len() < 32) {
-        return Err("RUPICOLA_SETUP_CODE must contain at least 32 characters".into());
-    }
-    let owner_exists = auth::owner_exists(&index).await?;
-    if secure && !owner_exists && bootstrap.is_none() {
-        return Err("cloud mode needs RUPICOLA_SETUP_CODE for initial registration".into());
-    }
     let roots = if let Some(env_cap) = std::env::var("RUPICOLA_CAPTURES")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -284,11 +268,8 @@ async fn main() -> Result<(), BoxError> {
         localhost_origin: format!("http://localhost:{port}"),
         secure,
         host,
-        bootstrap: bootstrap.as_deref().map(auth::digest),
-        dummy_password: auth::password_hash(&auth::token())?,
-        password_work: Arc::new(tokio::sync::Semaphore::new(4)),
+        api,
         design_validation: tokio::sync::Semaphore::new(1),
-        login_attempts: Mutex::new(BTreeMap::new()),
         blobs,
     });
     let app = routes::router(panel);

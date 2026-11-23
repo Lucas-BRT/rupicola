@@ -4,6 +4,9 @@
 # Before initial startup, set RUPICOLA_PUBLIC_ORIGIN (e.g. https://atelier.yourdomain.com) and
 # RUPICOLA_SETUP_CODE (at least 32 characters of high-entropy secret) in the Dokploy environment.
 # For local testing with a published port, use: `docker compose -f compose.local.yml up --build`.
+# NOTE: the panel now takes accounts, sessions and projects from the backend and refuses to start
+# without RUPICOLA_SERVER_URL. This file has no backend service yet; add one (and move the data)
+# before deploying this version.
 services:
   web:
     image: ${RUPICOLA_IMAGE:-lucasbrt/rupicola:latest}

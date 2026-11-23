@@ -39,10 +39,14 @@ RUN useradd --system --no-create-home --uid 10001 rupicola
 
 WORKDIR /app
 COPY --from=builder /app/target/website/rupicola-backend ./rupicola-backend
+RUN mkdir -p /data \
+    && chown 10001:10001 /data \
+    && chmod 0700 /data
 
 USER 10001:10001
 ENV HOST=0.0.0.0 \
-    PORT=4730
+    PORT=4730 \
+    RUPICOLA_DB=/data/backend.db
 
 EXPOSE 4730
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
