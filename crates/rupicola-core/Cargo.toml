@@ -12,7 +12,7 @@ publish = false
 anyhow.workspace = true
 thiserror.workspace = true
 rupicola-protocol.workspace = true
-rupicola-capture.workspace = true
+rupicola-capture = { workspace = true, features = ["async"] }
 clap = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
@@ -26,6 +26,10 @@ tempfile.workspace = true
 [features]
 # Derives `clap::ValueEnum` on the record enums for command-line front ends.
 clap = ["dep:clap"]
+
+[dev-dependencies]
+async-trait.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true

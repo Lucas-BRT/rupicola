@@ -1,7 +1,8 @@
 //! Rupicola's envelope around a capture plan: who asked, for which project and scenario,
-//! and which baseline run to mirror. The capture itself is `rupicola_capture::session`.
+//! and which baseline run to mirror. The capture itself is `rupicola_capture::asynchronous`.
 
-use rupicola_capture::session::{Bundle, CaptureBackend, CaptureError, Plan, run_plan};
+use rupicola_capture::asynchronous::{CaptureBackend, run_plan};
+use rupicola_capture::session::{Bundle, CaptureError, Plan};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Instant;
@@ -75,14 +76,14 @@ impl CaptureEnvelope {
     ///
     /// [`CapturePipelineError::InvalidEnvelope`] before anything starts, or the capture
     /// error from [`run_plan`].
-    pub fn run(
+    pub async fn run(
         &self,
         backend: &dyn CaptureBackend,
         out: &Path,
     ) -> Result<CaptureRun, CapturePipelineError> {
         self.validate()?;
         let started = Instant::now();
-        let bundle = run_plan(backend, &self.plan, out)?;
+        let bundle = run_plan(backend, &self.plan, out).await?;
         Ok(CaptureRun {
             envelope: self.clone(),
             bundle,
@@ -94,8 +95,10 @@ impl CaptureEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use rupicola_capture::asynchronous::CaptureSession;
     use rupicola_capture::session::{
-        Capabilities, CaptureSession, Checkpoint, Clip, Environment, Step, Target, WaitCondition,
+        Capabilities, Checkpoint, Clip, Environment, Step, Target, WaitCondition,
     };
     use rupicola_protocol::UiAction;
     use std::path::PathBuf;
@@ -115,6 +118,7 @@ mod tests {
         out: PathBuf,
     }
 
+    #[async_trait]
     impl CaptureBackend for MockBackend {
         fn id(&self) -> &'static str {
             BACKEND_ID
@@ -124,7 +128,7 @@ mod tests {
             Capabilities::default()
         }
 
-        fn start(
+        async fn start(
             &self,
             _target: &Target,
             _environment: &Environment,
@@ -136,16 +140,17 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl CaptureSession for MockSession {
-        fn perform(&mut self, _action: &UiAction) -> Result<(), CaptureError> {
+        async fn perform(&mut self, _action: &UiAction) -> Result<(), CaptureError> {
             Ok(())
         }
 
-        fn wait_for(&mut self, _condition: &WaitCondition) -> Result<(), CaptureError> {
+        async fn wait_for(&mut self, _condition: &WaitCondition) -> Result<(), CaptureError> {
             Ok(())
         }
 
-        fn screenshot(&mut self, id: &str) -> Result<Checkpoint, CaptureError> {
+        async fn screenshot(&mut self, id: &str) -> Result<Checkpoint, CaptureError> {
             Ok(Checkpoint {
                 id: id.to_owned(),
                 png: self.out.join(format!("{id}.png")),
@@ -153,18 +158,18 @@ mod tests {
             })
         }
 
-        fn start_recording(&mut self) -> Result<(), CaptureError> {
+        async fn start_recording(&mut self) -> Result<(), CaptureError> {
             Ok(())
         }
 
-        fn stop_recording(&mut self, id: &str) -> Result<Clip, CaptureError> {
+        async fn stop_recording(&mut self, id: &str) -> Result<Clip, CaptureError> {
             Ok(Clip {
                 id: id.to_owned(),
                 mp4: self.out.join(format!("{id}.mp4")),
             })
         }
 
-        fn finish(self: Box<Self>) -> Result<(), CaptureError> {
+        async fn finish(self: Box<Self>) -> Result<(), CaptureError> {
             Ok(())
         }
     }
@@ -189,16 +194,16 @@ mod tests {
         }
     }
 
-    #[test]
-    fn envelope_validates_and_runs_its_plan() {
-        let run = envelope().run(&MockBackend, Path::new(OUT)).unwrap();
+    #[tokio::test]
+    async fn envelope_validates_and_runs_its_plan() {
+        let run = envelope().run(&MockBackend, Path::new(OUT)).await.unwrap();
         assert_eq!(run.bundle.checkpoints.len(), 1);
         assert_eq!(run.bundle.checkpoints[0].id, CHECKPOINT);
         assert_eq!(run.envelope.baseline_run_id.as_deref(), Some(BASELINE));
     }
 
-    #[test]
-    fn envelope_rejects_an_empty_project_zero_viewport_and_no_steps() {
+    #[tokio::test]
+    async fn envelope_rejects_an_empty_project_zero_viewport_and_no_steps() {
         let mut no_project = envelope();
         no_project.project_id = "  ".to_owned();
         let mut flat = envelope();
@@ -207,14 +212,14 @@ mod tests {
         no_steps.plan.steps.clear();
         for bad in [no_project, flat, no_steps] {
             assert!(matches!(
-                bad.run(&MockBackend, Path::new(OUT)),
+                bad.run(&MockBackend, Path::new(OUT)).await,
                 Err(CapturePipelineError::InvalidEnvelope(_))
             ));
         }
     }
 
-    #[test]
-    fn envelope_round_trips_through_json() {
+    #[tokio::test]
+    async fn envelope_round_trips_through_json() {
         let original = envelope();
         let json = serde_json::to_string(&original).unwrap();
         assert_eq!(
