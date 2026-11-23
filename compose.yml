@@ -63,7 +63,6 @@ services:
       PORT: "4731"
       XDG_DATA_HOME: "/data"
       RUPICOLA_DB: "/data/panel.db"
-      RUPICOLA_CAPTURES: "/data/captures"
       RUPICOLA_PUBLIC_ORIGIN: "${RUPICOLA_PUBLIC_ORIGIN}"
       RUPICOLA_SERVER_URL: "http://backend:4730"
     volumes:

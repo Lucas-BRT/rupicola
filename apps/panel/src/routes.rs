@@ -18,10 +18,8 @@ path_param!(proof_name);
 path_param!(problem);
 path_param!(fix);
 path_param!(asset);
-path_param!(root: usize);
+path_param!(capture_id);
 path_param!(artifact_id);
-path_param!(name);
-path_param!(*file);
 
 pub fn router(panel: Arc<Panel>) -> Router {
     Router::builder()
@@ -65,7 +63,6 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .route(logout)
         .route(run)
         .route(inspect)
-        .route(artifact)
         .route(artifact_by_id)
         .route(styles)
         .route(script)
@@ -261,48 +258,29 @@ async fn logout(cx: &Cx, Form(form): Form<auth::Csrf>) -> Result<Response> {
     respond(cx, auth::logout(panel(cx), account(cx), form).await)
 }
 
-fn run_path(cx: &Cx) -> Option<(usize, String)> {
-    Some((*path_param::<Root>(cx).ok()?, path_param::<Name>(cx).into()))
-}
-
-#[route(GET "/run/{root}/{name}")]
+#[route(GET "/run/{capture_id}")]
 async fn run(cx: &Cx) -> Result<Response> {
-    let Some(path) = run_path(cx) else {
-        return Ok(status(StatusCode::NOT_FOUND));
-    };
     respond(
         cx,
-        super::detail(parse_query_params(cx)?, account(cx), panel(cx), path).await,
+        super::detail(
+            parse_query_params(cx)?,
+            account(cx),
+            panel(cx),
+            path_param::<CaptureId>(cx).into(),
+        )
+        .await,
     )
 }
 
-#[route(POST "/run/{root}/{name}")]
+#[route(POST "/run/{capture_id}")]
 async fn inspect(cx: &Cx, Form(form): Form<pages::Review>) -> Result<Response> {
-    let Some(path) = run_path(cx) else {
-        return Ok(status(StatusCode::NOT_FOUND));
-    };
-    respond(cx, pages::review(panel(cx), account(cx), path, form).await)
-}
-
-#[route([GET, HEAD] "/media/{root}/{name}/{*file}")]
-async fn artifact(cx: &Cx) -> Result<Response> {
-    let Some((root, name)) = run_path(cx) else {
-        return Ok(status(StatusCode::NOT_FOUND));
-    };
-    let parts: Vec<_> = path_param::<File>(cx).collect();
-    if parts.iter().any(|part| part.contains('/')) {
-        return Ok(status(StatusCode::NOT_FOUND));
-    }
-    let mut request = Request::new(Body::empty());
-    *request.method_mut() = request::method(cx).clone();
-    *request.headers_mut() = request::headers(cx).clone();
     respond(
         cx,
-        media::file(
-            account(cx),
+        pages::review(
             panel(cx),
-            (root, name, parts.join("/")),
-            request,
+            account(cx),
+            path_param::<CaptureId>(cx).into(),
+            form,
         )
         .await,
     )

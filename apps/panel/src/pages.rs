@@ -1,20 +1,14 @@
 use super::{
-    Account, Arc, BTreeMap, Checkpoint, Cx, Deserialize, Html, IntoResponse, Manifest, PageResult,
-    Panel, Response, Run, StatusCode, auth, capture_store, db_error, design_record, design_system,
-    fix_record, fs, media, pipeline, problem_record, proposal_record, proposes, read_index,
-    redirect, safe_name, storage, view,
+    Account, Arc, BTreeMap, Checkpoint, Cx, Deserialize, Html, IntoResponse, PageResult, Panel,
+    Response, Run, StatusCode, auth, db_error, design_record, design_system, fix_record, fs, media,
+    pipeline, problem_record, proposal_record, proposes, redirect, runs, safe_name, storage, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
-use rupicola_api::{NewInvite, NewProject, PasswordChange, Redeem};
+use rupicola_api::{NewFinding, NewInvite, NewProject, PasswordChange, Redeem};
 
 async fn visible_runs(panel: &Panel, account: &Account) -> PageResult<Vec<Run>> {
-    let mut runs = read_index(panel).await.map_err(db_error)?;
-    if !account.owner {
-        let allowed = auth::readable_projects(panel, account).await?;
-        runs.retain(|run| allowed.contains(&run.project_id));
-    }
-    Ok(runs)
+    runs::list(panel, account).await
 }
 
 async fn catalog(
@@ -190,7 +184,7 @@ pub async fn dashboard(
             let checkpoint = pick_hero_checkpoint(&run.manifest.checkpoints)?;
             Some((
                 format!("/run/{}", run.key),
-                format!("/media/{}/{}", run.key, checkpoint.path),
+                media::url(&checkpoint.path),
                 &run.scenario,
             ))
         });
@@ -466,12 +460,7 @@ async fn project_view(
     let superseded = &obsolete;
     let captures: BTreeMap<_, _> = related
         .iter()
-        .filter_map(|run| {
-            let (root, name) = run.key.split_once('/')?;
-            let root = panel.roots.get(root.parse::<usize>().ok()?)?;
-            let shared = panel.design.parent()?.join("captures");
-            (root == &shared).then_some((name, format!("/run/{}", run.key)))
-        })
+        .map(|run| (run.key.as_str(), format!("/run/{}", run.key)))
         .collect();
 
     let mut all_assets = Vec::new();
@@ -485,7 +474,7 @@ async fn project_view(
                 run_key: run.key.clone(),
                 scenario: run.scenario.clone(),
                 name: item.id.clone(),
-                url: format!("/media/{}/{}", run.key, item.path),
+                url: media::url(&item.path),
                 kind: "Screenshot",
             });
         }
@@ -495,7 +484,7 @@ async fn project_view(
                     run_key: run.key.clone(),
                     scenario: run.scenario.clone(),
                     name: clip.id.clone(),
-                    url: format!("/media/{}/{path}", run.key),
+                    url: media::url(path),
                     kind: "Recording",
                 });
             }
@@ -504,7 +493,7 @@ async fn project_view(
                     run_key: run.key.clone(),
                     scenario: run.scenario.clone(),
                     name: format!("{} · sheet", clip.id),
-                    url: format!("/media/{}/{path}", run.key),
+                    url: media::url(path),
                     kind: "Contact sheet",
                 });
             }
@@ -564,7 +553,7 @@ async fn project_view(
                 let checkpoint = pick_hero_checkpoint(&run.manifest.checkpoints)?;
                 Some((
                     format!("/run/{}", run.key),
-                    format!("/media/{}/{}", run.key, checkpoint.path),
+                    media::url(&checkpoint.path),
                     run.scenario.clone(),
                 ))
             })
@@ -1030,7 +1019,6 @@ pub async fn settings(panel: Arc<Panel>, account: Account) -> PageResult<Html<St
                     <h2>"Service"</h2>
                     <p>(if panel.secure { "Cloud workspace" } else { "Local workspace" })</p>
                     <p><code>(&panel.origin)</code></p>
-                    <p class="muted">(panel.roots.len()) (if panel.roots.len() == 1 { " capture directory configured" } else { " capture directories configured" })</p>
                 </section>
             }
         </div>
@@ -1082,68 +1070,49 @@ pub struct Review {
 pub async fn review(
     panel: Arc<Panel>,
     account: Account,
-    (root, name): (usize, String),
+    id: String,
     form: Review,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
-    let key = format!("{root}/{name}");
-    let manifest = crate::read_run(&panel, &key)
-        .await
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if auth::role(&panel, &account, &manifest.project.id).await? == Role::Reader {
+    let run = runs::find(&panel, &account, &id).await?;
+    if auth::role(&panel, &account, &run.project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    append_capture_review(
-        &panel,
-        &key,
-        &manifest,
-        &account.handle,
-        &form.note,
-        form.evidence.as_deref(),
-    )
-    .await?;
-    Ok(redirect(&format!("/run/{key}#review")))
+    record_inspection(&panel, &account, &run, &form.note, form.evidence.as_deref()).await?;
+    Ok(redirect(&format!("/run/{id}#review")))
 }
 
-/// Records a review note on the capture keyed `"{root}/{run}"`.
-pub(crate) async fn append_capture_review(
+/// Records a review note on a capture; the evidence is the id of one of its artifacts.
+pub(crate) async fn record_inspection(
     panel: &Panel,
-    key: &str,
-    manifest: &Manifest,
-    actor: &str,
+    account: &Account,
+    run: &Run,
     note: &str,
     evidence: Option<&str>,
 ) -> PageResult<()> {
     let note = note.trim();
-    let evidence = evidence.filter(|path| !path.is_empty());
+    let evidence = evidence.filter(|artifact| !artifact.is_empty());
     if note.is_empty()
         || note.len() > 8000
         || evidence
             .as_ref()
-            .is_some_and(|path| !media::declared(manifest, path))
+            .is_some_and(|artifact| !media::declared(&run.manifest, artifact))
     {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let (root, name) = key.split_once('/').ok_or(StatusCode::NOT_FOUND)?;
-    let root_key = root
-        .parse::<usize>()
-        .ok()
-        .and_then(|root| panel.root_keys.get(root))
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let finding = rupicola_core::capture_manifest::Finding {
-        note: note.to_owned(),
-        evidence: evidence.map(str::to_owned),
-        author: Some(actor.to_owned()),
-    };
-    let db = panel.index.lock().await;
-    match capture_store::add_finding(&db, root_key, name, finding)
+    panel
+        .api
+        .add_finding(
+            &account.session,
+            &run.key,
+            &NewFinding {
+                note: note.to_owned(),
+                evidence_artifact_id: evidence.map(str::to_owned),
+            },
+        )
         .await
-        .map_err(db_error)?
-    {
-        capture_store::Appended::Done => Ok(()),
-        capture_store::Appended::Missing => Err(StatusCode::NOT_FOUND),
-        capture_store::Appended::TooLarge => Err(StatusCode::PAYLOAD_TOO_LARGE),
-    }
+        .map(|_| ())
+        .map_err(|e| auth::api_error(&e))
 }
 
 #[derive(Deserialize)]
@@ -1240,18 +1209,9 @@ async fn save_design(
         })
         || evidence.as_ref().is_some_and(|name| {
             !safe_name(name)
-                || !runs.iter().any(|run| {
-                    let Some((index, file)) = run.key.split_once('/') else {
-                        return false;
-                    };
-                    let root = index.parse::<usize>().ok().and_then(|i| panel.roots.get(i));
-                    run.project_id == id
-                        && name == file
-                        && panel
-                            .design
-                            .parent()
-                            .is_some_and(|parent| root == Some(&parent.join("captures")))
-                })
+                || !runs
+                    .iter()
+                    .any(|run| run.project_id == id && name == &run.key)
         })
     {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);

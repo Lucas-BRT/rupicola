@@ -204,17 +204,6 @@ pub async fn role(panel: &Panel, account: &Account, project: &str) -> PageResult
     project_role(panel.api.as_ref(), account, project).await
 }
 
-pub async fn readable_projects(panel: &Panel, account: &Account) -> PageResult<Vec<String>> {
-    Ok(panel
-        .api
-        .projects(&account.session)
-        .await
-        .map_err(|e| api_error(&e))?
-        .into_iter()
-        .map(|project| project.id)
-        .collect())
-}
-
 async fn setup_required(panel: &Panel) -> PageResult<bool> {
     panel.api.setup_required().await.map_err(|e| api_error(&e))
 }

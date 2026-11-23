@@ -86,7 +86,7 @@ RUN node /opt/rupicola-validator/node_modules/playwright-core/cli.js install-dep
       ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --no-create-home --uid 10001 rupicola \
-    && mkdir -p /data/captures /data/design /data/proposals /data/problems /data/fixes \
+    && mkdir -p /data/design /data/proposals /data/problems /data/fixes \
     && chown -R 10001:10001 /data \
     && chmod 0700 /data
 
@@ -100,7 +100,6 @@ ENV HOST=0.0.0.0 \
     PORT=4731 \
     XDG_DATA_HOME=/data \
     RUPICOLA_DB=/data/panel.db \
-    RUPICOLA_CAPTURES=/data/captures \
     RUPICOLA_PLAYWRIGHT_MODULE=/opt/rupicola-validator/node_modules/playwright-core \
     PLAYWRIGHT_BROWSERS_PATH=/opt/rupicola-browsers
 

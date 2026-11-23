@@ -2,7 +2,7 @@
 //! Keeps disk JSON files synchronized with `panel.db` so queries do not scan
 //! every JSON file per request and malformed records emit explicit diagnostics.
 
-use rupicola_core::{domain, fix_record, problem_record, proposal_record};
+use rupicola_core::{fix_record, problem_record, proposal_record};
 use std::{fs, path::Path};
 use turso::Connection;
 
@@ -43,24 +43,6 @@ const SCHEMA_SQL: &[&str] = &[
         autonomy TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1
     )",
-    "CREATE TABLE IF NOT EXISTS captures_v1 (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        backend TEXT NOT NULL,
-        status TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL,
-        payload_json TEXT NOT NULL
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_captures_project_status ON captures_v1(project_id, status)",
-    "CREATE TABLE IF NOT EXISTS artifacts_v1 (
-        id TEXT PRIMARY KEY,
-        capture_id TEXT NOT NULL,
-        project_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        path TEXT NOT NULL,
-        annotated INTEGER NOT NULL DEFAULT 0
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_artifacts_capture ON artifacts_v1(capture_id)",
 ];
 
 /// Initializes queue and record index tables in `panel.db`.
@@ -176,83 +158,6 @@ pub async fn upsert_proposal(
     Ok(())
 }
 
-/// Inserts or updates a [`domain::CaptureRecord`] and registers all its media
-/// files in `artifacts_v1` so media lookup no longer depends solely on `manifest.json`.
-///
-/// # Errors
-///
-/// Returns an error if serialization or SQLite execution fails.
-#[allow(
-    dead_code,
-    reason = "wired incrementally as Phase 2 handlers migrate to DomainService"
-)]
-pub async fn upsert_capture_with_artifacts(
-    db: &Connection,
-    record: &domain::CaptureRecord,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let payload = serde_json::to_string(record)?;
-    let created = i64::try_from(record.created_at_ms).unwrap_or(i64::MAX);
-    db.execute(
-        "INSERT INTO captures_v1 (id, project_id, backend, status, created_at_ms, payload_json)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT(id) DO UPDATE SET
-           project_id = excluded.project_id,
-           backend = excluded.backend,
-           status = excluded.status,
-           created_at_ms = excluded.created_at_ms,
-           payload_json = excluded.payload_json",
-        turso::params![
-            record.id.as_str(),
-            record.project_id.as_str(),
-            record.backend.as_str(),
-            record.status.slug(),
-            created,
-            payload
-        ],
-    )
-    .await?;
-
-    let mut entries: Vec<(&str, String, i64)> = vec![(
-        "image",
-        record.output.screenshot_png.to_string_lossy().into_owned(),
-        0,
-    )];
-    if let Some(ref p) = record.output.annotated_png {
-        entries.push(("image", p.to_string_lossy().into_owned(), 1));
-    }
-    if let Some(ref p) = record.output.video_mp4 {
-        entries.push(("video", p.to_string_lossy().into_owned(), 0));
-    }
-    if let Some(ref p) = record.output.annotated_video_mp4 {
-        entries.push(("video", p.to_string_lossy().into_owned(), 1));
-    }
-    if let Some(ref p) = record.output.video_gif {
-        entries.push(("gif", p.to_string_lossy().into_owned(), 0));
-    }
-    if let Some(ref p) = record.output.annotated_video_gif {
-        entries.push(("gif", p.to_string_lossy().into_owned(), 1));
-    }
-
-    for (idx, (kind, path, annotated)) in entries.into_iter().enumerate() {
-        let art_id = format!("{}:{idx}", record.id);
-        db.execute(
-            "INSERT INTO artifacts_v1 (id, capture_id, project_id, kind, path, annotated)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, path = excluded.path, annotated = excluded.annotated",
-            turso::params![
-                art_id.as_str(),
-                record.id.as_str(),
-                record.project_id.as_str(),
-                kind,
-                path.as_str(),
-                annotated
-            ],
-        )
-        .await?;
-    }
-    Ok(())
-}
-
 /// Scans `data_root/{problems,fixes,proposes}` on startup, indexing valid JSON
 /// records into SQLite and logging any malformed JSON instead of failing silently.
 ///
@@ -365,30 +270,5 @@ mod tests {
         let row = rows.next().await.unwrap().unwrap();
         assert_eq!(row.get::<String>(0).unwrap(), "p1");
         assert_eq!(row.get::<String>(1).unwrap(), "open");
-
-        let cap = domain::CaptureRecord {
-            id: "cap1".into(),
-            project_id: "proj1".into(),
-            backend: "web-playwright".into(),
-            target: "http://127.0.0.1:4732".into(),
-            status: domain::CaptureQueueStatus::PendingAnalysis,
-            output: domain::CaptureOutput {
-                screenshot_png: std::path::PathBuf::from("checkpoints/preview.png"),
-                annotated_png: Some(std::path::PathBuf::from(
-                    "checkpoints/preview-annotated.png",
-                )),
-                video_mp4: Some(std::path::PathBuf::from("clips/walkthrough.mp4")),
-                annotated_video_mp4: Some(std::path::PathBuf::from(
-                    "clips/walkthrough-annotated.mp4",
-                )),
-                video_gif: Some(std::path::PathBuf::from("clips/walkthrough.gif")),
-                annotated_video_gif: Some(std::path::PathBuf::from(
-                    "clips/walkthrough-annotated.gif",
-                )),
-                snapshot: None,
-            },
-            created_at_ms: 1,
-        };
-        upsert_capture_with_artifacts(&conn, &cap).await.unwrap();
     }
 }

@@ -1,102 +1,53 @@
 use super::{
-    Account, Arc, Body, Component, FilePath, Manifest, PageResult, Panel, Request, Response,
-    ServeFile, StatusCode, auth, capture_store, db_error, fs, header, run_dir,
+    Account, Arc, Body, Manifest, PageResult, Panel, Request, Response, StatusCode, auth, header,
 };
-use capture_store::ArtifactRef;
+use rupicola_client::ArtifactBody;
 
-/// Serves an artifact by id: `/media/a/{id}`.
+/// Where the panel serves the artifact with this id.
+pub fn url(artifact_id: &str) -> String {
+    format!("/media/a/{artifact_id}")
+}
+
+/// Serves an artifact by id: `/media/a/{id}`. The backend checks that the account may read
+/// the project it belongs to; the panel passes on the byte range a browser asks for, so a
+/// recording can be seeked.
 pub async fn by_id(
     account: Account,
     panel: Arc<Panel>,
     id: String,
     request: Request,
 ) -> PageResult<Response> {
-    let found = capture_store::artifact(&*panel.index.lock().await, &id)
+    let range = request
+        .headers()
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let artifact = panel
+        .api
+        .artifact(&account.session, &id, range)
         .await
-        .map_err(db_error)?;
-    serve(&panel, &account, found, request).await
+        .map_err(|e| auth::api_error(&e))?;
+    response_of(artifact)
 }
 
-/// Serves an artifact by the run path recorded before captures moved into the
-/// database: `/media/{root}/{name}/{file}`. A run written after startup is imported
-/// on first request.
-pub async fn file(
-    account: Account,
-    panel: Arc<Panel>,
-    (root, name, file): (usize, String, String),
-    request: Request,
-) -> PageResult<Response> {
-    let dir = run_dir(&panel, root, &name).ok_or(StatusCode::NOT_FOUND)?;
-    let root_key = &panel.root_keys[root];
-    let found = {
-        let db = panel.index.lock().await;
-        let mut found = capture_store::legacy_artifact(&db, root_key, &name, &file)
-            .await
-            .map_err(db_error)?;
-        if found.is_none() {
-            capture_store::import_run(&db, &panel.blobs, root_key, &dir, &name)
-                .await
-                .map_err(db_error)?;
-            found = capture_store::legacy_artifact(&db, root_key, &name, &file)
-                .await
-                .map_err(db_error)?;
+fn response_of(artifact: ArtifactBody) -> PageResult<Response> {
+    let mut response = Response::new(Body::from(artifact.bytes));
+    *response.status_mut() =
+        StatusCode::from_u16(artifact.status).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let headers = response.headers_mut();
+    for (name, value) in [
+        (header::CONTENT_TYPE, artifact.content_type),
+        (header::CONTENT_RANGE, artifact.content_range),
+    ] {
+        if let Some(value) = value.and_then(|value| header::HeaderValue::from_str(&value).ok()) {
+            headers.insert(name, value);
         }
-        found
-    };
-    serve(&panel, &account, found, request).await
-}
-
-async fn serve(
-    panel: &Panel,
-    account: &Account,
-    found: Option<ArtifactRef>,
-    request: Request,
-) -> PageResult<Response> {
-    let artifact = found.ok_or(StatusCode::NOT_FOUND)?;
-    auth::role(panel, account, &artifact.project_id).await?;
-    let source = panel
-        .blobs
-        .path(&artifact.sha256)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let mut response = ServeFile::new(source)
-        .try_call(request)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .map(Body::new);
-    // Blobs have no extension, so the stored media type replaces the guessed one.
-    let mime = header::HeaderValue::from_str(&artifact.mime).map_err(db_error)?;
-    response.headers_mut().insert(header::CONTENT_TYPE, mime);
+    }
+    headers.insert(
+        header::ACCEPT_RANGES,
+        header::HeaderValue::from_static("bytes"),
+    );
     Ok(response)
-}
-
-pub(crate) fn resolve_checked_path(
-    dir: std::path::PathBuf,
-    file: &str,
-) -> PageResult<std::path::PathBuf> {
-    let path = FilePath::new(file);
-    if !matches!(
-        path.extension().and_then(|ext| ext.to_str()),
-        Some("png" | "mp4" | "webm" | "gif" | "json")
-    ) {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    let mut source = dir;
-    for part in path.components() {
-        let Component::Normal(part) = part else {
-            return Err(StatusCode::NOT_FOUND);
-        };
-        source.push(part);
-        if fs::symlink_metadata(&source)
-            .map_err(|_| StatusCode::NOT_FOUND)?
-            .is_symlink()
-        {
-            return Err(StatusCode::NOT_FOUND);
-        }
-    }
-    if !source.is_file() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    Ok(source)
 }
 
 pub fn declared(manifest: &Manifest, file: &str) -> bool {

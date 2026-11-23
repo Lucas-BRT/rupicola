@@ -3,12 +3,13 @@ use std::{
     error::Error,
     fs,
     net::Ipv4Addr,
-    path::{Component, Path as FilePath, PathBuf},
+    path::{Path as FilePath, PathBuf},
     sync::Arc,
 };
 
 use clap::Parser;
 use http::{StatusCode, header};
+use rupicola_api::CaptureStatus;
 use rupicola_client::{Api, HttpApi};
 use rupicola_core::capture_manifest::{Checkpoint, Manifest};
 use serde::Deserialize;
@@ -23,7 +24,6 @@ use topcoat::{
     context::Cx,
     view::{ViewExt, view},
 };
-use tower_http::services::ServeFile;
 use turso::Connection;
 
 macro_rules! shell {
@@ -72,8 +72,6 @@ macro_rules! shell {
 }
 
 mod auth;
-mod blobs;
-mod capture_store;
 mod components;
 mod db;
 mod design_system;
@@ -83,6 +81,7 @@ mod pipeline;
 mod proposes;
 mod records_index;
 mod routes;
+mod runs;
 use auth::Account;
 use rupicola_core::{design_record, fix_record, problem_record, proposal_record, storage};
 
@@ -116,7 +115,6 @@ struct Args {
 
 struct Panel {
     design: PathBuf,
-    roots: Vec<PathBuf>,
     index: Mutex<Connection>,
     origin: String,
     localhost_origin: String,
@@ -125,9 +123,6 @@ struct Panel {
     /// The backend, which owns accounts, sessions and project membership.
     api: Arc<dyn Api>,
     design_validation: tokio::sync::Semaphore,
-    blobs: blobs::Blobs,
-    /// [`capture_store::root_key`] of each entry in `roots`, in the same order.
-    root_keys: Vec<String>,
 }
 
 struct Run {
@@ -142,10 +137,6 @@ struct Run {
 }
 
 #[tokio::main]
-#[expect(
-    clippy::too_many_lines,
-    reason = "server startup keeps initialization, configuration, and serving in order"
-)]
 async fn main() -> Result<(), BoxError> {
     let args = Args::parse();
     let configured_port = args
@@ -230,39 +221,11 @@ async fn main() -> Result<(), BoxError> {
         .ok_or("invalid origin")?
         .1
         .to_owned();
-    let roots = if let Some(env_cap) = std::env::var("RUPICOLA_CAPTURES")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-    {
-        let p = PathBuf::from(env_cap);
-        let _ = fs::create_dir_all(&p);
-        vec![p]
-    } else {
-        args.captures
-    };
-    let data_dir = db_path
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or(FilePath::new("."));
-    let blobs = blobs::Blobs::open(data_dir.join("blobs"))?;
-    let imported = capture_store::import_roots(&index, &blobs, &roots).await?;
-    if imported.captures > 0 {
-        println!(
-            "Imported {} capture runs into the database ({} declared files missing)",
-            imported.captures, imported.missing_files
-        );
-    }
-    let root_keys = roots
-        .iter()
-        .map(|root| capture_store::root_key(root))
-        .collect();
     let panel = Arc::new(Panel {
-        root_keys,
         design: db_path
             .parent()
             .unwrap_or(std::path::Path::new("."))
             .join(design_record::DIRECTORY),
-        roots,
         index: Mutex::new(index),
         origin: origin.clone(),
         localhost_origin: format!("http://localhost:{port}"),
@@ -270,7 +233,6 @@ async fn main() -> Result<(), BoxError> {
         host,
         api,
         design_validation: tokio::sync::Semaphore::new(1),
-        blobs,
     });
     let app = routes::router(panel);
     println!("Listening on {bind_ip}:{port} · {origin}");
@@ -305,61 +267,6 @@ fn safe_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-fn run_dir(panel: &Panel, root: usize, name: &str) -> Option<PathBuf> {
-    if !safe_name(name) {
-        return None;
-    }
-    let dir = panel.roots.get(root)?.join(name);
-    fs::symlink_metadata(&dir).ok()?.is_dir().then_some(dir)
-}
-
-fn read_manifest(dir: &FilePath) -> Option<Manifest> {
-    let path = dir.join("manifest.json");
-    let metadata = fs::symlink_metadata(&path).ok()?;
-    if !metadata.is_file() || metadata.len() > 1024 * 1024 {
-        return None;
-    }
-    let run: Manifest = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
-    (run.version == 1).then_some(run)
-}
-
-/// Lists every capture, newest first. Run directories written into a capture root
-/// since the last call are imported first.
-async fn read_index(panel: &Panel) -> Result<Vec<Run>, BoxError> {
-    let index = panel.index.lock().await;
-    capture_store::import_roots(&index, &panel.blobs, &panel.roots).await?;
-    capture_store::runs(&index, &panel.root_keys).await
-}
-
-/// Loads one capture by its `"{root}/{run}"` key, importing its directory first if
-/// it was written after the last import.
-async fn read_run(panel: &Panel, key: &str) -> Option<Manifest> {
-    let (root, name) = key.split_once('/')?;
-    let root: usize = root.parse().ok()?;
-    let root_key = panel.root_keys.get(root)?;
-    let index = panel.index.lock().await;
-    let found = capture_store::manifest(&index, root_key, name).await;
-    match found {
-        Ok(Some(manifest)) => return Some(manifest),
-        Ok(None) => {}
-        Err(error) => {
-            db_error(error);
-            return None;
-        }
-    }
-    let dir = run_dir(panel, root, name)?;
-    if let Err(error) = capture_store::import_run(&index, &panel.blobs, root_key, &dir, name).await
-    {
-        db_error(error);
-        return None;
-    }
-    capture_store::manifest(&index, root_key, name)
-        .await
-        .map_err(db_error)
-        .ok()
-        .flatten()
-}
-
 #[derive(Deserialize)]
 struct Comparison {
     before: Option<String>,
@@ -373,43 +280,42 @@ async fn detail(
     comparison: Comparison,
     account: Account,
     panel: Arc<Panel>,
-    (root, name): (usize, String),
+    id: String,
 ) -> PageResult<Html<String>> {
-    let key = format!("{root}/{name}");
-    let run = read_run(&panel, &key).await.ok_or(StatusCode::NOT_FOUND)?;
+    let found = runs::find(&panel, &account, &id).await?;
+    let key = found.key;
+    let run = found.manifest;
     let role = auth::role(&panel, &account, &run.project.id).await?;
-    let url = |path: &str| format!("/media/{root}/{name}/{path}");
-    let candidates: Vec<_> = read_index(&panel)
-        .await
-        .map_err(db_error)?
+    let url = media::url;
+    let candidates: Vec<_> = runs::summaries(&panel, &account, &run.project.id)
+        .await?
         .into_iter()
         .filter(|entry| {
-            entry.project_id == run.project.id
-                && entry.scenario == run.scenario
-                && entry.status == "complete"
-                && entry.key != key
+            entry.scenario == run.scenario
+                && entry.status == CaptureStatus::Complete
+                && entry.id != key
         })
         .collect();
     let requested = comparison.before;
-    let before = requested.as_deref().and_then(|key| {
-        let candidate = candidates.iter().find(|candidate| candidate.key == key)?;
-        Some((
-            candidate.key.clone(),
-            &candidate.manifest.checkpoints,
-            candidate.manifest.environment != run.environment,
-        ))
-    });
-    let environments_differ = before.as_ref().is_some_and(|(_, _, differs)| *differs);
+    let before = match requested
+        .as_deref()
+        .filter(|before| candidates.iter().any(|candidate| candidate.id == *before))
+    {
+        Some(before) => {
+            let before = runs::find(&panel, &account, before).await?.manifest;
+            let differs = before.environment != run.environment;
+            Some((before.checkpoints, differs))
+        }
+        None => None,
+    };
+    let environments_differ = before.as_ref().is_some_and(|(_, differs)| *differs);
     let before_images: BTreeMap<_, _> = before
         .as_ref()
         .into_iter()
-        .flat_map(|(before_key, checkpoints, _)| {
-            checkpoints.iter().map(move |item| {
-                (
-                    item.id.clone(),
-                    format!("/media/{before_key}/{}", item.path),
-                )
-            })
+        .flat_map(|(checkpoints, _)| {
+            checkpoints
+                .iter()
+                .map(|item| (item.id.clone(), media::url(&item.path)))
         })
         .collect();
     let width = run.environment.width.unwrap_or(640).max(1).to_string();
@@ -442,10 +348,10 @@ async fn detail(
                             <select id="before" name="before">
                                 <option value="">"Current run only"</option>
                                 for candidate in &candidates {
-                                    <option value=(&candidate.key) data-epoch-ms=(candidate.created_at_ms.to_string())
-                                        data-time-suffix=(candidate.key.split_once('/').map(|(_, name)| name.chars().take(16).collect::<String>()).unwrap_or_default())
-                                        if requested.as_ref() == Some(&candidate.key) { selected="" }>
-                                        (&candidate.key)
+                                    <option value=(&candidate.id) data-epoch-ms=(candidate.created_at.to_string())
+                                        data-time-suffix=(candidate.id.chars().take(16).collect::<String>())
+                                        if requested.as_ref() == Some(&candidate.id) { selected="" }>
+                                        (&candidate.id)
                                     </option>
                                 }
                             </select>

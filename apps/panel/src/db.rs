@@ -6,10 +6,11 @@
 use crate::BoxError;
 use turso::{Connection, Value, transaction::TransactionBehavior};
 
-const MIGRATIONS: &[(i64, &[&str])] = &[(
-    1,
-    &[
-        "CREATE TABLE captures (
+const MIGRATIONS: &[(i64, &[&str])] = &[
+    (
+        1,
+        &[
+            "CREATE TABLE captures (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
             project_label TEXT NOT NULL,
@@ -24,9 +25,9 @@ const MIGRATIONS: &[(i64, &[&str])] = &[(
             legacy_root TEXT,
             legacy_name TEXT
         )",
-        "CREATE INDEX idx_captures_project ON captures(project_id, created_at_ms)",
-        "CREATE UNIQUE INDEX idx_captures_legacy ON captures(legacy_root, legacy_name)",
-        "CREATE TABLE artifacts (
+            "CREATE INDEX idx_captures_project ON captures(project_id, created_at_ms)",
+            "CREATE UNIQUE INDEX idx_captures_legacy ON captures(legacy_root, legacy_name)",
+            "CREATE TABLE artifacts (
             id TEXT PRIMARY KEY,
             capture_id TEXT NOT NULL,
             project_id TEXT NOT NULL,
@@ -40,10 +41,21 @@ const MIGRATIONS: &[(i64, &[&str])] = &[(
             target_ms REAL,
             video_ms REAL
         )",
-        "CREATE UNIQUE INDEX idx_artifacts_path ON artifacts(capture_id, path)",
-        "CREATE INDEX idx_artifacts_sha ON artifacts(sha256)",
-    ],
-)];
+            "CREATE UNIQUE INDEX idx_artifacts_path ON artifacts(capture_id, path)",
+            "CREATE INDEX idx_artifacts_sha ON artifacts(sha256)",
+        ],
+    ),
+    // Captures and their files live in the backend now.
+    (
+        2,
+        &[
+            "DROP TABLE IF EXISTS artifacts",
+            "DROP TABLE IF EXISTS captures",
+            "DROP TABLE IF EXISTS artifacts_v1",
+            "DROP TABLE IF EXISTS captures_v1",
+        ],
+    ),
+];
 
 /// Applies every migration newer than the recorded schema version.
 ///

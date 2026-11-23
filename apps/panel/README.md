@@ -11,15 +11,15 @@ Install with Rust 1.99 or newer:
 
 ```sh
 cargo install --path apps/panel --locked
-rupicola serve --captures /path/to/project/.rupicola/captures
+rupicola serve --server-url http://127.0.0.1:4730
 ```
 
 Go to http://127.0.0.1:4731 and create the owner account on first access.
-Repeat `--captures` to use several directories. Each directory contains runs
-with version 1 manifests and their relative artifacts. Projects appear as the
-panel indexes their manifests. Running `rupicola design open` in a checkout registers it before its first capture. The project’s **Design** page shows the brief, art direction, tactics and decisions recorded by the CLI. Use **Projects → Create a project** to prepare a
-project before its first upload. Keep the order of capture roots stable to
-preserve links to runs.
+Captures, their media and their review notes live in the backend: publish them with
+`rupicola capture --server-url …` or `rupicola publish`, and the panel reads them from there.
+`--captures` now only places the panel's data directory (its parent holds problems, fixes
+and design records) until those move to the backend too. Running `rupicola design open` in a checkout registers it before its first capture. The project’s **Design** page shows the brief, art direction, tactics and decisions recorded by the CLI. Use **Projects → Create a project** to prepare a
+project before its first upload.
 
 Tailwind's standalone compiler is fetched at build time. Set `TAILWIND_CLI` to
 a trusted, preinstalled 4.3.2 executable for offline builds. The compiled
@@ -48,9 +48,9 @@ rupicola serve \
 ```
 
 The upstream binds to loopback. Terminate TLS at the proxy and keep the upstream
-private. Back up the Turso database and capture directories together. The run
-index can be rebuilt. Accounts, memberships and access records live in the
-backend's database.
+private. Back up the panel's data directory and the backend's database and media
+store together. Accounts, memberships, access records, captures and their media
+live in the backend.
 
 In **Project settings**, create a Reader or Reviewer invitation. Share its code
 and the registration URL through a private channel. Codes expire after 24 hours.

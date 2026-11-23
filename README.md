@@ -135,7 +135,7 @@ cargo install --path apps/panel --locked
 rupicola serve --captures .rupicola/captures
 ```
 
-The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel indexes multiple capture roots and supports shared review behind an HTTPS reverse proxy. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
+The headless capture stores checkpoints, clip analysis, selected PNG frames and optional MP4 previews. The Topcoat panel reads captures from the backend and supports shared review behind an HTTPS reverse proxy. See [panel installation](apps/panel/README.md) and [scenario format and inspection](reference/capture-scenarios.md). `capture` handles HTTP(S) previews.
 
 ## Run the local panel in the background
 
