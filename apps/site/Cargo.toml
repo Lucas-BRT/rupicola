@@ -13,7 +13,7 @@ clap.workspace = true
 http.workspace = true
 pulldown-cmark.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
-topcoat = { workspace = true, features = ["serve"] }
+topcoat = { workspace = true, features = ["serve", "discover"] }
 
 [lints]
 workspace = true

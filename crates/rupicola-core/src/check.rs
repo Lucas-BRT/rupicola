@@ -122,8 +122,8 @@ fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Resul
                 "apps/panel/src/design_system/examples.js",
                 "apps/panel/tests/design-review.cjs",
                 "apps/panel/dev.sh",
-                "apps/site/src/site.js",
-                "apps/site/src/install.sh",
+                "apps/site/assets/site.js",
+                "apps/site/assets/install.sh",
             ]
             .iter()
             .any(|allowed| path == root.join(allowed))
