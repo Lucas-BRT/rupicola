@@ -1,14 +1,15 @@
 //! Versioned web capture scenarios and portable evidence manifests.
 
-use crate::{capture, visual};
+use crate::visual;
 use anyhow::{Context, Result, anyhow, bail};
+use rupicola_capture::asynchronous::{CaptureBackend, run_plan};
+use rupicola_capture::session;
+use rupicola_protocol::UiAction;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     fs,
-    io::Write,
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -186,10 +187,6 @@ const MAX_CLIP_DECODED_BYTES: f64 = 256.0 * 1024.0 * 1024.0;
 /// Stalled and jumping frames kept in a clip's selection, at most.
 const KEPT_STALLS: usize = 3;
 const KEPT_JUMPS: usize = 3;
-/// Frame-rate range for clip previews.
-const MIN_PREVIEW_FPS: f64 = 1.0;
-const MAX_PREVIEW_FPS: f64 = 120.0;
-const MS_PER_SEC: f64 = 1000.0;
 /// Contact sheet columns and thumbnail width.
 const SHEET_COLUMNS: usize = 4;
 const SHEET_THUMB_WIDTH: u32 = 240;
@@ -321,41 +318,315 @@ impl Scenario {
     }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BrowserRequest<'a> {
-    scenario: &'a Scenario,
-    output: &'a Path,
-    module_path: Option<&'a Path>,
+/// Folder of a run that holds the files a capture backend writes.
+const CHECKPOINTS_DIR: &str = "checkpoints";
+/// Folder of a run that holds the frames of a clip while it is analysed.
+const SAMPLES_DIR: &str = "samples";
+/// Prefix that makes a capture target a CSS selector rather than an element id.
+const CSS_ENGINE: &str = "css=";
+/// Separates the modifiers of a key chord, such as `Control+A`.
+const CHORD_SEPARATOR: char = '+';
+/// Width of the digits in a frame file name.
+const FRAME_NAME_DIGITS: usize = 3;
+
+impl From<&ColorScheme> for session::ColorScheme {
+    fn from(scheme: &ColorScheme) -> Self {
+        match scheme {
+            ColorScheme::Light => Self::Light,
+            ColorScheme::Dark => Self::Dark,
+        }
+    }
 }
 
+impl Action {
+    fn target(selector: &str) -> String {
+        format!("{CSS_ENGINE}{selector}")
+    }
+
+    /// What the capture backend does for this action.
+    fn steps(&self) -> Vec<session::Step> {
+        let act = |action| session::Step::Action { action };
+        match self {
+            Self::Click { selector } => vec![act(UiAction::Click {
+                target_id: Self::target(selector),
+            })],
+            Self::Hover { selector } => vec![act(UiAction::Hover {
+                target_id: Self::target(selector),
+            })],
+            Self::Fill { selector, value } => vec![act(UiAction::TypeText {
+                target_id: Self::target(selector),
+                text: value.clone(),
+            })],
+            Self::Press { selector, key } => {
+                let mut parts = key
+                    .split(CHORD_SEPARATOR)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                let key = parts.pop().unwrap_or_default();
+                vec![
+                    act(UiAction::Focus {
+                        target_id: Self::target(selector),
+                    }),
+                    act(UiAction::PressKey {
+                        key,
+                        modifiers: parts,
+                    }),
+                ]
+            }
+            Self::Ready { selector } => vec![session::Step::Wait {
+                condition: session::WaitCondition::Visible {
+                    target_id: Self::target(selector),
+                },
+            }],
+        }
+    }
+}
+
+impl Step {
+    /// The interval between the frames of a clip, for a clip.
+    const fn clip_interval(&self) -> Option<u32> {
+        match self {
+            Self::Clip { interval_ms, .. } => Some(*interval_ms),
+            _ => None,
+        }
+    }
+
+    /// What the capture backend does for this step.
+    fn steps(&self) -> Vec<session::Step> {
+        match self {
+            Self::Click { selector } => Action::Click {
+                selector: selector.clone(),
+            }
+            .steps(),
+            Self::Hover { selector } => Action::Hover {
+                selector: selector.clone(),
+            }
+            .steps(),
+            Self::Fill { selector, value } => Action::Fill {
+                selector: selector.clone(),
+                value: value.clone(),
+            }
+            .steps(),
+            Self::Press { selector, key } => Action::Press {
+                selector: selector.clone(),
+                key: key.clone(),
+            }
+            .steps(),
+            Self::Ready { selector } => Action::Ready {
+                selector: selector.clone(),
+            }
+            .steps(),
+            Self::Checkpoint { id } => vec![session::Step::Checkpoint { id: id.clone() }],
+            Self::Clip {
+                id,
+                trigger,
+                samples,
+                interval_ms,
+            } => {
+                let span = u64::try_from(*samples).unwrap_or(u64::MAX) * u64::from(*interval_ms);
+                let mut steps = vec![session::Step::StartRecording];
+                steps.extend(trigger.steps());
+                steps.push(session::Step::Wait {
+                    condition: session::WaitCondition::Delay { ms: span },
+                });
+                steps.push(session::Step::StopRecording { id: id.clone() });
+                steps
+            }
+        }
+    }
+}
+
+impl Scenario {
+    /// The capture plan this scenario asks a backend to run.
+    #[must_use]
+    pub fn plan(&self) -> session::Plan {
+        let profile = &self.profile;
+        let mut environment = session::Environment::new([profile.width, profile.height]);
+        environment.scale = profile.scale;
+        environment.color_scheme = Some((&profile.color_scheme).into());
+        environment.reduced_motion = profile.reduced_motion;
+        environment.warmup_ms = 0;
+        environment.locale = Some(profile.locale.clone());
+        environment.timeout_ms = self.timeout_ms.map(u64::from);
+        // One recorder serves the whole plan, so it samples as fast as the fastest clip.
+        environment.frame_interval_ms = self
+            .steps
+            .iter()
+            .filter_map(Step::clip_interval)
+            .min()
+            .map(u64::from);
+        session::Plan {
+            target: session::Target {
+                command: self.url.clone(),
+                args: Vec::new(),
+            },
+            environment,
+            steps: self.steps.iter().flat_map(Step::steps).collect(),
+            allow_degraded: false,
+        }
+    }
+}
+
+/// Runs `scenario` on `backend` and writes the run, with its evidence manifest, under
+/// `output`.
+///
 /// # Errors
 ///
-/// Returns an error if capture inputs are invalid, the browser driver fails, or capture artifacts cannot be read or written.
-pub fn web(
+/// Returns an error if capture inputs are invalid or artifacts cannot be read or written.
+/// A backend that cannot run the scenario is not an error: it is the run's blocker.
+pub async fn web(
     scenario: Scenario,
     output: &Path,
-    playwright_module: Option<&Path>,
+    backend: &dyn CaptureBackend,
     threshold: u8,
     video: bool,
 ) -> Result<Manifest> {
+    let (output, created_at_ms) = begin(&scenario, output)?;
+    let (result, errors) = capture(&scenario, &output, backend).await?;
+    conclude(
+        scenario,
+        &output,
+        created_at_ms,
+        result,
+        errors,
+        threshold,
+        video,
+    )
+}
+
+/// Writes a run whose capture could not start, with `reason` as its blocker.
+///
+/// # Errors
+///
+/// Returns an error if the scenario is invalid or the run cannot be written.
+pub fn blocked(scenario: Scenario, output: &Path, reason: String) -> Result<Manifest> {
+    let (output, created_at_ms) = begin(&scenario, output)?;
+    let result = BrowserResult::default();
+    conclude(
+        scenario,
+        &output,
+        created_at_ms,
+        result,
+        vec![reason],
+        0,
+        false,
+    )
+}
+
+/// Validates the scenario and creates its run directory.
+fn begin(scenario: &Scenario, output: &Path) -> Result<(PathBuf, u64)> {
     scenario.validate()?;
     if !identifier(&scenario.project.id) || scenario.project.label.trim().is_empty() {
         bail!("provide a project label and simple project ID");
     }
     let output = new_run(output)?;
-    let created_at_ms = now_ms()?;
-    let mut result =
-        drive_browser(&scenario, &output, playwright_module).unwrap_or_else(|blocker| {
-            BrowserResult {
-                blocker: Some(format!("{blocker:#}")),
-                ..BrowserResult::default()
+    Ok((output, now_ms()?))
+}
+
+/// Runs the plan, then collects what the backend wrote, even when it stopped part way.
+async fn capture(
+    scenario: &Scenario,
+    output: &Path,
+    backend: &dyn CaptureBackend,
+) -> Result<(BrowserResult, Vec<String>)> {
+    let files = output.join(CHECKPOINTS_DIR);
+    fs::create_dir(&files)?;
+    let mut errors = Vec::new();
+    if let Err(error) = run_plan(backend, &scenario.plan(), &files).await {
+        errors.push(error.to_string());
+    }
+    let mut result = BrowserResult {
+        browser: Some(backend.id().to_owned()),
+        ..BrowserResult::default()
+    };
+    for step in &scenario.steps {
+        match step {
+            Step::Checkpoint { id } => {
+                let path = Path::new(CHECKPOINTS_DIR).join(format!("{id}.png"));
+                if output.join(&path).is_file() {
+                    result.checkpoints.push(Checkpoint {
+                        id: id.clone(),
+                        path,
+                    });
+                }
             }
+            Step::Clip {
+                id,
+                samples,
+                interval_ms,
+                ..
+            } if files.join(format!("{id}.mp4")).is_file() => {
+                match extract_frames(output, id, *samples, *interval_ms).await {
+                    Ok(frames) => result.clips.push(Clip {
+                        id: id.clone(),
+                        frames,
+                        analysis_path: None,
+                        sheet_path: None,
+                        video_path: None,
+                    }),
+                    Err(error) => errors.push(format!("clip {id} frames: {error:#}")),
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok((result, errors))
+}
+
+/// Cuts a recorded clip into the frames its analysis looks at: one at the start and one
+/// every `interval_ms` after it.
+async fn extract_frames(
+    output: &Path,
+    id: &str,
+    samples: usize,
+    interval_ms: u32,
+) -> Result<Vec<Frame>> {
+    let directory = Path::new(SAMPLES_DIR).join(id);
+    fs::create_dir_all(output.join(&directory))?;
+    let recorded = output.join(CHECKPOINTS_DIR).join(format!("{id}.mp4"));
+    let count = samples + 1;
+    let status = tokio::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-i"])
+        .arg(&recorded)
+        .args(["-vf", &format!("fps=1000/{interval_ms}")])
+        .args(["-frames:v", &count.to_string(), "-start_number", "0"])
+        .arg(output.join(&directory).join("%03d.png"))
+        .status()
+        .await
+        .context("run ffmpeg")?;
+    if !status.success() {
+        bail!("ffmpeg exited with {status}");
+    }
+    let mut frames = Vec::with_capacity(count);
+    for index in 0..count {
+        let path = directory.join(format!("{index:0FRAME_NAME_DIGITS$}.png"));
+        if !output.join(&path).is_file() {
+            break;
+        }
+        let elapsed_ms = u64::try_from(index)? * u64::from(interval_ms);
+        frames.push(Frame {
+            path,
+            target_ms: elapsed_ms,
+            elapsed_ms,
+            video_ms: None,
         });
-    let mut errors = result.blocker.take().into_iter().collect::<Vec<_>>();
+    }
+    Ok(frames)
+}
+
+/// Analyses the clips, removes the scratch frames and writes the run's manifest.
+fn conclude(
+    scenario: Scenario,
+    output: &Path,
+    created_at_ms: u64,
+    mut result: BrowserResult,
+    mut errors: Vec<String>,
+    threshold: u8,
+    video: bool,
+) -> Result<Manifest> {
     result
         .clips
-        .retain_mut(|clip| match analyze_clip(&output, clip, threshold, video) {
+        .retain_mut(|clip| match analyze_clip(output, clip, threshold, video) {
             Ok(video_error) => {
                 if let Some(error) = video_error {
                     errors.push(format!("clip {} preview: {error}", clip.id));
@@ -368,7 +639,7 @@ pub fn web(
             }
         });
     result.blocker = (!errors.is_empty()).then(|| errors.join("; "));
-    let samples = output.join("samples");
+    let samples = output.join(SAMPLES_DIR);
     if samples.exists() {
         fs::remove_dir_all(&samples).with_context(|| format!("{}", samples.display()))?;
     }
@@ -411,45 +682,6 @@ fn new_run(output: &Path) -> Result<PathBuf> {
     Ok(fs::canonicalize(output)?)
 }
 
-fn drive_browser(
-    scenario: &Scenario,
-    output: &Path,
-    module_path: Option<&Path>,
-) -> Result<BrowserResult> {
-    let module_path = module_path
-        .map(fs::canonicalize)
-        .transpose()
-        .context("Playwright module path")?;
-    fs::create_dir(output.join("checkpoints"))?;
-    let request = serde_json::to_vec(&BrowserRequest {
-        scenario,
-        output,
-        module_path: module_path.as_deref(),
-    })?;
-    let mut browser = Command::new("node")
-        .args(["-e", include_str!("browser-capture.cjs")])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("start Node.js")?;
-    let input = browser
-        .stdin
-        .take()
-        .expect("Node.js stdin is piped")
-        .write_all(&request);
-    let response = browser.wait_with_output().context("wait for Node.js")?;
-    input.context("supply browser request")?;
-    if !response.status.success() {
-        bail!("browser driver exited with {}", response.status);
-    }
-    serde_json::from_slice(&response.stdout).context("read browser result")
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "video frame rates and offsets are estimates based on sampled timing"
-)]
 fn analyze_clip(
     output: &Path,
     clip: &mut Clip,
@@ -474,29 +706,19 @@ fn analyze_clip(
 
     let directory = Path::new("clips").join(&clip.id);
     fs::create_dir_all(output.join(&directory))?;
+    // The backend recorded the clip; it is the preview when asked for and scratch otherwise.
+    let recorded = output
+        .join(CHECKPOINTS_DIR)
+        .join(format!("{}.mp4", clip.id));
     let mut video_error = None;
-    let mut video_fps = None;
     if video {
-        let video_path = directory.join("preview.mp4");
-        let elapsed_ms = clip.frames[last].elapsed_ms.max(1);
-        let options = capture::VideoOptions {
-            fps: (last as f64 * MS_PER_SEC / elapsed_ms as f64)
-                .clamp(MIN_PREVIEW_FPS, MAX_PREVIEW_FPS),
-            ..capture::VideoOptions::default()
-        };
-        let path = output.join(&video_path);
-        match capture::encode_rgba_images(&images, &path, &options) {
-            Ok(_) => {
-                video_fps = Some(options.fps);
-                clip.video_path = Some(video_path);
-            }
-            Err(error) => {
-                if path.is_file() {
-                    fs::remove_file(&path).with_context(|| format!("{}", path.display()))?;
-                }
-                video_error = Some(format!("{error:#}"));
-            }
+        let preview = directory.join("preview.mp4");
+        match fs::rename(&recorded, output.join(&preview)) {
+            Ok(()) => clip.video_path = Some(preview),
+            Err(error) => video_error = Some(error.to_string()),
         }
+    } else if let Err(error) = fs::remove_file(&recorded) {
+        video_error = Some(error.to_string());
     }
     let analysis_path = directory.join("analysis.json");
     let analysis = ClipAnalysis {
@@ -519,12 +741,7 @@ fn analyze_clip(
             let target = directory.join(format!("{index:03}.png"));
             fs::rename(output.join(&frame.path), output.join(&target))?;
             frame.path = target;
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "frame offsets are nonnegative and rounded to whole milliseconds at 1–120 FPS"
-            )]
-            let video_ms = video_fps.map(|fps| (index as f64 * MS_PER_SEC / fps).round() as u64);
+            let video_ms = clip.video_path.is_some().then_some(frame.elapsed_ms);
             frame.video_ms = video_ms;
             selected_frames.push(frame);
         }
@@ -621,4 +838,152 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     fs::write(&tmp, data)
         .and_then(|()| fs::rename(&tmp, path))
         .with_context(|| format!("{}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SCENARIO: &str = r##"
+version = 1
+name = "Plan"
+url = "http://127.0.0.1:1/"
+timeout_ms = 8000
+[project]
+id = "demo"
+label = "Demo"
+[profile]
+width = 640
+height = 360
+scale = 2.0
+locale = "pt-BR"
+color_scheme = "dark"
+reduced_motion = true
+[[steps]]
+kind = "fill"
+selector = "input#name"
+value = "Ada"
+[[steps]]
+kind = "press"
+selector = "input#name"
+key = "Control+A"
+[[steps]]
+kind = "ready"
+selector = "#box"
+[[steps]]
+kind = "clip"
+id = "grow"
+samples = 12
+interval_ms = 100
+[steps.trigger]
+kind = "click"
+selector = "button.go"
+[[steps]]
+kind = "clip"
+id = "fast"
+samples = 4
+interval_ms = 40
+[steps.trigger]
+kind = "hover"
+selector = "button.go"
+[[steps]]
+kind = "checkpoint"
+id = "after"
+"##;
+
+    const DEMO_LOCALE: &str = "pt-BR";
+    const DEMO_TIMEOUT_MS: u64 = 8000;
+    const FASTEST_CLIP_MS: u64 = 40;
+    const GROW_SPAN_MS: u64 = 1200;
+
+    fn plan() -> session::Plan {
+        toml::from_str::<Scenario>(SCENARIO).unwrap().plan()
+    }
+
+    fn target(selector: &str) -> String {
+        format!("{CSS_ENGINE}{selector}")
+    }
+
+    #[test]
+    fn the_environment_carries_the_profile_and_the_timing() {
+        let environment = plan().environment;
+        assert_eq!(environment.viewport, [640, 360]);
+        assert!((environment.scale - 2.0).abs() < f64::EPSILON);
+        assert_eq!(environment.color_scheme, Some(session::ColorScheme::Dark));
+        assert!(environment.reduced_motion);
+        assert_eq!(environment.locale.as_deref(), Some(DEMO_LOCALE));
+        assert_eq!(environment.timeout_ms, Some(DEMO_TIMEOUT_MS));
+        assert_eq!(environment.frame_interval_ms, Some(FASTEST_CLIP_MS));
+    }
+
+    #[test]
+    fn interactions_become_actions_on_css_targets() {
+        let steps = plan().steps;
+        assert_eq!(
+            steps[0],
+            session::Step::Action {
+                action: UiAction::TypeText {
+                    target_id: target("input#name"),
+                    text: "Ada".to_owned(),
+                },
+            }
+        );
+        // A key chord is focus on the control, then the key with its modifiers.
+        assert_eq!(
+            steps[1..3],
+            [
+                session::Step::Action {
+                    action: UiAction::Focus {
+                        target_id: target("input#name"),
+                    },
+                },
+                session::Step::Action {
+                    action: UiAction::PressKey {
+                        key: "A".to_owned(),
+                        modifiers: vec!["Control".to_owned()],
+                    },
+                },
+            ]
+        );
+        assert_eq!(
+            steps[3],
+            session::Step::Wait {
+                condition: session::WaitCondition::Visible {
+                    target_id: target("#box"),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn a_clip_records_its_trigger_and_the_span_after_it() {
+        let steps = plan().steps;
+        assert_eq!(steps[4], session::Step::StartRecording);
+        assert_eq!(
+            steps[5],
+            session::Step::Action {
+                action: UiAction::Click {
+                    target_id: target("button.go"),
+                },
+            }
+        );
+        assert_eq!(
+            steps[6],
+            session::Step::Wait {
+                condition: session::WaitCondition::Delay { ms: GROW_SPAN_MS },
+            }
+        );
+        assert_eq!(
+            steps[7],
+            session::Step::StopRecording {
+                id: "grow".to_owned()
+            }
+        );
+        assert_eq!(
+            steps.last(),
+            Some(&session::Step::Checkpoint {
+                id: "after".to_owned()
+            })
+        );
+    }
 }

@@ -11,7 +11,7 @@ npx playwright install chromium
 rupicola capture settings.toml --out .rupicola/captures/settings-before --video
 ```
 
-Supply `--playwright-module /path/to/node_modules/playwright` when Playwright is installed elsewhere. Without `--video`, the run needs only Node.js and Playwright. MP4 previews additionally require an `ffmpeg` build with `libx264`. The output directory must be new. Exit code `0` means capture and requested artifact generation completed. A blocked run exits `1` and includes its blocker and any usable artifacts in the manifest. A scenario rejected before capture exits `1` with a validation message.
+Supply `--playwright-module /path/to/node_modules/playwright` (or set `RUPICOLA_PLAYWRIGHT_DIR`) when Playwright is installed elsewhere. `--backend` picks what captures the scenario: `playwright` (the default) runs every step, while `chromium` only takes screenshots and so refuses a scenario with actions or clips. A scenario with clips needs `ffmpeg` to cut each recorded clip into its frames; `--video` keeps the recorded clip as an MP4 preview. The output directory must be new. Exit code `0` means capture and requested artifact generation completed. A blocked run exits `1` and includes its blocker and any usable artifacts in the manifest. A scenario rejected before capture exits `1` with a validation message.
 
 A settings preview with a button and a visible popup can use this scenario:
 

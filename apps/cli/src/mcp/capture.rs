@@ -2,7 +2,7 @@
 
 use super::bundle::import_bundle;
 use super::call::{ToolCall, manifest, text};
-use crate::{scenario, service};
+use crate::{backend::Backend, scenario, service};
 use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
@@ -26,7 +26,7 @@ impl ToolCall<'_> {
             input.set_project(id, label);
             let out = service::output()?;
             let module = std::env::var_os("RUPICOLA_PLAYWRIGHT_MODULE").map(PathBuf::from);
-            let capture = scenario::web(
+            let capture = Backend::default().run(
                 input,
                 &out,
                 module.as_deref(),

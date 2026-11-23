@@ -1,8 +1,8 @@
 //! Capture commands: scenarios, review notes and matrices.
 
 use crate::{
-    DEFAULT_MATRIX_MAX_RUNS, DEFAULT_MATRIX_TIMEOUT_SECS, EXIT_CLEAN, Result, bail, block_on, json,
-    print_capture, publish::Destination, scenario, service, visual,
+    DEFAULT_MATRIX_MAX_RUNS, DEFAULT_MATRIX_TIMEOUT_SECS, EXIT_CLEAN, Result, backend::Backend,
+    bail, block_on, json, print_capture, publish::Destination, scenario, service, visual,
 };
 use std::path::PathBuf;
 
@@ -13,13 +13,16 @@ pub struct CaptureArgs {
     /// New project run directory, typically .rupicola/captures/<run>.
     #[arg(long)]
     out: Option<PathBuf>,
-    /// Path to the installed Playwright Node.js module.
+    /// What captures the scenario.
+    #[arg(long, value_enum, default_value_t)]
+    backend: Backend,
+    /// Path to the installed Playwright Node.js module (the Playwright backend).
     #[arg(long)]
     playwright_module: Option<PathBuf>,
     /// Largest per-channel difference still treated as unchanged.
     #[arg(long, default_value_t = visual::DEFAULT_DIFF_THRESHOLD)]
     threshold: u8,
-    /// Encode an approximate MP4 preview with ffmpeg.
+    /// Keep the recorded clips as MP4 previews.
     #[arg(long)]
     video: bool,
     #[arg(long)]
@@ -33,6 +36,7 @@ impl CaptureArgs {
         let CaptureArgs {
             scenario: path,
             out,
+            backend,
             playwright_module,
             threshold,
             video,
@@ -45,7 +49,7 @@ impl CaptureArgs {
             scenario.set_project(id, label);
         }
         let run = destination.run_dir(out)?;
-        let manifest = scenario::web(
+        let manifest = backend.run(
             scenario,
             run.dir(),
             playwright_module.as_deref(),

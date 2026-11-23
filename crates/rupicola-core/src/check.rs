@@ -117,7 +117,6 @@ fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Resul
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py")
             && ![
-                "crates/rupicola-core/src/browser-capture.cjs",
                 "apps/panel/src/panel.js",
                 "apps/panel/src/design_system/validator.cjs",
                 "apps/panel/src/design_system/examples.js",
