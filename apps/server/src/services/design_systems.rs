@@ -9,7 +9,6 @@ use crate::{
     services::access::access,
     state::AppState,
 };
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rupicola_api::{
     Document, DocumentEdit, Role, SystemAction, SystemActionForm, SystemList, SystemPhase,
     SystemVersion,
@@ -172,24 +171,4 @@ pub async fn act(
     Ok(design_systems::read(&state.db, project, &result_id)
         .await?
         .dto(active.as_deref()))
-}
-
-/// Reads one stored validation proof PNG by name.
-pub async fn proof(
-    state: &AppState,
-    principal: &Principal,
-    project: &str,
-    id: &str,
-    name: &str,
-) -> Result<Vec<u8>, ApiError> {
-    require(state, principal, project, Role::Reader).await?;
-    let png = design_systems::read(&state.db, project, id)
-        .await?
-        .report
-        .and_then(|report| report.shots.into_iter().find(|shot| shot.name == name))
-        .map(|shot| shot.png)
-        .ok_or(ApiError::NotFound)?;
-    STANDARD
-        .decode(png)
-        .map_err(|err| ApiError::Internal(err.into()))
 }

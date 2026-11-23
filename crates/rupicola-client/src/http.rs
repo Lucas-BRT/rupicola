@@ -76,31 +76,6 @@ impl HttpApi {
         Err(ClientError::from_response(status, retry_after, &body))
     }
 
-    /// A GET whose answer is bytes, whatever their type.
-    async fn body(&self, path: &str, token: &str) -> Result<ArtifactBody> {
-        let response = Self::send(self.request(Method::GET, path, Some(token))).await?;
-        let text = |name| {
-            response
-                .headers()
-                .get(name)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned)
-        };
-        let status = response.status().as_u16();
-        let content_type = text(header::CONTENT_TYPE);
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| ClientError::Unavailable(e.to_string()))?
-            .to_vec();
-        Ok(ArtifactBody {
-            status,
-            content_type,
-            content_range: None,
-            bytes,
-        })
-    }
-
     async fn read<T: DeserializeOwned>(request: RequestBuilder) -> Result<T> {
         Self::send(request)
             .await?
@@ -398,28 +373,6 @@ impl Api for HttpApi {
                 Some(token),
             )
             .json(form),
-        )
-        .await
-    }
-
-    async fn design_preview(&self, token: &str, project: &str, id: &str) -> Result<ArtifactBody> {
-        self.body(
-            &format!("/projects/{project}/design-systems/{id}/preview"),
-            token,
-        )
-        .await
-    }
-
-    async fn design_proof(
-        &self,
-        token: &str,
-        project: &str,
-        id: &str,
-        name: &str,
-    ) -> Result<ArtifactBody> {
-        self.body(
-            &format!("/projects/{project}/design-systems/{id}/proofs/{name}"),
-            token,
         )
         .await
     }

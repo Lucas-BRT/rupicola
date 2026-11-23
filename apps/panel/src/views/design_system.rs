@@ -178,7 +178,7 @@ async fn editor(cx: &Cx, account: &Account, base: &str, version: &Version) -> Re
     })
 }
 
-/// The example pages and the validation of the selected version.
+/// The validation of the selected version.
 #[component]
 async fn screens(
     cx: &Cx,
@@ -187,21 +187,8 @@ async fn screens(
     role: Role,
     version: &Version,
 ) -> Result<impl View> {
-    let preview = format!("{base}/design/preview/{}", version.id);
     let ready = version.ready;
     Ok(view! {
-        <section class="surface panel-padding design-studio">
-            <div class="design-studio-head">
-                <h2>"Components and example pages"</h2>
-                <a class="button" href=(&preview) target="_blank" rel="noreferrer">"Open full preview"</a>
-            </div>
-            <nav class="tabs" aria-label="Open an example in a new tab">
-                for (key, label) in [("components", "Components"), ("home", "Home"), ("queue", "Work queue"), ("settings", "Settings"), ("evidence", "Evidence review")] {
-                    <a href=(format!("{preview}#{key}")) target="_blank" rel="noreferrer">(label)</a>
-                }
-            </nav>
-            <iframe class="design-preview" src=(&preview) sandbox="allow-scripts" title="Design system examples"></iframe>
-        </section>
         <section class="surface panel-padding design-studio">
             <div class="design-studio-head">
                 <h2>"Validation"</h2>
@@ -227,11 +214,6 @@ async fn screens(
                 if report.baseline.is_some() {
                     <p>"Baseline captures use the adopted version with this draft’s example data."</p>
                 }
-                <div class="actions">
-                    for shot in &report.shots {
-                        <a href=(format!("{base}/design/proof/{}/{shot}", version.id)) target="_blank" rel="noreferrer">(shot)</a>
-                    }
-                </div>
             } else {
                 <p class="muted">"Validate the saved draft to send it for review."</p>
             }

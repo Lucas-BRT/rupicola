@@ -86,10 +86,6 @@ fn design_systems() -> Router<Shared> {
             "/{version}/actions",
             routing::post(design_system_handlers::act),
         )
-        .route(
-            "/{version}/proofs/{name}",
-            routing::get(design_system_handlers::proof),
-        )
 }
 
 fn devices() -> Router<Shared> {

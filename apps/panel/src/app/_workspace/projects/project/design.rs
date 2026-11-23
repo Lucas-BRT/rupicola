@@ -1,8 +1,6 @@
 //! `GET /projects/{project}/design`
 
 mod edit;
-mod preview;
-mod proof;
 mod record;
 mod version;
 

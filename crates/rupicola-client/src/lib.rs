@@ -175,18 +175,6 @@ pub trait Api: Send + Sync {
         form: &SystemActionForm,
     ) -> Result<SystemVersion>;
 
-    /// The example pages of a version, as HTML.
-    async fn design_preview(&self, token: &str, project: &str, id: &str) -> Result<ArtifactBody>;
-
-    /// One screenshot of a version's validation, as PNG.
-    async fn design_proof(
-        &self,
-        token: &str,
-        project: &str,
-        id: &str,
-        name: &str,
-    ) -> Result<ArtifactBody>;
-
     /// The fixes of `project`.
     async fn fixes(&self, token: &str, project: &str) -> Result<Vec<FixSummary>>;
 

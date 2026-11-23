@@ -7,10 +7,8 @@ use crate::{
 };
 use axum::{
     Json,
-    body::Body,
     extract::{Path, State},
-    http::{StatusCode, header},
-    response::Response,
+    http::StatusCode,
 };
 use rupicola_api::{DocumentEdit, SystemActionForm, SystemList, SystemVersion};
 
@@ -69,19 +67,6 @@ pub async fn act(
     design_systems::act(&state, &principal, &project, &id, &form)
         .await
         .map(Json)
-}
-
-/// `GET /v1/projects/{id}/design-systems/{version}/proofs/{name}`: one validation screenshot.
-pub async fn proof(
-    State(state): State<Shared>,
-    principal: Principal,
-    Path((project, id, name)): Path<(String, String, String)>,
-) -> Result<Response, ApiError> {
-    let bytes = design_systems::proof(&state, &principal, &project, &id, &name).await?;
-    Response::builder()
-        .header(header::CONTENT_TYPE, "image/png")
-        .body(Body::from(bytes))
-        .map_err(|err| ApiError::Internal(err.into()))
 }
 
 #[cfg(test)]
@@ -353,20 +338,5 @@ mod tests {
             .await,
         );
         assert_eq!(varied.parent.as_deref(), Some(next.id.as_str()));
-    }
-
-    #[tokio::test]
-    async fn missing_proofs_return_not_found() {
-        let (port, _state, [ana, bruno, _]) = setup().await;
-        let draft: SystemVersion = json(&call(port, "POST", BASE, Some(&ana), None).await);
-        let missing = call(
-            port,
-            "GET",
-            &format!("{BASE}/{}/proofs/390-open", draft.id),
-            Some(&bruno),
-            None,
-        )
-        .await;
-        assert_eq!(status(&missing), StatusCode::NOT_FOUND);
     }
 }

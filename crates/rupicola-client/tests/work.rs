@@ -63,10 +63,7 @@ async fn stub(
     });
     let body = if path.ends_with("/design-systems") && method == Method::GET {
         json!({"items": [{"id": "v1", "name": "Evidence review", "phase": "draft"}], "active": null})
-    } else if path.contains("/design-systems")
-        && !path.ends_with("/preview")
-        && !path.contains("/proofs/")
-    {
+    } else if path.contains("/design-systems") {
         version
     } else if path.ends_with("/design") {
         let entry = json!({
@@ -210,10 +207,6 @@ async fn work_calls_reach_their_routes() {
     api.act_on_design_system(TOKEN, PROJECT, "v1", &form)
         .await
         .unwrap();
-    api.design_preview(TOKEN, PROJECT, "v1").await.unwrap();
-    api.design_proof(TOKEN, PROJECT, "v1", "390-open")
-        .await
-        .unwrap();
     let bearer = format!("Bearer {TOKEN}");
     let expected = [
         format!("GET /v1/projects/{PROJECT}/problems {bearer}"),
@@ -233,8 +226,6 @@ async fn work_calls_reach_their_routes() {
         format!("POST /v1/projects/{PROJECT}/design-systems {bearer}"),
         format!("PUT /v1/projects/{PROJECT}/design-systems/v1/document {bearer}"),
         format!("POST /v1/projects/{PROJECT}/design-systems/v1/actions {bearer}"),
-        format!("GET /v1/projects/{PROJECT}/design-systems/v1/preview {bearer}"),
-        format!("GET /v1/projects/{PROJECT}/design-systems/v1/proofs/390-open {bearer}"),
     ];
     assert_eq!(*seen.lock().unwrap(), expected);
 }
