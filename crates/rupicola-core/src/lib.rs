@@ -2,11 +2,9 @@
 //! No inspected project code is compiled or executed by these functions.
 pub mod capture;
 pub mod capture_manifest;
-pub mod capture_pipeline;
 pub mod check;
 pub mod design_record;
 pub mod discover;
-pub mod domain;
 pub mod evals;
 pub mod fix_record;
 pub mod problem_record;
