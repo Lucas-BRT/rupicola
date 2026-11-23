@@ -21,6 +21,7 @@ mod settings;
 mod state;
 #[cfg(test)]
 mod testkit;
+mod topics;
 
 use anyhow::{Context, bail};
 use axum::{Json, Router, routing};
@@ -128,6 +129,7 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .merge(settings::routes())
         .merge(publish::routes())
         .merge(lineage::routes())
+        .merge(topics::routes())
         .route("/setup", routing::get(auth::setup_status))
         .route("/me", routing::get(auth::me))
         .route("/sessions/current", routing::delete(auth::sign_out))

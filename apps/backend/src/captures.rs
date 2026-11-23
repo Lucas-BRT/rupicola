@@ -341,6 +341,25 @@ pub async fn list(
     Ok(Json(rows.into_iter().map(CaptureSummary::from).collect()))
 }
 
+/// The summaries of the live captures named in `ids`, newest first.
+pub(crate) async fn summaries(
+    state: &Shared,
+    ids: &[String],
+) -> Result<Vec<CaptureSummary>, ApiError> {
+    let rows: Vec<SummaryRow> = sqlx::query_as(
+        "SELECT c.id, c.scenario, c.status, c.inspection, c.created_at,
+           (SELECT a.id FROM artifacts a WHERE a.capture_id = c.id AND a.role = 'checkpoint'
+            ORDER BY a.position LIMIT 1) AS preview
+         FROM captures c
+         WHERE c.deleted_at IS NULL AND c.id IN (SELECT value FROM json_each(?1))
+         ORDER BY c.created_at DESC, c.id DESC",
+    )
+    .bind(serde_json::to_string(ids).map_err(anyhow::Error::from)?)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows.into_iter().map(CaptureSummary::from).collect())
+}
+
 /// Project of a capture, checked against the caller's access.
 async fn capture_access(
     state: &Shared,
