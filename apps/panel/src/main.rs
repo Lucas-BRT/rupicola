@@ -64,6 +64,7 @@ macro_rules! shell {
     };
 }
 
+mod app;
 mod auth;
 mod components;
 mod db;
@@ -72,7 +73,6 @@ mod media;
 mod pages;
 mod pipeline;
 mod records;
-mod routes;
 mod runs;
 use auth::Account;
 use rupicola_core::{design_record, fix_record, problem_record};
@@ -212,7 +212,7 @@ async fn main() -> Result<(), BoxError> {
         api,
         design_validation: tokio::sync::Semaphore::new(1),
     });
-    let app = routes::router(panel);
+    let app = app::router(panel);
     println!("Listening on {bind_ip}:{port} · {origin}");
     topcoat::serve(listener, app).await?;
     Ok(())
