@@ -278,24 +278,16 @@ pub async fn list(
     access(&state, &principal, &project)
         .await?
         .require(Role::Reader)?;
-    let rows: Vec<(String, String, String, i64, i64)> = sqlx::query_as(
+    let rows: Vec<SummaryRow> = sqlx::query_as(
         "SELECT f.id, f.title, f.status,
-           (SELECT COUNT(*) FROM fix_problems p WHERE p.fix_id = f.id), f.updated_at
+           (SELECT COUNT(*) FROM fix_problems p WHERE p.fix_id = f.id) AS problems, f.updated_at
          FROM fixes f WHERE f.project_id = ?1 ORDER BY f.updated_at DESC, f.id DESC",
     )
     .bind(&project)
     .fetch_all(&state.db)
     .await?;
     rows.into_iter()
-        .map(|(id, title, status, problems, updated_at)| {
-            Ok(FixSummary {
-                id,
-                title,
-                status: status.parse().map_err(anyhow::Error::from)?,
-                problems: usize::try_from(problems).map_err(anyhow::Error::from)?,
-                updated_at,
-            })
-        })
+        .map(FixSummary::try_from)
         .collect::<Result<Vec<_>, ApiError>>()
         .map(Json)
 }
@@ -413,29 +405,126 @@ pub async fn review(
     Ok(Json(load(&state, &id).await?))
 }
 
-type FixRow = (String, String, String, String, Option<String>, i64, i64);
-type ComparisonRow = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<f64>,
-);
-type StepRow = (String, String, String, Option<String>, i64);
+/// A `fixes` row as listed.
+#[derive(sqlx::FromRow)]
+struct SummaryRow {
+    id: String,
+    title: String,
+    status: String,
+    problems: i64,
+    updated_at: i64,
+}
+
+impl TryFrom<SummaryRow> for FixSummary {
+    type Error = ApiError;
+
+    fn try_from(row: SummaryRow) -> Result<Self, ApiError> {
+        Ok(Self {
+            id: row.id,
+            title: row.title,
+            status: row.status.parse().map_err(anyhow::Error::from)?,
+            problems: usize::try_from(row.problems).map_err(anyhow::Error::from)?,
+            updated_at: row.updated_at,
+        })
+    }
+}
+
+/// A `fixes` row; its problems, tactics, files, comparisons, steps and reviews live in their
+/// own tables.
+#[derive(sqlx::FromRow)]
+struct FixRow {
+    project_id: String,
+    title: String,
+    summary: String,
+    status: String,
+    author: Option<String>,
+    created_at: i64,
+    updated_at: i64,
+}
+
+/// A `fix_comparisons` row.
+#[derive(sqlx::FromRow)]
+struct ComparisonRow {
+    label: String,
+    route: String,
+    viewport: String,
+    theme: String,
+    before_artifact_id: String,
+    after_artifact_id: String,
+    diff_artifact_id: Option<String>,
+    changed_ratio: Option<f64>,
+}
+
+impl From<ComparisonRow> for Comparison {
+    fn from(row: ComparisonRow) -> Self {
+        Self {
+            label: row.label,
+            route: row.route,
+            viewport: row.viewport,
+            theme: row.theme,
+            before: row.before_artifact_id,
+            after: row.after_artifact_id,
+            diff: row.diff_artifact_id,
+            changed_ratio: row.changed_ratio,
+        }
+    }
+}
+
+/// A `fix_steps` row.
+#[derive(sqlx::FromRow)]
+struct StepRow {
+    title: String,
+    detail: String,
+    verification: String,
+    evidence_artifact_id: Option<String>,
+    created_at: i64,
+}
+
+impl From<StepRow> for Step {
+    fn from(row: StepRow) -> Self {
+        Self {
+            step: NewStep {
+                title: row.title,
+                detail: row.detail,
+                verification: row.verification,
+                evidence: row.evidence_artifact_id,
+            },
+            created_at: row.created_at,
+        }
+    }
+}
+
+/// A `fix_reviews` row.
+#[derive(sqlx::FromRow)]
+struct ReviewRow {
+    author: Option<String>,
+    outcome: String,
+    comment: String,
+    created_at: i64,
+}
+
+impl TryFrom<ReviewRow> for Review {
+    type Error = ApiError;
+
+    fn try_from(row: ReviewRow) -> Result<Self, ApiError> {
+        Ok(Self {
+            author: row.author,
+            outcome: row.outcome.parse().map_err(anyhow::Error::from)?,
+            comment: row.comment,
+            created_at: row.created_at,
+        })
+    }
+}
 
 async fn load(state: &Shared, id: &str) -> Result<Fix, ApiError> {
-    let row: Option<FixRow> = sqlx::query_as(
+    let row: FixRow = sqlx::query_as(
         "SELECT project_id, title, summary, status, author, created_at, updated_at
          FROM fixes WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(&state.db)
-    .await?;
-    let (project_id, title, summary, status, author, created_at, updated_at) =
-        row.ok_or(ApiError::NotFound)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
     let problems = sqlx::query_scalar(
         "SELECT problem_id FROM fix_problems WHERE fix_id = ?1 ORDER BY problem_id",
     )
@@ -466,7 +555,7 @@ async fn load(state: &Shared, id: &str) -> Result<Fix, ApiError> {
     .bind(id)
     .fetch_all(&state.db)
     .await?;
-    let reviews: Vec<(Option<String>, String, String, i64)> = sqlx::query_as(
+    let reviews: Vec<ReviewRow> = sqlx::query_as(
         "SELECT author, outcome, comment, created_at FROM fix_reviews
          WHERE fix_id = ?1 ORDER BY created_at, id",
     )
@@ -475,54 +564,22 @@ async fn load(state: &Shared, id: &str) -> Result<Fix, ApiError> {
     .await?;
     Ok(Fix {
         id: id.to_owned(),
-        project_id,
-        title,
-        summary,
-        status: status.parse().map_err(anyhow::Error::from)?,
+        project_id: row.project_id,
+        title: row.title,
+        summary: row.summary,
+        status: row.status.parse().map_err(anyhow::Error::from)?,
         problems,
         tactics,
         files,
-        comparisons: comparisons
-            .into_iter()
-            .map(
-                |(label, route, viewport, theme, before, after, diff, changed_ratio)| Comparison {
-                    label,
-                    route,
-                    viewport,
-                    theme,
-                    before,
-                    after,
-                    diff,
-                    changed_ratio,
-                },
-            )
-            .collect(),
-        steps: steps
-            .into_iter()
-            .map(|(title, detail, verification, evidence, created_at)| Step {
-                step: NewStep {
-                    title,
-                    detail,
-                    verification,
-                    evidence,
-                },
-                created_at,
-            })
-            .collect(),
+        comparisons: comparisons.into_iter().map(Comparison::from).collect(),
+        steps: steps.into_iter().map(Step::from).collect(),
         reviews: reviews
             .into_iter()
-            .map(|(author, outcome, comment, created_at)| {
-                Ok(Review {
-                    author,
-                    outcome: outcome.parse().map_err(anyhow::Error::from)?,
-                    comment,
-                    created_at,
-                })
-            })
-            .collect::<Result<_, ApiError>>()?,
-        author,
-        created_at,
-        updated_at,
+            .map(Review::try_from)
+            .collect::<Result<_, _>>()?,
+        author: row.author,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
     })
 }
 
