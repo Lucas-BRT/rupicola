@@ -80,7 +80,6 @@ fn design_systems() -> Router<Shared> {
         .route("/{version}", routing::get(design_system::get))
         .route("/{version}/document", routing::put(design_system::edit))
         .route("/{version}/actions", routing::post(design_system::act))
-        .route("/{version}/preview", routing::get(design_system::preview))
         .route(
             "/{version}/proofs/{name}",
             routing::get(design_system::proof),

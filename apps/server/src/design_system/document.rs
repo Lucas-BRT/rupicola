@@ -1,14 +1,8 @@
-//! What a design document must satisfy, and the example screen made from it.
+//! What a design document must satisfy: token completeness and WCAG contrast checks.
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rupicola_api::Document;
 use rupicola_core::visual::Rgb;
 use sha2::{Digest, Sha256};
-
-const SCREEN: &str = include_str!("../../design/screen.html");
-const EXAMPLES_HTML: &str = include_str!("../../design/examples.html");
-const EXAMPLES_CSS: &str = include_str!("../../design/examples.css");
-const EXAMPLES_JS: &str = include_str!("../../design/examples.js");
 
 /// WCAG 2.2 AA contrast for normal text.
 const MIN_TEXT_CONTRAST: f64 = 4.5;
@@ -110,90 +104,10 @@ pub fn contrast(doc: &Document) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn escaped(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
-
-fn image(mime: &str, bytes: &[u8]) -> String {
-    format!("data:{mime};base64,{}", STANDARD.encode(bytes))
-}
-
-/// The example pages for `doc`, as one self-contained HTML document.
-pub fn render_screen(doc: &Document) -> String {
-    [
-        ("@@EXAMPLES_HTML@@", EXAMPLES_HTML.to_owned()),
-        ("@@EXAMPLES_CSS@@", EXAMPLES_CSS.to_owned()),
-        ("@@EXAMPLES_JS@@", EXAMPLES_JS.to_owned()),
-        ("@@CANVAS@@", doc.canvas.clone()),
-        ("@@SURFACE@@", doc.surface.clone()),
-        ("@@INK@@", doc.ink.clone()),
-        ("@@ACCENT@@", doc.accent.clone()),
-        ("@@ACTION_INK@@", doc.action_ink.clone()),
-        ("@@SPACE@@", doc.spacing.to_string()),
-        ("@@RADIUS@@", doc.radius.to_string()),
-        ("@@HEADING@@", doc.heading.font().to_owned()),
-        ("@@HEADING_LABEL@@", doc.heading.label().to_owned()),
-        ("@@SUCCESS@@", doc.success.clone()),
-        ("@@ERROR@@", doc.error.clone()),
-        (
-            "@@BEFORE_PNG@@",
-            image(
-                "image/png",
-                include_bytes!("../../design/fixtures/before.png"),
-            ),
-        ),
-        (
-            "@@AFTER_PNG@@",
-            image(
-                "image/png",
-                include_bytes!("../../design/fixtures/after.png"),
-            ),
-        ),
-        (
-            "@@BEFORE_WEBM@@",
-            image(
-                "video/webm",
-                include_bytes!("../../design/fixtures/before.webm"),
-            ),
-        ),
-        (
-            "@@AFTER_WEBM@@",
-            image(
-                "video/webm",
-                include_bytes!("../../design/fixtures/after.webm"),
-            ),
-        ),
-        ("@@SYSTEM_NAME@@", escaped(&doc.name)),
-        ("@@BRAND_ATTR@@", escaped(&doc.brand)),
-        ("@@BRAND@@", escaped(&doc.brand)),
-        ("@@LANDING_TITLE@@", escaped(&doc.landing_title)),
-        ("@@QUEUE_TITLE@@", escaped(&doc.queue_title)),
-        ("@@QUEUE_ITEM@@", escaped(&doc.queue_item)),
-        ("@@SETTINGS_TITLE@@", escaped(&doc.settings_title)),
-        ("@@BUTTON_NOTES@@", escaped(&doc.guidance.button)),
-        ("@@FORM_NOTES@@", escaped(&doc.guidance.form)),
-        ("@@TABLE_NOTES@@", escaped(&doc.guidance.table)),
-        ("@@COMPARISON_NOTES@@", escaped(&doc.guidance.comparison)),
-        ("@@TITLE@@", escaped(&doc.screen_title)),
-        ("@@SCENARIO@@", escaped(&doc.scenario)),
-        ("@@BEFORE_LABEL@@", escaped(&doc.before_label)),
-        ("@@AFTER_LABEL@@", escaped(&doc.after_label)),
-    ]
-    .into_iter()
-    .fold(SCREEN.to_owned(), |html, (key, value)| {
-        html.replace(key, &value)
-    })
-}
-
-/// Identifies what a validation covered: the document and the screen made from it.
+/// Identifies what a validation covered: the document itself.
 pub fn fingerprint(doc: &Document) -> String {
     let mut hash = Sha256::new();
     hash.update(serde_json::to_vec(doc).expect("document contains only serializable fields"));
-    hash.update(render_screen(doc).as_bytes());
     format!("{:x}", hash.finalize())
 }
 
@@ -202,14 +116,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn screen_escapes_user_text_and_rejects_css_in_tokens() {
-        let mut document = Document {
-            screen_title: "</title><script>bad()</script>".into(),
-            ..Document::default()
-        };
-        let rendered = render_screen(&document);
-        assert!(rendered.contains("&lt;/title&gt;&lt;script&gt;bad()"));
-        assert!(!rendered.contains("<script>bad()"));
+    fn invalid_tokens_are_rejected() {
+        let mut document = Document::default();
+        assert!(valid(&document));
         document.accent = "#f0f; };".into();
         assert!(!valid(&document));
     }

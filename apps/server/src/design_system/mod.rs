@@ -19,7 +19,7 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use browser::{Report, validate};
-use document::{fingerprint, render_screen, valid};
+use document::{fingerprint, valid};
 use rupicola_api::{
     Document, DocumentEdit, Role, SystemAction, SystemActionForm, SystemItem, SystemList,
     SystemNote, SystemPhase, SystemReport, SystemVersion,
@@ -52,7 +52,6 @@ struct Stored {
     document: Document,
     notes: Vec<SystemNote>,
     report: Option<Report>,
-    frozen_screen: Option<String>,
 }
 
 impl Stored {
@@ -66,7 +65,6 @@ impl Stored {
             document,
             notes: Vec::new(),
             report: None,
-            frozen_screen: None,
         }
     }
 
@@ -85,7 +83,6 @@ impl Stored {
                 "validate this version again before sending it for review",
             ));
         }
-        self.frozen_screen = Some(render_screen(&self.document));
         self.phase = SystemPhase::Review;
         Ok(())
     }
@@ -142,7 +139,7 @@ async fn adopted(
 
 async fn read(state: &crate::state::AppState, project: &str, id: &str) -> Result<Stored, ApiError> {
     let row = sqlx::query(
-        "SELECT parent_id, author, phase, generation, document, notes, report, frozen_screen
+        "SELECT parent_id, author, phase, generation, document, notes, report
          FROM design_versions WHERE id = ?1 AND project_id = ?2",
     )
     .bind(id)
@@ -166,7 +163,6 @@ async fn read(state: &crate::state::AppState, project: &str, id: &str) -> Result
             .map(|json| serde_json::from_str(&json))
             .transpose()
             .map_err(corrupt)?,
-        frozen_screen: row.get("frozen_screen"),
     })
 }
 
@@ -197,8 +193,8 @@ async fn insert(
 
 const SAVE: &str = "UPDATE design_versions
     SET generation = generation + 1, name = ?1, phase = ?2, document = ?3, notes = ?4,
-        report = ?5, frozen_screen = ?6
-    WHERE id = ?7 AND project_id = ?8 AND generation = ?9";
+        report = ?5
+    WHERE id = ?6 AND project_id = ?7 AND generation = ?8";
 
 /// Writes `version` if nobody changed it since it was read.
 async fn save(
@@ -219,7 +215,6 @@ async fn save(
                 .transpose()
                 .map_err(corrupt)?,
         )
-        .bind(&version.frozen_screen)
         .bind(&version.id)
         .bind(project)
         .bind(version.generation)
@@ -435,7 +430,7 @@ async fn adopt(
     actor: &str,
     active: Option<&str>,
 ) -> Result<(), ApiError> {
-    if version.phase != SystemPhase::Approved || version.frozen_screen.is_none() {
+    if version.phase != SystemPhase::Approved {
         return Err(ApiError::Conflict(
             "only an approved version can be adopted",
         ));
@@ -461,7 +456,6 @@ async fn adopt(
                 .transpose()
                 .map_err(corrupt)?,
         )
-        .bind(&version.frozen_screen)
         .bind(&version.id)
         .bind(project)
         .bind(version.generation)
@@ -481,24 +475,6 @@ async fn adopt(
     .await?;
     tx.commit().await?;
     Ok(())
-}
-
-/// `GET /v1/projects/{id}/design-systems/{version}/preview`: the example pages. A client that
-/// shows them in a frame sets the policy for that.
-pub async fn preview(
-    State(state): State<Shared>,
-    principal: Principal,
-    Path((project, id)): Path<(String, String)>,
-) -> Result<Response, ApiError> {
-    require(&state, &principal, &project, Role::Reader).await?;
-    let version = read(&state, &project, &id).await?;
-    let html = version
-        .frozen_screen
-        .unwrap_or_else(|| render_screen(&version.document));
-    Response::builder()
-        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-        .body(Body::from(html))
-        .map_err(corrupt)
 }
 
 /// `GET /v1/projects/{id}/design-systems/{version}/proofs/{name}`: one validation screenshot.
@@ -790,20 +766,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_preview_and_proofs_are_served_to_members() {
-        let (port, state, [ana, bruno, _]) = setup().await;
+    async fn missing_proofs_return_not_found() {
+        let (port, _state, [ana, bruno, _]) = setup().await;
         let draft: SystemVersion = json(&call(port, "POST", BASE, Some(&ana), None).await);
-        let page = call(
-            port,
-            "GET",
-            &format!("{BASE}/{}/preview", draft.id),
-            Some(&bruno),
-            None,
-        )
-        .await;
-        assert_eq!(status(&page), StatusCode::OK);
-        assert!(body(&page).contains("--accent:#ff681e"));
-        assert!(header(&page, "content-type").is_some_and(|kind| kind.starts_with("text/html")));
         let missing = call(
             port,
             "GET",
@@ -813,6 +778,5 @@ mod tests {
         )
         .await;
         assert_eq!(status(&missing), StatusCode::NOT_FOUND);
-        let _ = state;
     }
 }
