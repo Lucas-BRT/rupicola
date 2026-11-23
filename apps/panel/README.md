@@ -24,6 +24,15 @@ Tailwind's standalone compiler is fetched at build time. Set `TAILWIND_CLI` to
 a trusted, preinstalled 4.3.2 executable for offline builds. The compiled
 stylesheet is embedded in the binary.
 
+## Source layout
+
+Routes follow the module tree (topcoat module routing): `src/app/projects/project/problems.rs`
+serves `/projects/{project}/problems`, and its child modules are that tab's actions. A route
+module loads what its page shows and calls a view. Markup lives only in `src/views/`, which
+takes loaded data and calls no backend. `auth.rs`, `project.rs`, `records.rs`, `runs.rs` and
+`media.rs` read from the backend; `design_system/` still keeps its versions in the panel's database.
+The same layout applies to `apps/site` (`app/`, `views/`, `content/`, `assets/`).
+
 ## Shared server
 
 Run one panel instance behind an HTTPS reverse proxy on the same host. Mount
