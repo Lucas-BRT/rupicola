@@ -1,9 +1,10 @@
-use crate::{Api, ClientError, McpReply, Result};
+use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
-    AuditEvent, Capture, Credentials, IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject,
-    PREFIX, PasswordChange, Project, Redeem, Register, SessionToken, Setup, SetupStatus,
+    AuditEvent, Capture, CaptureSummary, Credentials, Finding, IssuedInvite, Me, Member,
+    NewCapture, NewFinding, NewInvite, NewProject, PREFIX, PasswordChange, Project, Redeem,
+    Register, SessionToken, Setup, SetupStatus,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -189,6 +190,60 @@ impl Api for HttpApi {
                 .json(form),
         )
         .await
+    }
+
+    async fn captures(&self, token: &str, project: &str) -> Result<Vec<CaptureSummary>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/captures"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn capture(&self, token: &str, id: &str) -> Result<Capture> {
+        Self::read(self.request(Method::GET, &format!("/captures/{id}"), Some(token))).await
+    }
+
+    async fn add_finding(&self, token: &str, capture: &str, form: &NewFinding) -> Result<Finding> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/captures/{capture}/findings"),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn artifact(&self, token: &str, id: &str, range: Option<String>) -> Result<ArtifactBody> {
+        let mut request = self.request(Method::GET, &format!("/artifacts/{id}"), Some(token));
+        if let Some(range) = range {
+            request = request.header(header::RANGE, range);
+        }
+        let response = Self::send(request).await?;
+        let text = |name| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        };
+        let status = response.status().as_u16();
+        let content_type = text(header::CONTENT_TYPE);
+        let content_range = text(header::CONTENT_RANGE);
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| ClientError::Unavailable(e.to_string()))?
+            .to_vec();
+        Ok(ArtifactBody {
+            status,
+            content_type,
+            content_range,
+            bytes,
+        })
     }
 
     async fn put_blob(&self, token: &str, data: &[u8]) -> Result<String> {

@@ -8,8 +8,9 @@ mod http;
 
 use async_trait::async_trait;
 use rupicola_api::{
-    AuditEvent, Capture, Credentials, IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject,
-    PasswordChange, Project, Redeem, Register, SessionToken, Setup,
+    AuditEvent, Capture, CaptureSummary, Credentials, Finding, IssuedInvite, Me, Member,
+    NewCapture, NewFinding, NewInvite, NewProject, PasswordChange, Project, Redeem, Register,
+    SessionToken, Setup,
 };
 
 pub use error::{ClientError, Result};
@@ -21,6 +22,17 @@ pub use http::HttpApi;
 pub struct McpReply {
     pub status: u16,
     pub body: String,
+}
+
+/// A stored file as the backend serves it, which may be only the part a `Range` asked for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArtifactBody {
+    /// 200 for the whole file, 206 for the requested part.
+    pub status: u16,
+    pub content_type: Option<String>,
+    /// Which bytes of the file `bytes` holds, for a 206.
+    pub content_range: Option<String>,
+    pub bytes: Vec<u8>,
 }
 
 /// What a client may ask of the backend. Every call that acts for a person takes the
@@ -79,6 +91,19 @@ pub trait Api: Send + Sync {
 
     /// Joins the project an invitation code belongs to.
     async fn redeem_invite(&self, token: &str, form: &Redeem) -> Result<Project>;
+
+    /// The captures of `project`, newest first.
+    async fn captures(&self, token: &str, project: &str) -> Result<Vec<CaptureSummary>>;
+
+    /// One capture, with its checkpoints, clips and findings.
+    async fn capture(&self, token: &str, id: &str) -> Result<Capture>;
+
+    /// Records an observation on a capture, optionally pointing at one of its artifacts.
+    async fn add_finding(&self, token: &str, capture: &str, form: &NewFinding) -> Result<Finding>;
+
+    /// The bytes of an artifact; `range` is an HTTP `Range` header value. It is owned because
+    /// the mock generated for this trait cannot take an optional borrowed argument.
+    async fn artifact(&self, token: &str, id: &str, range: Option<String>) -> Result<ArtifactBody>;
 
     /// Uploads `data` unless the backend already has it; returns its SHA-256.
     async fn put_blob(&self, token: &str, data: &[u8]) -> Result<String>;

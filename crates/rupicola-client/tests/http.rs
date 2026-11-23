@@ -7,9 +7,9 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use rupicola_api::{
-    AuditEvent, Capture, CaptureStatus, Credentials, Environment, ErrorBody, Inspection, Invite,
-    IssuedInvite, Me, Member, NewCapture, NewInvite, NewProject, PasswordChange, Project, Redeem,
-    Role, SessionToken, SetupStatus, TokenKind,
+    AuditEvent, Capture, CaptureStatus, CaptureSummary, Credentials, Environment, ErrorBody,
+    Finding, Inspection, Invite, IssuedInvite, Me, Member, NewCapture, NewFinding, NewInvite,
+    NewProject, PasswordChange, Project, Redeem, Role, SessionToken, SetupStatus, TokenKind,
 };
 use rupicola_client::{Api, ClientError, HttpApi, McpReply};
 use sha2::{Digest, Sha256};
@@ -92,6 +92,84 @@ fn new_capture() -> NewCapture {
 const INVITE_CODE: &str = "invite-code";
 const AUDIT_EVENT: &str = "member-added";
 const WRONG_PASSWORD_MESSAGE: &str = "the current password is incorrect";
+
+const ARTIFACT_BYTES: &[u8] = b"0123456789";
+const ARTIFACT_TYPE: &str = "image/png";
+const FINDING_NOTE: &str = "Focus is visible.";
+
+/// Stub of the capture reading, finding and artifact routes.
+fn capture_routes() -> Router {
+    Router::new()
+        .route(
+            "/v1/projects/{id}/captures",
+            get(|Path(id): Path<String>| async move {
+                Json(vec![CaptureSummary {
+                    id,
+                    scenario: SCENARIO.to_owned(),
+                    status: CaptureStatus::Complete,
+                    inspection: Inspection::Pending,
+                    created_at: 0,
+                    preview: None,
+                }])
+            }),
+        )
+        .route(
+            "/v1/captures/{id}",
+            get(|Path(id): Path<String>| async move {
+                if id == CAPTURE_ID {
+                    Ok(Json(capture(&id)))
+                } else {
+                    Err(error(StatusCode::NOT_FOUND, "not-found", "not found"))
+                }
+            }),
+        )
+        .route(
+            "/v1/captures/{id}/findings",
+            post(|Json(form): Json<NewFinding>| async move {
+                Json(Finding {
+                    id: "f1".to_owned(),
+                    note: form.note,
+                    evidence_artifact_id: form.evidence_artifact_id,
+                    author: Some(HANDLE.to_owned()),
+                    created_at: 0,
+                })
+            }),
+        )
+        .route(
+            "/v1/artifacts/{id}",
+            get(|headers: HeaderMap| async move {
+                let mut reply = HeaderMap::new();
+                reply.insert(header::CONTENT_TYPE, ARTIFACT_TYPE.parse().unwrap());
+                if headers.contains_key(header::RANGE) {
+                    reply.insert(header::CONTENT_RANGE, "bytes 2-4/10".parse().unwrap());
+                    (
+                        StatusCode::PARTIAL_CONTENT,
+                        reply,
+                        ARTIFACT_BYTES[2..5].to_vec(),
+                    )
+                } else {
+                    (StatusCode::OK, reply, ARTIFACT_BYTES.to_vec())
+                }
+            }),
+        )
+}
+
+fn capture(id: &str) -> Capture {
+    Capture {
+        id: id.to_owned(),
+        project_id: PROJECT.to_owned(),
+        scenario: SCENARIO.to_owned(),
+        revision: None,
+        status: CaptureStatus::Complete,
+        blocker: None,
+        inspection: Inspection::Pending,
+        environment: Environment::default(),
+        created_at: 0,
+        checkpoints: vec![],
+        clips: vec![],
+        findings: vec![],
+    }
+}
 
 /// Stub of the member, audit and invitation routes; each answers with what it was asked
 /// for, so a test can tell the path reached it.
@@ -220,6 +298,7 @@ async fn serve() -> (HttpApi, Arc<AtomicUsize>) {
     let uploads = Arc::new(AtomicUsize::new(0));
     let app = upload_routes(Arc::clone(&uploads))
         .merge(access_routes())
+        .merge(capture_routes())
         .route(
             "/v1/sessions",
             post(|Json(form): Json<Credentials>| async move {
@@ -417,4 +496,44 @@ async fn the_password_is_changed_and_other_sessions_can_be_ended() {
         Some(ClientError::Invalid(WRONG_PASSWORD_MESSAGE.to_owned()))
     );
     api.sign_out_others(TOKEN).await.unwrap();
+}
+
+#[tokio::test]
+async fn captures_are_listed_read_and_annotated() {
+    let (api, _) = serve().await;
+    let listed = api.captures(TOKEN, PROJECT).await.unwrap();
+    assert_eq!(listed[0].scenario, SCENARIO);
+    assert_eq!(api.capture(TOKEN, CAPTURE_ID).await.unwrap().id, CAPTURE_ID);
+    assert_eq!(
+        api.capture(TOKEN, "missing").await.err(),
+        Some(ClientError::NotFound)
+    );
+    let finding = api
+        .add_finding(
+            TOKEN,
+            CAPTURE_ID,
+            &NewFinding {
+                note: FINDING_NOTE.to_owned(),
+                evidence_artifact_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(finding.note, FINDING_NOTE);
+}
+
+#[tokio::test]
+async fn an_artifact_comes_whole_or_as_the_part_asked_for() {
+    let (api, _) = serve().await;
+    let whole = api.artifact(TOKEN, "a1", None).await.unwrap();
+    assert_eq!(whole.status, StatusCode::OK.as_u16());
+    assert_eq!(whole.bytes, ARTIFACT_BYTES);
+    assert_eq!(whole.content_type.as_deref(), Some(ARTIFACT_TYPE));
+    let part = api
+        .artifact(TOKEN, "a1", Some("bytes=2-4".to_owned()))
+        .await
+        .unwrap();
+    assert_eq!(part.status, StatusCode::PARTIAL_CONTENT.as_u16());
+    assert_eq!(part.bytes, &ARTIFACT_BYTES[2..5]);
+    assert_eq!(part.content_range.as_deref(), Some("bytes 2-4/10"));
 }
