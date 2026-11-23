@@ -2,11 +2,11 @@ use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Comment, Credentials, DesignEntry, Finding, Fix,
-    FixSummary, IssuedInvite, Me, Member, NewCapture, NewComment, NewDesignEntry, NewFinding,
+    AuditEvent, Capture, CaptureSummary, Comment, Credentials, DesignEntry, DocumentEdit, Finding,
+    Fix, FixSummary, IssuedInvite, Me, Member, NewCapture, NewComment, NewDesignEntry, NewFinding,
     NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem,
     ProblemPatch, ProblemSummary, Project, Redeem, Register, SessionToken, Setup, SetupStatus,
-    Step,
+    Step, SystemActionForm, SystemList, SystemVersion,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -73,6 +73,31 @@ impl HttpApi {
             .and_then(|value| value.parse().ok());
         let body = response.text().await.unwrap_or_default();
         Err(ClientError::from_response(status, retry_after, &body))
+    }
+
+    /// A GET whose answer is bytes, whatever their type.
+    async fn body(&self, path: &str, token: &str) -> Result<ArtifactBody> {
+        let response = Self::send(self.request(Method::GET, path, Some(token))).await?;
+        let text = |name| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        };
+        let status = response.status().as_u16();
+        let content_type = text(header::CONTENT_TYPE);
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| ClientError::Unavailable(e.to_string()))?
+            .to_vec();
+        Ok(ArtifactBody {
+            status,
+            content_type,
+            content_range: None,
+            bytes,
+        })
     }
 
     async fn read<T: DeserializeOwned>(request: RequestBuilder) -> Result<T> {
@@ -291,6 +316,91 @@ impl Api for HttpApi {
                 Some(token),
             )
             .json(form),
+        )
+        .await
+    }
+
+    async fn design_systems(&self, token: &str, project: &str) -> Result<SystemList> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/design-systems"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn design_system(&self, token: &str, project: &str, id: &str) -> Result<SystemVersion> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/design-systems/{id}"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn create_design_system(&self, token: &str, project: &str) -> Result<SystemVersion> {
+        Self::read(self.request(
+            Method::POST,
+            &format!("/projects/{project}/design-systems"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn edit_design_system(
+        &self,
+        token: &str,
+        project: &str,
+        id: &str,
+        edit: &DocumentEdit,
+    ) -> Result<SystemVersion> {
+        Self::read(
+            self.request(
+                Method::PUT,
+                &format!("/projects/{project}/design-systems/{id}/document"),
+                Some(token),
+            )
+            .json(edit),
+        )
+        .await
+    }
+
+    async fn act_on_design_system(
+        &self,
+        token: &str,
+        project: &str,
+        id: &str,
+        form: &SystemActionForm,
+    ) -> Result<SystemVersion> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{project}/design-systems/{id}/actions"),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn design_preview(&self, token: &str, project: &str, id: &str) -> Result<ArtifactBody> {
+        self.body(
+            &format!("/projects/{project}/design-systems/{id}/preview"),
+            token,
+        )
+        .await
+    }
+
+    async fn design_proof(
+        &self,
+        token: &str,
+        project: &str,
+        id: &str,
+        name: &str,
+    ) -> Result<ArtifactBody> {
+        self.body(
+            &format!("/projects/{project}/design-systems/{id}/proofs/{name}"),
+            token,
         )
         .await
     }

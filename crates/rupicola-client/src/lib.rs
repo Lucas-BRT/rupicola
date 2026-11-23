@@ -8,10 +8,11 @@ mod http;
 
 use async_trait::async_trait;
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Comment, Credentials, DesignEntry, Finding, Fix,
-    FixSummary, IssuedInvite, Me, Member, NewCapture, NewComment, NewDesignEntry, NewFinding,
+    AuditEvent, Capture, CaptureSummary, Comment, Credentials, DesignEntry, DocumentEdit, Finding,
+    Fix, FixSummary, IssuedInvite, Me, Member, NewCapture, NewComment, NewDesignEntry, NewFinding,
     NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PasswordChange, Problem,
     ProblemPatch, ProblemSummary, Project, Redeem, Register, SessionToken, Setup, Step,
+    SystemActionForm, SystemList, SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -132,6 +133,45 @@ pub trait Api: Send + Sync {
         project: &str,
         form: &NewDesignEntry,
     ) -> Result<DesignEntry>;
+
+    /// The design-system versions of `project`, newest first, and which one is adopted.
+    async fn design_systems(&self, token: &str, project: &str) -> Result<SystemList>;
+
+    /// One version of the project's design system.
+    async fn design_system(&self, token: &str, project: &str, id: &str) -> Result<SystemVersion>;
+
+    /// A new draft, starting from the adopted version.
+    async fn create_design_system(&self, token: &str, project: &str) -> Result<SystemVersion>;
+
+    /// Replaces the document of a draft; `edit` names the generation it read.
+    async fn edit_design_system(
+        &self,
+        token: &str,
+        project: &str,
+        id: &str,
+        edit: &DocumentEdit,
+    ) -> Result<SystemVersion>;
+
+    /// Validates, reviews, adopts or varies a version.
+    async fn act_on_design_system(
+        &self,
+        token: &str,
+        project: &str,
+        id: &str,
+        form: &SystemActionForm,
+    ) -> Result<SystemVersion>;
+
+    /// The example pages of a version, as HTML.
+    async fn design_preview(&self, token: &str, project: &str, id: &str) -> Result<ArtifactBody>;
+
+    /// One screenshot of a version's validation, as PNG.
+    async fn design_proof(
+        &self,
+        token: &str,
+        project: &str,
+        id: &str,
+        name: &str,
+    ) -> Result<ArtifactBody>;
 
     /// The fixes of `project`.
     async fn fixes(&self, token: &str, project: &str) -> Result<Vec<FixSummary>>;

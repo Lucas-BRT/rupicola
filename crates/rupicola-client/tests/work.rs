@@ -8,8 +8,9 @@ use axum::{
     routing::any,
 };
 use rupicola_api::{
-    DesignKind, DesignStatus, FixStatus, NewComment, NewDesignEntry, NewFix, NewProblem, NewReview,
-    NewStep, ProblemOrigin, ProblemPatch, ProblemStatus, Severity,
+    DesignKind, DesignStatus, Document, DocumentEdit, FixStatus, NewComment, NewDesignEntry,
+    NewFix, NewProblem, NewReview, NewStep, ProblemOrigin, ProblemPatch, ProblemStatus, Severity,
+    SystemAction, SystemActionForm,
 };
 use rupicola_client::{Api, HttpApi};
 use serde_json::{Value, json};
@@ -56,7 +57,18 @@ async fn stub(
     seen.lock()
         .unwrap()
         .push(format!("{method} {path} {token}"));
-    let body = if path.ends_with("/design") {
+    let version = json!({
+        "id": "v1", "parent": null, "author": "ada", "phase": "draft", "generation": 0,
+        "document": Document::default(), "notes": [], "report": null, "ready": false
+    });
+    let body = if path.ends_with("/design-systems") && method == Method::GET {
+        json!({"items": [{"id": "v1", "name": "Evidence review", "phase": "draft"}], "active": null})
+    } else if path.contains("/design-systems")
+        && !path.ends_with("/preview")
+        && !path.contains("/proofs/")
+    {
+        version
+    } else if path.ends_with("/design") {
         let entry = json!({
             "id": "design-1", "kind": "tactic", "status": "adopted", "title": TITLE,
             "note": "", "surface": null, "supersedes": null, "reference": null,
@@ -101,7 +113,11 @@ async fn serve() -> (HttpApi, Seen) {
 }
 
 #[tokio::test]
-async fn problem_and_fix_calls_reach_their_routes() {
+#[allow(
+    clippy::too_many_lines,
+    reason = "one list of every call and path keeps the routes in view"
+)]
+async fn work_calls_reach_their_routes() {
     let (api, seen) = serve().await;
     assert_eq!(api.problems(TOKEN, PROJECT).await.unwrap()[0].id, PROBLEM);
     assert_eq!(api.problem(TOKEN, PROBLEM).await.unwrap().title, TITLE);
@@ -169,6 +185,32 @@ async fn problem_and_fix_calls_reach_their_routes() {
         evidence: None,
     };
     api.add_design(TOKEN, PROJECT, &entry).await.unwrap();
+    assert_eq!(
+        api.design_systems(TOKEN, PROJECT).await.unwrap().items[0].id,
+        "v1"
+    );
+    api.design_system(TOKEN, PROJECT, "v1").await.unwrap();
+    api.create_design_system(TOKEN, PROJECT).await.unwrap();
+    let edit = DocumentEdit {
+        generation: 0,
+        document: Document::default(),
+    };
+    api.edit_design_system(TOKEN, PROJECT, "v1", &edit)
+        .await
+        .unwrap();
+    let form = SystemActionForm {
+        action: SystemAction::Validate,
+        generation: 0,
+        target: String::new(),
+        note: String::new(),
+    };
+    api.act_on_design_system(TOKEN, PROJECT, "v1", &form)
+        .await
+        .unwrap();
+    api.design_preview(TOKEN, PROJECT, "v1").await.unwrap();
+    api.design_proof(TOKEN, PROJECT, "v1", "390-open")
+        .await
+        .unwrap();
     let bearer = format!("Bearer {TOKEN}");
     let expected = [
         format!("GET /v1/projects/{PROJECT}/problems {bearer}"),
@@ -183,6 +225,13 @@ async fn problem_and_fix_calls_reach_their_routes() {
         format!("POST /v1/fixes/{FIX}/reviews {bearer}"),
         format!("GET /v1/projects/{PROJECT}/design {bearer}"),
         format!("POST /v1/projects/{PROJECT}/design {bearer}"),
+        format!("GET /v1/projects/{PROJECT}/design-systems {bearer}"),
+        format!("GET /v1/projects/{PROJECT}/design-systems/v1 {bearer}"),
+        format!("POST /v1/projects/{PROJECT}/design-systems {bearer}"),
+        format!("PUT /v1/projects/{PROJECT}/design-systems/v1/document {bearer}"),
+        format!("POST /v1/projects/{PROJECT}/design-systems/v1/actions {bearer}"),
+        format!("GET /v1/projects/{PROJECT}/design-systems/v1/preview {bearer}"),
+        format!("GET /v1/projects/{PROJECT}/design-systems/v1/proofs/390-open {bearer}"),
     ];
     assert_eq!(*seen.lock().unwrap(), expected);
 }
