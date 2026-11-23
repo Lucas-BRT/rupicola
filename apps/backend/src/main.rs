@@ -40,6 +40,9 @@ const MIN_SETUP_CODE_LEN: usize = 32;
 /// [`SIGN_IN_REFILL_MS`].
 const SIGN_IN_BURST: u32 = 5;
 const SIGN_IN_REFILL_MS: u64 = 12_000;
+/// The longest any upload may take, whatever a setting says: the handler enforces the
+/// project's own limits, and this only stops a request that somehow outlives them.
+const UPLOAD_BACKSTOP: Duration = Duration::from_hours(6);
 /// How long the health probe waits to connect and to read the answer.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -86,8 +89,24 @@ fn app(settings: &security::Security, state: state::Shared) -> Router {
             settings.body_limit,
         ))
         .fallback(|| async { ApiError::NotFound })
+        .with_state(state.clone());
+    // Streamed uploads keep their own deadlines, from the project's limits, instead of the
+    // request timeout every other route has.
+    let uploads = Router::new()
+        .nest(
+            rupicola_api::PREFIX,
+            Router::new().route(
+                "/projects/{id}/blobs/{sha256}",
+                routing::put(captures::upload),
+            ),
+        )
         .with_state(state);
-    security::harden(routes, settings)
+    security::harden(
+        routes,
+        settings,
+        Duration::from_secs(settings.request_timeout),
+    )
+    .merge(security::harden(uploads, settings, UPLOAD_BACKSTOP))
 }
 
 /// Version 1 of the API, with paths relative to [`rupicola_api::PREFIX`].
@@ -181,12 +200,14 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
             routing::delete(credentials::delete_invite),
         )
         .merge(credentials);
-    let uploads = Router::new().route(
+    let legacy_uploads = Router::new().route(
         "/blobs/{sha256}",
         routing::put(captures::put_blob).head(captures::head_blob),
     );
-    security::limit_body(api, settings.body_limit)
-        .merge(security::limit_body(uploads, settings.blob_limit))
+    security::limit_body(api, settings.body_limit).merge(security::limit_body(
+        legacy_uploads,
+        settings.blob_limit.min(security::LEGACY_BLOB_LIMIT),
+    ))
 }
 
 async fn health() -> Json<Health> {

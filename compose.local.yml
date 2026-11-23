@@ -14,6 +14,15 @@ services:
       PORT: "4730"
       RUPICOLA_DB: "/data/backend.db"
       RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
+      # Upload limits; the defaults repeat the backend's own, since an empty number refuses to start.
+      # The panel's server settings override them, and a project's settings can only tighten them.
+      RUPICOLA_BLOB_LIMIT: "${RUPICOLA_BLOB_LIMIT:-536870912}"
+      RUPICOLA_IMAGE_LIMIT: "${RUPICOLA_IMAGE_LIMIT:-33554432}"
+      RUPICOLA_VIDEO_LIMIT: "${RUPICOLA_VIDEO_LIMIT:-536870912}"
+      RUPICOLA_MAX_ARTIFACTS: "${RUPICOLA_MAX_ARTIFACTS:-1024}"
+      RUPICOLA_UPLOAD_TIMEOUT: "${RUPICOLA_UPLOAD_TIMEOUT:-600}"
+      RUPICOLA_UPLOAD_IDLE: "${RUPICOLA_UPLOAD_IDLE:-30}"
+      RUPICOLA_REQUEST_TIMEOUT: "${RUPICOLA_REQUEST_TIMEOUT:-30}"
     volumes:
       - rupicola-backend-data:/data
     tmpfs:

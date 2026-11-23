@@ -22,7 +22,7 @@ use rupicola_api::{
     Artifact, BlobRef, Capture, CaptureStatus, CaptureSummary, Checkpoint, Clip, Finding, Frame,
     Inspection, Missing, MissingQuery, NewCapture, NewFinding, Role,
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 /// Longest file path inside a capture, and deepest nesting (slashes).
 const MAX_PATH_LEN: usize = 180;
@@ -46,6 +46,69 @@ pub async fn put_blob(
     let created = tokio::task::spawn_blocking(move || store.blobs.put(&sha256, &data))
         .await
         .map_err(anyhow::Error::from)??;
+    Ok(if created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    })
+}
+
+/// `PUT /v1/projects/{id}/blobs/{sha256}`: receives a file as a stream and stores it under
+/// its digest. The project's limits apply as the bytes arrive: the largest file of its kind
+/// (told by its first bytes), the longest the whole upload may take and the longest it may go
+/// without a byte. Nothing is kept unless the content matches the digest.
+pub async fn upload(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path((project, sha256)): Path<(String, String)>,
+    body: axum::body::Body,
+) -> Result<StatusCode, ApiError> {
+    use http_body_util::BodyExt as _;
+    match access(&state, &principal, &project).await? {
+        Access::Device => {}
+        person @ Access::Person(_) => person.require(Role::Reviewer)?,
+    }
+    let limits = state.limits.effective(&state, &project).await?;
+    let mut upload = state.blobs.begin(&sha256)?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(limits.upload_timeout_secs);
+    let idle = Duration::from_secs(limits.upload_idle_secs);
+    let mut head = Vec::with_capacity(blobs::MAGIC_LEN);
+    let mut limit: Option<u64> = None;
+    let mut body = body;
+    loop {
+        let wait = idle.min(deadline.saturating_duration_since(tokio::time::Instant::now()));
+        let frame = match tokio::time::timeout(wait, body.frame()).await {
+            Err(_) => return Err(ApiError::Timeout),
+            Ok(None) => break,
+            Ok(Some(frame)) => {
+                frame.map_err(|e| ApiError::invalid(format!("the upload broke off: {e}")))?
+            }
+        };
+        let Ok(chunk) = frame.into_data() else {
+            continue;
+        };
+        if limit.is_none() {
+            let take = (blobs::MAGIC_LEN - head.len()).min(chunk.len());
+            head.extend_from_slice(&chunk[..take]);
+            if head.len() == blobs::MAGIC_LEN {
+                limit = Some(blobs::BlobKind::of(&head).limit(&limits));
+            }
+        }
+        let allowed = limit.unwrap_or(limits.max_blob_bytes);
+        let after = upload.bytes() + u64::try_from(chunk.len()).map_err(anyhow::Error::from)?;
+        if after > allowed {
+            return Err(ApiError::PayloadTooLarge);
+        }
+        upload.write(&chunk).await?;
+    }
+    // A file shorter than the magic bytes is checked against its kind at the end.
+    if upload.bytes() > blobs::BlobKind::of(&head).limit(&limits) {
+        return Err(ApiError::PayloadTooLarge);
+    }
+    let bytes = upload.bytes();
+    let created = upload.finish(&state.blobs).await?;
+    let mut connection = state.db.acquire().await?;
+    blobs::BlobIndex::record(&mut connection, &project, &sha256, bytes).await?;
     Ok(if created {
         StatusCode::CREATED
     } else {
@@ -944,5 +1007,148 @@ mod tests {
             StatusCode::UNPROCESSABLE_ENTITY,
             "{too_many}"
         );
+    }
+
+    /// A PNG's first bytes, so the upload is told to be an image.
+    const PNG_HEAD: &[u8] = &[
+        0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 0, 0, 13,
+    ];
+
+    /// Sends `data` to the streamed upload; `declared` is the length the request claims.
+    async fn stream(port: u16, token: &str, sha: &str, data: &[u8], declared: usize) -> String {
+        request_bytes(
+            port,
+            format!(
+                "PUT /v1/projects/demo/blobs/{sha} HTTP/1.1\r\nHost: test\r\n\
+                 Authorization: Bearer {token}\r\nContent-Type: application/octet-stream\r\n\
+                 Content-Length: {declared}\r\nConnection: close\r\n\r\n"
+            ),
+            data.to_vec(),
+        )
+        .await
+    }
+
+    async fn missing_of(port: u16, token: &str, sha: &str) -> Vec<String> {
+        let response = call(
+            port,
+            "POST",
+            "/v1/projects/demo/blobs/missing",
+            Some(token),
+            Some(&missing_body(&[sha])),
+        )
+        .await;
+        json::<rupicola_api::Missing>(&response).missing
+    }
+
+    #[tokio::test]
+    async fn a_streamed_upload_is_stored_once_and_the_project_then_holds_it() {
+        let (port, [ana, ..]) = demo().await;
+        let data = b"streamed pixels";
+        let sha = digest(data);
+        assert_eq!(
+            missing_of(port, &ana, &sha).await,
+            std::slice::from_ref(&sha)
+        );
+        let first = stream(port, &ana, &sha, data, data.len()).await;
+        assert_eq!(status(&first), StatusCode::CREATED, "{first}");
+        let again = stream(port, &ana, &sha, data, data.len()).await;
+        assert_eq!(status(&again), StatusCode::OK, "{again}");
+        assert_eq!(missing_of(port, &ana, &sha).await, Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn content_that_does_not_match_its_digest_is_not_kept() {
+        let (port, [ana, ..]) = demo().await;
+        let sha = digest(b"what was promised");
+        let lie = b"something else";
+        let response = stream(port, &ana, &sha, lie, lie.len()).await;
+        assert_eq!(
+            status(&response),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{response}"
+        );
+        assert_eq!(missing_of(port, &ana, &sha).await, [sha]);
+    }
+
+    #[tokio::test]
+    async fn the_limit_follows_what_the_file_is_by_its_first_bytes() {
+        let (port, state) = start_custom(settings(), None, true).await;
+        seed_account(&state, "ana", false).await;
+        let ana = sign_in(port, "ana").await;
+        call(
+            port,
+            "POST",
+            "/v1/projects",
+            Some(&ana),
+            Some(r#"{"id":"demo","label":"Demo"}"#),
+        )
+        .await;
+        sqlx::query(
+            "INSERT INTO project_settings (project_id, key, value, updated_at)
+             VALUES ('demo', 'max_image_bytes', '16', 0)",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+        let mut image = PNG_HEAD.to_vec();
+        image.extend_from_slice(b"more than sixteen bytes in all");
+        let response = stream(port, &ana, &digest(&image), &image, image.len()).await;
+        assert_eq!(
+            status(&response),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "{response}"
+        );
+        let text = b"the same length but not an image";
+        let response = stream(port, &ana, &digest(text), text, text.len()).await;
+        assert_eq!(status(&response), StatusCode::CREATED, "{response}");
+    }
+
+    #[tokio::test]
+    async fn nothing_larger_than_the_ceiling_gets_in() {
+        let (port, [ana, ..]) = demo().await;
+        let data = vec![b'x'; settings().blob_limit + 1];
+        let response = stream(port, &ana, &digest(&data), &data, data.len()).await;
+        assert_eq!(
+            status(&response),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "{response}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_upload_that_stops_sending_is_cut_after_the_idle_limit() {
+        let (port, state) = start_custom(settings(), None, true).await;
+        seed_account(&state, "ana", false).await;
+        let ana = sign_in(port, "ana").await;
+        call(
+            port,
+            "POST",
+            "/v1/projects",
+            Some(&ana),
+            Some(r#"{"id":"demo","label":"Demo"}"#),
+        )
+        .await;
+        sqlx::query(
+            "INSERT INTO project_settings (project_id, key, value, updated_at)
+             VALUES ('demo', 'upload_idle_secs', '1', 0)",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+        let started = std::time::Instant::now();
+        // The request promises more bytes than it sends, then goes quiet.
+        let response = stream(port, &ana, &digest(b"never finished"), b"never", 100).await;
+        assert_eq!(status(&response), StatusCode::REQUEST_TIMEOUT, "{response}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn only_people_who_may_upload_stream_a_file() {
+        let (port, [_, bruno, carla]) = demo().await;
+        let data = b"pixels";
+        let reader = stream(port, &bruno, &digest(data), data, data.len()).await;
+        assert_eq!(status(&reader), StatusCode::FORBIDDEN, "{reader}");
+        let outsider = stream(port, &carla, &digest(data), data, data.len()).await;
+        assert_eq!(status(&outsider), StatusCode::NOT_FOUND, "{outsider}");
     }
 }

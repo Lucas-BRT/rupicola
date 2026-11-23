@@ -32,8 +32,11 @@ pub const DEFAULT_RATE_BURST: u32 = 60;
 pub const DEFAULT_RATE_REFILL_MS: u64 = 100;
 /// Default largest request body outside media uploads.
 pub const DEFAULT_BODY_LIMIT: usize = MIB;
-/// Default largest media upload.
-pub const DEFAULT_BLOB_LIMIT: usize = 64 * MIB;
+/// Default largest media upload of any kind: the ceiling every other file limit stays under.
+pub const DEFAULT_BLOB_LIMIT: usize = 512 * MIB;
+/// Largest file the older `PUT /v1/blobs/…` route takes. It holds the whole body in memory,
+/// so it keeps a small cap until clients move to the streamed upload.
+pub const LEGACY_BLOB_LIMIT: usize = 64 * MIB;
 /// Default seconds before a request is answered with 408.
 pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
 /// Default requests processed at once.
@@ -55,7 +58,7 @@ pub struct Security {
     /// Largest accepted request body, in bytes, except media uploads.
     #[arg(long, env = "RUPICOLA_BODY_LIMIT", default_value_t = DEFAULT_BODY_LIMIT)]
     pub body_limit: usize,
-    /// Largest accepted media file (`PUT /v1/blobs/…`), in bytes.
+    /// Largest accepted media file of any kind, in bytes; image and video limits stay under it.
     #[arg(long, env = "RUPICOLA_BLOB_LIMIT", default_value_t = DEFAULT_BLOB_LIMIT)]
     pub blob_limit: usize,
     /// Seconds a request may take before it is answered with 408.
@@ -160,9 +163,9 @@ pub fn limit_body(
         .layer(axum::extract::DefaultBodyLimit::max(limit))
 }
 
-/// Wraps `router` with every protection except body limits (see [`limit_body`]).
-/// Must run inside a Tokio runtime.
-pub fn harden(router: Router, settings: &Security) -> Router {
+/// Wraps `router` with every protection except body limits (see [`limit_body`]). A request
+/// that takes longer than `timeout` is answered with 408. Must run inside a Tokio runtime.
+pub fn harden(router: Router, settings: &Security, timeout: Duration) -> Router {
     let mut headers = vec![
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         (header::X_FRAME_OPTIONS, "DENY"),
@@ -194,7 +197,7 @@ pub fn harden(router: Router, settings: &Security) -> Router {
                 }))
                 .load_shed()
                 .concurrency_limit(settings.max_concurrency)
-                .timeout(Duration::from_secs(settings.request_timeout)),
+                .timeout(timeout),
         )
         .layer(axum::middleware::map_response(json_payload_too_large))
         .layer(rate_limit(

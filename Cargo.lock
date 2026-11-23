@@ -2307,6 +2307,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "governor",
+ "http-body-util",
  "rupicola-api",
  "rupicola-core",
  "serde",

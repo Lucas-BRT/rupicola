@@ -215,6 +215,178 @@ pub fn mime(path: &str) -> &'static str {
     }
 }
 
+/// Bytes read from the start of an upload to tell what kind of file it is.
+pub const MAGIC_LEN: usize = 12;
+const PNG_MAGIC: &[u8] = &[0x89, b'P', b'N', b'G'];
+const GIF_MAGIC: &[u8] = b"GIF8";
+const WEBM_MAGIC: &[u8] = &[0x1a, 0x45, 0xdf, 0xa3];
+/// An MP4 names its type in bytes 4 to 8.
+const MP4_BRAND_AT: std::ops::Range<usize> = 4..8;
+const MP4_BRAND: &[u8] = b"ftyp";
+
+/// What an upload is, by its first bytes, never by what the client says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlobKind {
+    Image,
+    Video,
+    Other,
+}
+
+impl BlobKind {
+    /// The kind of a file that starts with `head`.
+    pub fn of(head: &[u8]) -> Self {
+        if head.starts_with(PNG_MAGIC) || head.starts_with(GIF_MAGIC) {
+            Self::Image
+        } else if head.starts_with(WEBM_MAGIC) || head.get(MP4_BRAND_AT) == Some(MP4_BRAND) {
+            Self::Video
+        } else {
+            Self::Other
+        }
+    }
+
+    /// The largest file of this kind `limits` allow.
+    pub fn limit(self, limits: &rupicola_api::Limits) -> u64 {
+        match self {
+            Self::Image => limits.max_image_bytes,
+            Self::Video => limits.max_video_bytes,
+            Self::Other => limits.max_blob_bytes,
+        }
+        .min(limits.max_blob_bytes)
+    }
+}
+
+/// A file being received: written to a temporary file next to where it will live (never in
+/// `/tmp`, which may be small or another filesystem), hashed as it arrives, and stored only
+/// when its digest is the one it was sent under.
+pub struct Upload {
+    sha256: String,
+    hasher: Sha256,
+    bytes: u64,
+    staging: Staging,
+}
+
+enum Staging {
+    Disk {
+        file: tokio::fs::File,
+        temp: tempfile::TempPath,
+        target: PathBuf,
+    },
+    #[cfg(test)]
+    Memory(Vec<u8>),
+}
+
+impl Blobs {
+    /// Starts receiving the file whose digest is `sha256`.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::Invalid`] when `sha256` is not a digest; an internal error when the
+    /// temporary file cannot be made.
+    pub fn begin(&self, sha256: &str) -> Result<Upload, ApiError> {
+        if !valid_digest(sha256) {
+            return Err(ApiError::invalid("the upload is not named by a SHA-256"));
+        }
+        let staging = match self {
+            Self::Disk(root) => {
+                let target = disk_path(root, sha256);
+                let dir = target.parent().unwrap_or(root);
+                fs::create_dir_all(dir).map_err(anyhow::Error::from)?;
+                let (file, temp) = tempfile::NamedTempFile::new_in(dir)
+                    .map_err(anyhow::Error::from)?
+                    .into_parts();
+                Staging::Disk {
+                    file: tokio::fs::File::from_std(file),
+                    temp,
+                    target,
+                }
+            }
+            #[cfg(test)]
+            Self::Memory(_) => Staging::Memory(Vec::new()),
+        };
+        Ok(Upload {
+            sha256: sha256.to_owned(),
+            hasher: Sha256::new(),
+            bytes: 0,
+            staging,
+        })
+    }
+}
+
+impl Upload {
+    /// Bytes received so far.
+    pub const fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    /// Takes the next piece of the file.
+    ///
+    /// # Errors
+    ///
+    /// When the temporary file cannot be written.
+    pub async fn write(&mut self, chunk: &[u8]) -> Result<(), ApiError> {
+        self.hasher.update(chunk);
+        self.bytes += u64::try_from(chunk.len()).map_err(anyhow::Error::from)?;
+        match &mut self.staging {
+            Staging::Disk { file, .. } => {
+                tokio::io::AsyncWriteExt::write_all(file, chunk)
+                    .await
+                    .map_err(anyhow::Error::from)?;
+            }
+            #[cfg(test)]
+            Staging::Memory(data) => data.extend_from_slice(chunk),
+        }
+        Ok(())
+    }
+
+    /// Stores the file if its digest is the one it was sent under. Returns whether it was
+    /// new; a file already stored is kept as it was.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::Invalid`] when the content does not match the digest; an internal error
+    /// when it cannot be stored.
+    pub async fn finish(
+        self,
+        #[cfg_attr(
+            not(test),
+            expect(unused_variables, reason = "only the in-memory test store needs it")
+        )]
+        store: &Blobs,
+    ) -> Result<bool, ApiError> {
+        if format!("{:x}", self.hasher.finalize()) != self.sha256 {
+            return Err(ApiError::invalid(
+                "the uploaded content does not match its SHA-256",
+            ));
+        }
+        match self.staging {
+            Staging::Disk {
+                file, temp, target, ..
+            } => {
+                file.sync_all().await.map_err(anyhow::Error::from)?;
+                drop(file);
+                if target.is_file() {
+                    return Ok(false);
+                }
+                match temp.persist_noclobber(&target) {
+                    Ok(()) => Ok(true),
+                    // Another upload stored the same content first.
+                    Err(_) if target.is_file() => Ok(false),
+                    Err(error) => Err(anyhow::Error::from(error.error).into()),
+                }
+            }
+            #[cfg(test)]
+            Staging::Memory(data) => match store {
+                Blobs::Memory(map) => Ok(map
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("the blob store lock is poisoned"))?
+                    .insert(self.sha256, data)
+                    .is_none()),
+                Blobs::Disk(_) => Err(anyhow::anyhow!("a memory upload into a disk store").into()),
+            },
+        }
+    }
+}
+
 /// Which blobs exist and which projects know them. A project only learns of a blob it
 /// uploaded or a capture of it cites, so asking what is missing reveals nothing about other
 /// projects.
@@ -306,5 +478,84 @@ mod tests {
         assert_eq!(mime("checkpoints/home.png"), "image/png");
         assert_eq!(mime("clips/open.webm"), "video/webm");
         assert_eq!(mime("notes.txt"), "application/octet-stream");
+    }
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+
+    fn digest(data: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(data))
+    }
+
+    #[tokio::test]
+    async fn a_streamed_file_lands_on_disk_once_and_a_wrong_one_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Blobs::disk(dir.path().join("blobs")).unwrap();
+        let data = b"pixels arriving in pieces";
+        let sha = digest(data);
+        let mut upload = store.begin(&sha).unwrap();
+        for piece in data.chunks(7) {
+            upload.write(piece).await.unwrap();
+        }
+        assert_eq!(upload.bytes(), 25);
+        assert!(
+            upload.finish(&store).await.unwrap(),
+            "the first copy is new"
+        );
+        assert_eq!(store.size(&sha).unwrap(), Some(25));
+        let mut again = store.begin(&sha).unwrap();
+        again.write(data).await.unwrap();
+        assert!(
+            !again.finish(&store).await.unwrap(),
+            "the second copy is not"
+        );
+        let wrong = digest(b"promised");
+        let mut lie = store.begin(&wrong).unwrap();
+        lie.write(b"delivered").await.unwrap();
+        assert!(lie.finish(&store).await.is_err());
+        assert_eq!(store.size(&wrong).unwrap(), None);
+        let leftovers: Vec<_> = walk(dir.path())
+            .into_iter()
+            .filter(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(".tmp"))
+            })
+            .collect();
+        assert_eq!(
+            leftovers,
+            Vec::<PathBuf>::new(),
+            "no temporary file is left behind"
+        );
+    }
+
+    #[test]
+    fn the_kind_of_a_file_comes_from_its_first_bytes() {
+        assert_eq!(
+            BlobKind::of(&[0x89, b'P', b'N', b'G', 0, 0]),
+            BlobKind::Image
+        );
+        assert_eq!(BlobKind::of(b"GIF89a......"), BlobKind::Image);
+        assert_eq!(
+            BlobKind::of(&[0x1a, 0x45, 0xdf, 0xa3, 1, 2]),
+            BlobKind::Video
+        );
+        assert_eq!(BlobKind::of(b"\0\0\0\x18ftypmp42"), BlobKind::Video);
+        assert_eq!(BlobKind::of(b"{\"frames\":[]}"), BlobKind::Other);
+        assert_eq!(BlobKind::of(b""), BlobKind::Other);
+    }
+
+    fn walk(dir: &Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        for entry in fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                found.extend(walk(&path));
+            } else {
+                found.push(path);
+            }
+        }
+        found
     }
 }

@@ -57,6 +57,26 @@ pub async fn start_custom(
     (port, state)
 }
 
+/// Sends `head` and then `body` as raw bytes, which may not be text, and reads the answer.
+pub async fn request_bytes(port: u16, head: String, body: Vec<u8>) -> String {
+    tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(RAW_READ_TIMEOUT_SECS)))?;
+        stream.write_all(head.as_bytes())?;
+        stream.write_all(&body)?;
+        let mut answer = Vec::new();
+        stream.read_to_end(&mut answer)?;
+        std::io::Result::Ok(String::from_utf8_lossy(&answer).into_owned())
+    })
+    .await
+    .unwrap()
+    .unwrap()
+}
+
+/// Seconds a raw request waits for its answer.
+const RAW_READ_TIMEOUT_SECS: u64 = 10;
+
 pub async fn request(port: u16, raw: String) -> String {
     tokio::task::spawn_blocking(move || send(port, &raw))
         .await
