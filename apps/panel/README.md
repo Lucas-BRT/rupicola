@@ -66,6 +66,7 @@ From the workspace root:
 ```sh
 # Production behind Dokploy's Traefik (uses expose: 4731 on dokploy-network)
 RUPICOLA_PUBLIC_ORIGIN=https://atelier.example.org \
+RUPICOLA_DOMAIN=atelier.example.org \
 RUPICOLA_SETUP_CODE="$(openssl rand -hex 32)" \
 docker compose up -d --build
 

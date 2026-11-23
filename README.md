@@ -200,14 +200,15 @@ The panel Docker image includes the browser runner. For a native panel, install 
 
 ## Docker & Open-Internet Deployment (Dokploy / Traefik)
 
-The repository ships one multi-stage, `cargo-chef`-cached `Dockerfile` with two targets (`panel` and `site`), an open-internet hardened `compose.yml` for Dokploy/Traefik, and a `compose.local.yml` for local testing:
+The repository ships one multi-stage, `cargo-chef`-cached `Dockerfile` with three targets (`backend`, `panel` and `site`), an open-internet hardened `compose.yml` for Dokploy/Traefik, and a `compose.local.yml` for local testing:
 
 ```sh
-# Local container test on http://127.0.0.1:4731
+# Local container test: panel on http://127.0.0.1:4731, backend on http://127.0.0.1:4730
 docker compose -f compose.local.yml up -d --build
 
 # Production / VPS behind Dokploy & Traefik (joins external dokploy-network via expose: 4731)
 RUPICOLA_PUBLIC_ORIGIN=https://atelier.example.com \
+RUPICOLA_DOMAIN=atelier.example.com \
 RUPICOLA_SETUP_CODE="$(openssl rand -hex 32)" \
 docker compose up -d --build
 ```

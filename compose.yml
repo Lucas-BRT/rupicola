@@ -1,18 +1,61 @@
 # Dokploy (Compose type) — open-internet hardened deployment behind Traefik.
 # Dokploy's Traefik reaches the container through `dokploy-network`, so no host port is published here:
 # in the application's "Domains" tab choose service `web`, container port 4731, and enable HTTPS.
-# Before initial startup, set RUPICOLA_PUBLIC_ORIGIN (e.g. https://atelier.yourdomain.com) and
-# RUPICOLA_SETUP_CODE (at least 32 characters of high-entropy secret) in the Dokploy environment.
+# Before initial startup, set RUPICOLA_PUBLIC_ORIGIN (e.g. https://atelier.yourdomain.com), RUPICOLA_DOMAIN
+# (its host) and RUPICOLA_SETUP_CODE (at least 32 characters of high-entropy secret, read by the backend)
+# in the Dokploy environment.
 # For local testing with a published port, use: `docker compose -f compose.local.yml up --build`.
-# NOTE: the panel now takes accounts, sessions and projects from the backend and refuses to start
-# without RUPICOLA_SERVER_URL. This file has no backend service yet; add one (and move the data)
-# before deploying this version.
+# The backend owns accounts, sessions, projects, captures and the media store, and serves the API
+# and MCP; the panel is a client of it. Both join `dokploy-network`, so the panel reaches the backend
+# as http://backend:4730. Traefik routes `/v1` and `/mcp` of the public domain to the backend and the
+# rest to the panel (the `site` router below keeps its own paths at a higher priority).
 services:
+  backend:
+    image: ${RUPICOLA_BACKEND_IMAGE:-lucasbrt/rupicola-backend:latest}
+    pull_policy: always
+    init: true
+    restart: unless-stopped
+    expose:
+      - "4730"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "4730"
+      RUPICOLA_DB: "/data/backend.db"
+      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
+      RUPICOLA_BEHIND_PROXY: "true"
+    volumes:
+      - rupicola-backend-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rupicola-backend.rule=Host(`${RUPICOLA_DOMAIN}`) && (PathPrefix(`/v1`) || Path(`/mcp`))"
+      - "traefik.http.routers.rupicola-backend.entrypoints=websecure"
+      - "traefik.http.routers.rupicola-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.rupicola-backend.priority=100"
+      - "traefik.http.services.rupicola-backend.loadbalancer.server.port=4730"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    mem_limit: 512m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "./rupicola-backend", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - dokploy-network
+
   web:
     image: ${RUPICOLA_IMAGE:-lucasbrt/rupicola:latest}
     pull_policy: always
     init: true
     restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
     expose:
       - "4731"
     environment:
@@ -22,7 +65,7 @@ services:
       RUPICOLA_DB: "/data/panel.db"
       RUPICOLA_CAPTURES: "/data/captures"
       RUPICOLA_PUBLIC_ORIGIN: "${RUPICOLA_PUBLIC_ORIGIN}"
-      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
+      RUPICOLA_SERVER_URL: "http://backend:4730"
     volumes:
       - rupicola-data:/data
     tmpfs:
@@ -79,6 +122,7 @@ services:
 
 volumes:
   rupicola-data:
+  rupicola-backend-data:
 
 networks:
   dokploy-network:
