@@ -426,6 +426,7 @@ mod tests {
                 diff: None,
                 changed_ratio: None,
             }],
+            selections: vec![],
             steps: vec![Step {
                 step: NewStep {
                     title: "Edit".to_owned(),

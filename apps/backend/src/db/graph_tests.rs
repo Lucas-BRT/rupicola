@@ -12,6 +12,8 @@ const OTHER: &str = "other";
 const BEFORE_GRAPH: i64 = 5;
 /// The last migration before problem evidence became selections.
 const BEFORE_EVIDENCE_MOVED: i64 = 6;
+/// The last migration before fix comparisons also became selections.
+const BEFORE_COMPARISONS_MOVED: i64 = 7;
 
 fn sha(digit: char) -> String {
     digit.to_string().repeat(64)
@@ -188,6 +190,62 @@ async fn problem_evidence_becomes_a_selection_the_problem_cites() {
     .await
     .unwrap();
     assert_eq!(gone, None);
+}
+
+#[tokio::test]
+async fn fix_comparisons_become_a_baseline_and_a_proof_selection() {
+    let options = SqliteConnectOptions::new()
+        .in_memory(true)
+        .foreign_keys(true);
+    let db = SqlitePoolOptions::new()
+        .min_connections(1)
+        .max_connections(1)
+        .idle_timeout(None)
+        .max_lifetime(None)
+        .connect_with(options)
+        .await
+        .unwrap();
+    MIGRATOR
+        .run_to(BEFORE_COMPARISONS_MOVED, &db)
+        .await
+        .unwrap();
+    run(
+        &db,
+        &format!(
+            "INSERT INTO projects VALUES ('{DEMO}', 'Demo', 0);
+             {} {} {} {}
+             INSERT INTO fixes VALUES ('f1', '{DEMO}', 'Raise contrast', '', 'pending-review', NULL, 0, 0);
+             INSERT INTO fix_comparisons (id, fix_id, position, label, route, viewport, theme,
+               before_artifact_id, after_artifact_id, diff_artifact_id)
+             VALUES ('k1', 'f1', 0, 'home', '', '', '', 'a1', 'a2', 'a3');",
+            capture("c1", DEMO),
+            artifact("a1", "c1", "checkpoints/before.png", 'a'),
+            artifact("a2", "c1", "checkpoints/after.png", 'b'),
+            artifact("a3", "c1", "checkpoints/diff.png", 'c'),
+        ),
+    )
+    .await;
+    MIGRATOR.run(&db).await.unwrap();
+    let cited: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT fs.role, s.label, i.artifact_id FROM fix_selections fs
+         JOIN selections s ON s.id = fs.selection_id
+         JOIN selection_items i ON i.selection_id = s.id
+         WHERE fs.fix_id = 'f1' ORDER BY fs.position, i.position",
+    )
+    .fetch_all(&db)
+    .await
+    .unwrap();
+    let row = |role: &str, label: &str, artifact: &str| {
+        (role.to_owned(), label.to_owned(), artifact.to_owned())
+    };
+    assert_eq!(
+        cited,
+        [
+            row("baseline", "Before", "a1"),
+            row("solution-proof", "After", "a2"),
+            row("solution-proof", "After", "a3"),
+        ]
+    );
 }
 
 #[tokio::test]

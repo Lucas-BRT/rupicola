@@ -37,7 +37,7 @@ fn problem() -> Value {
 fn fix() -> Value {
     json!({
         "id": FIX, "project_id": PROJECT, "title": TITLE, "summary": "", "status": "approved",
-        "problems": [PROBLEM], "tactics": [], "files": [], "comparisons": [], "steps": [],
+        "problems": [PROBLEM], "tactics": [], "files": [], "comparisons": [], "selections": [], "steps": [],
         "reviews": [], "author": null, "created_at": 0, "updated_at": 0
     })
 }
@@ -160,6 +160,8 @@ async fn work_calls_reach_their_routes() {
         files: vec![],
         comparisons: vec![],
         steps: vec![],
+        baseline: vec![],
+        proof: vec![],
     };
     api.create_fix(TOKEN, PROJECT, &new_fix).await.unwrap();
     let step = NewStep {

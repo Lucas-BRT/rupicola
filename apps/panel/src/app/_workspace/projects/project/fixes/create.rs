@@ -110,6 +110,8 @@ pub async fn create_fix_action(
         files: list(&form.files),
         comparisons,
         steps,
+        baseline: Vec::new(),
+        proof: Vec::new(),
     };
     let fix = panel
         .api

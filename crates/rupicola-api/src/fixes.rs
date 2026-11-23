@@ -12,6 +12,29 @@ text_enum! {
     }
 }
 
+text_enum! {
+    /// What a selection is to a fix.
+    FixSelectionRole {
+        /// How things were before the fix.
+        Baseline => "baseline",
+        /// That the fix works.
+        SolutionProof => "solution-proof",
+    }
+}
+
+/// A selection a fix cites, and what it is to the fix.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct FixSelection {
+    pub role: FixSelectionRole,
+    pub selection: crate::Selection,
+}
+
+/// `PUT /v1/fixes/{id}/selections/{selection}`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct FixSelectionLink {
+    pub role: FixSelectionRole,
+}
+
 /// Before/after proof for one route, viewport and theme. The artifacts are files of
 /// captures in the same project.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -66,6 +89,12 @@ pub struct NewFix {
     pub comparisons: Vec<Comparison>,
     #[serde(default)]
     pub steps: Vec<NewStep>,
+    /// Selections of how things were, made with the fix.
+    #[serde(default)]
+    pub baseline: Vec<crate::NewSelection>,
+    /// Selections that show the fix works, made with it.
+    #[serde(default)]
+    pub proof: Vec<crate::NewSelection>,
 }
 
 /// `POST /v1/fixes/{id}/reviews`: the outcome moves the fix and, for approval or
@@ -96,6 +125,8 @@ pub struct Fix {
     pub tactics: Vec<String>,
     pub files: Vec<String>,
     pub comparisons: Vec<Comparison>,
+    /// The selections the fix cites: the comparisons' before and after files, and any other.
+    pub selections: Vec<FixSelection>,
     pub steps: Vec<Step>,
     pub reviews: Vec<Review>,
     pub author: Option<String>,

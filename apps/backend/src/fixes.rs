@@ -13,8 +13,9 @@ use axum::{
     http::StatusCode,
 };
 use rupicola_api::{
-    Comparison, Fix, FixStatus, FixSummary, NewFix, NewReview, NewStep, ProblemStatus, Review,
-    Role, Step,
+    Comparison, Fix, FixSelection, FixSelectionLink, FixSelectionRole, FixStatus, FixSummary,
+    NewFix, NewReview, NewSelection, NewStep, ProblemStatus, Review, Role, SelectionItem,
+    SelectionMark, Step,
 };
 use std::collections::BTreeSet;
 
@@ -60,13 +61,16 @@ fn validate(form: &NewFix) -> Result<(), ApiError> {
         form.files.len(),
         form.comparisons.len(),
         form.steps.len(),
+        form.baseline.len(),
+        form.proof.len(),
     ]
     .into_iter()
     .max()
     .unwrap_or_default();
     if largest > MAX_ITEMS {
         return Err(ApiError::invalid(format!(
-            "a fix takes at most {MAX_ITEMS} problems, tactics, files, comparisons and steps"
+            "a fix takes at most {MAX_ITEMS} problems, tactics, files, comparisons, steps and \
+             selections of each role"
         )));
     }
     for comparison in &form.comparisons {
@@ -219,6 +223,16 @@ pub async fn create(
         set_problem_status(&mut tx, problem, ProblemStatus::InProgress, now).await?;
     }
     insert_details(&mut tx, &id, &form, now).await?;
+    for (position, (role, proof)) in proofs(&mut tx, &project, &form)
+        .await?
+        .into_iter()
+        .enumerate()
+    {
+        let selection =
+            crate::selections::keep(&mut tx, &project, principal.handle.as_deref(), &proof).await?;
+        let position = i64::try_from(position).map_err(anyhow::Error::from)?;
+        cite(&mut tx, &project, &id, &selection, role, position).await?;
+    }
     let actor = principal.handle.as_deref().unwrap_or("device");
     crate::projects::audit(
         &mut *tx,
@@ -229,6 +243,160 @@ pub async fn create(
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(load(&state, &id).await?)))
+}
+
+/// Label of the selection a fix's comparisons make of their before files, and of their after
+/// and diff files.
+const BEFORE_LABEL: &str = "Before";
+const AFTER_LABEL: &str = "After";
+
+/// The selections a new fix cites: its comparisons' before files as the baseline and their
+/// after and diff files as proof, then any selections it brings.
+async fn proofs(
+    tx: &mut sqlx::SqliteConnection,
+    project: &str,
+    form: &NewFix,
+) -> Result<Vec<(FixSelectionRole, NewSelection)>, ApiError> {
+    let mut before = Vec::new();
+    let mut after = Vec::new();
+    for comparison in &form.comparisons {
+        before.push(anchor(tx, project, &comparison.before).await?);
+        after.push(anchor(tx, project, &comparison.after).await?);
+        if let Some(diff) = &comparison.diff {
+            after.push(anchor(tx, project, diff).await?);
+        }
+    }
+    let mut all = Vec::new();
+    for (role, label, items) in [
+        (FixSelectionRole::Baseline, BEFORE_LABEL, before),
+        (FixSelectionRole::SolutionProof, AFTER_LABEL, after),
+    ] {
+        if !items.is_empty() {
+            all.push((
+                role,
+                NewSelection {
+                    label: label.to_owned(),
+                    items,
+                },
+            ));
+        }
+    }
+    all.extend(
+        form.baseline
+            .iter()
+            .cloned()
+            .map(|s| (FixSelectionRole::Baseline, s)),
+    );
+    all.extend(
+        form.proof
+            .iter()
+            .cloned()
+            .map(|s| (FixSelectionRole::SolutionProof, s)),
+    );
+    Ok(all)
+}
+
+/// An anchor of proof at an artifact the caller already checked belongs to the project.
+async fn anchor(
+    tx: &mut sqlx::SqliteConnection,
+    project: &str,
+    artifact: &str,
+) -> Result<SelectionItem, ApiError> {
+    let capture: String = sqlx::query_scalar(
+        "SELECT a.capture_id FROM artifacts a JOIN captures c ON c.id = a.capture_id
+         WHERE a.id = ?1 AND c.project_id = ?2",
+    )
+    .bind(artifact)
+    .bind(project)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::invalid(
+        "the comparisons must use files of this project",
+    ))?;
+    Ok(SelectionItem {
+        capture,
+        artifact: Some(artifact.to_owned()),
+        path: None,
+        mark: SelectionMark::Proof,
+        fragment: None,
+    })
+}
+
+/// Makes `fix` cite `selection` as `role`, at `position`.
+async fn cite(
+    tx: &mut sqlx::SqliteConnection,
+    project: &str,
+    fix: &str,
+    selection: &str,
+    role: FixSelectionRole,
+    position: i64,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO fix_selections (project_id, fix_id, selection_id, role, position)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(fix_id, selection_id) DO UPDATE SET role = excluded.role",
+    )
+    .bind(project)
+    .bind(fix)
+    .bind(selection)
+    .bind(role.as_str())
+    .bind(position)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+/// The routes that make a fix cite a selection, or stop citing it.
+pub fn routes() -> axum::Router<Shared> {
+    axum::Router::new().route(
+        "/fixes/{id}/selections/{selection}",
+        axum::routing::put(cite_selection).delete(uncite_selection),
+    )
+}
+
+/// `PUT /v1/fixes/{id}/selections/{selection}`: the fix cites a selection of the same project
+/// as its baseline or as proof that it works.
+pub async fn cite_selection(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path((id, selection)): Path<(String, String)>,
+    Json(link): Json<FixSelectionLink>,
+) -> Result<Json<Fix>, ApiError> {
+    let project = fix_access(&state, &principal, &id, Role::Reviewer).await?;
+    let owner: Option<String> =
+        sqlx::query_scalar("SELECT project_id FROM selections WHERE id = ?1")
+            .bind(&selection)
+            .fetch_optional(&state.db)
+            .await?;
+    if owner.as_deref() != Some(project.as_str()) {
+        return Err(ApiError::NotFound);
+    }
+    let mut tx = state.db.begin().await?;
+    let next: i64 = sqlx::query_scalar(
+        "SELECT coalesce(max(position) + 1, 0) FROM fix_selections WHERE fix_id = ?1",
+    )
+    .bind(&id)
+    .fetch_one(&mut *tx)
+    .await?;
+    cite(&mut tx, &project, &id, &selection, link.role, next).await?;
+    tx.commit().await?;
+    Ok(Json(load(&state, &id).await?))
+}
+
+/// `DELETE /v1/fixes/{id}/selections/{selection}`: the fix stops citing a selection, which
+/// stays.
+pub async fn uncite_selection(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path((id, selection)): Path<(String, String)>,
+) -> Result<Json<Fix>, ApiError> {
+    fix_access(&state, &principal, &id, Role::Reviewer).await?;
+    sqlx::query("DELETE FROM fix_selections WHERE fix_id = ?1 AND selection_id = ?2")
+        .bind(&id)
+        .bind(&selection)
+        .execute(&state.db)
+        .await?;
+    Ok(Json(load(&state, &id).await?))
 }
 
 async fn set_problem_status(
@@ -562,6 +730,28 @@ async fn load(state: &Shared, id: &str) -> Result<Fix, ApiError> {
     .bind(id)
     .fetch_all(&state.db)
     .await?;
+    let cited: Vec<(String, String)> = sqlx::query_as(
+        "SELECT selection_id, role FROM fix_selections WHERE fix_id = ?1 ORDER BY position",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+    let ids: Vec<String> = cited
+        .iter()
+        .map(|(selection, _)| selection.clone())
+        .collect();
+    let roles: std::collections::HashMap<String, String> = cited.into_iter().collect();
+    let selections = crate::selections::load(&state.db, &ids)
+        .await?
+        .into_iter()
+        .map(|selection| {
+            let role = roles
+                .get(&selection.id)
+                .map_or(Ok(FixSelectionRole::Baseline), |role| role.parse())
+                .map_err(anyhow::Error::from)?;
+            Ok(FixSelection { role, selection })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
     Ok(Fix {
         id: id.to_owned(),
         project_id: row.project_id,
@@ -572,6 +762,7 @@ async fn load(state: &Shared, id: &str) -> Result<Fix, ApiError> {
         tactics,
         files,
         comparisons: comparisons.into_iter().map(Comparison::from).collect(),
+        selections,
         steps: steps.into_iter().map(Step::from).collect(),
         reviews: reviews
             .into_iter()
@@ -587,7 +778,9 @@ async fn load(state: &Shared, id: &str) -> Result<Fix, ApiError> {
 mod tests {
     use crate::testkit::*;
     use axum::http::StatusCode;
-    use rupicola_api::{Fix, FixStatus, FixSummary, Problem, ProblemStatus};
+    use rupicola_api::{
+        Fix, FixSelectionRole, FixStatus, FixSummary, Problem, ProblemStatus, Selection,
+    };
 
     async fn file_problem(port: u16, token: &str) -> String {
         let response = call(
@@ -759,5 +952,113 @@ mod tests {
             StatusCode::UNPROCESSABLE_ENTITY,
             "{pending}"
         );
+    }
+
+    /// The capture that holds the demo project's artifact.
+    const PROJECT_CAPTURE: &str = "capture-shot";
+
+    #[tokio::test]
+    async fn a_fixs_comparisons_become_its_baseline_and_proof_and_it_can_bring_more() {
+        let (port, [ana, _, _]) = demo_with_artifacts().await;
+        let problem = file_problem(port, &ana).await;
+        let form = format!(
+            r#"{{"title":"Add spacing","problems":["{problem}"],
+                "comparisons":[{{"label":"home","before":"{PROJECT_ARTIFACT}","after":"{PROJECT_ARTIFACT}"}}],
+                "proof":[{{"label":"Whole capture","items":[{{"capture":"{PROJECT_CAPTURE}","mark":"context"}}]}}]}}"#
+        );
+        let created = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&ana),
+            Some(&form),
+        )
+        .await;
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
+        let fix: Fix = json(&created);
+        let cited: Vec<(FixSelectionRole, &str)> = fix
+            .selections
+            .iter()
+            .map(|s| (s.role, s.selection.label.as_str()))
+            .collect();
+        assert_eq!(
+            cited,
+            [
+                (FixSelectionRole::Baseline, "Before"),
+                (FixSelectionRole::SolutionProof, "After"),
+                (FixSelectionRole::SolutionProof, "Whole capture"),
+            ]
+        );
+        assert_eq!(
+            fix.comparisons.len(),
+            1,
+            "the comparison still pairs the files"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fix_cites_a_selection_changes_its_role_and_drops_it() {
+        let (port, [ana, bruno, carla]) = demo_with_artifacts().await;
+        let problem = file_problem(port, &ana).await;
+        let fix: Fix = json(
+            &call(
+                port,
+                "POST",
+                "/v1/projects/demo/fixes",
+                Some(&ana),
+                Some(&format!(r#"{{"title":"Tidy","problems":["{problem}"]}}"#)),
+            )
+            .await,
+        );
+        assert_eq!(fix.selections.len(), 0);
+        let selection: Selection = json(
+            &call(
+                port,
+                "POST",
+                "/v1/projects/demo/selections",
+                Some(&ana),
+                Some(&format!(
+                    r#"{{"label":"Before the fix","items":[{{"capture":"{PROJECT_CAPTURE}","mark":"proof"}}]}}"#
+                )),
+            )
+            .await,
+        );
+        let path = format!("/v1/fixes/{}/selections/{}", fix.id, selection.id);
+        let as_role = |role: &str| format!(r#"{{"role":"{role}"}}"#);
+        let cited: Fix =
+            json(&call(port, "PUT", &path, Some(&ana), Some(&as_role("baseline"))).await);
+        assert_eq!(cited.selections[0].role, FixSelectionRole::Baseline);
+        let moved: Fix = json(
+            &call(
+                port,
+                "PUT",
+                &path,
+                Some(&ana),
+                Some(&as_role("solution-proof")),
+            )
+            .await,
+        );
+        assert_eq!(
+            moved.selections.len(),
+            1,
+            "citing again changes the role, not the count"
+        );
+        assert_eq!(moved.selections[0].role, FixSelectionRole::SolutionProof);
+        let reader = call(port, "PUT", &path, Some(&bruno), Some(&as_role("baseline"))).await;
+        assert_eq!(status(&reader), StatusCode::FORBIDDEN);
+        let dropped: Fix = json(&call(port, "DELETE", &path, Some(&ana), None).await);
+        assert_eq!(dropped.selections.len(), 0);
+        let elsewhere = format!("/v1/fixes/{}/selections/not-a-selection", fix.id);
+        let missing = call(
+            port,
+            "PUT",
+            &elsewhere,
+            Some(&ana),
+            Some(&as_role("baseline")),
+        )
+        .await;
+        assert_eq!(status(&missing), StatusCode::NOT_FOUND);
+        let outsider = call(port, "PUT", &path, Some(&carla), Some(&as_role("baseline"))).await;
+        assert_eq!(status(&outsider), StatusCode::NOT_FOUND);
     }
 }

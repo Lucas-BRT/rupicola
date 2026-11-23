@@ -124,6 +124,7 @@ fn modules() -> Router<state::Shared> {
         .merge(topics::routes())
         .merge(selections::routes())
         .merge(problems::routes())
+        .merge(fixes::routes())
 }
 
 /// Version 1 of the API, with paths relative to [`rupicola_api::PREFIX`].
