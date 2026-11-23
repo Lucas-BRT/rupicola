@@ -5,7 +5,6 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 const LINK: &str = ".rupicola/project.toml";
@@ -58,7 +57,7 @@ fn linked() -> Result<Option<Link>> {
 }
 
 pub fn link(project: String) -> Result<()> {
-    if !super::scenario::identifier(&project) {
+    if !rupicola_core::scenario::identifier(&project) {
         bail!("Use a project ID containing only letters, digits, hyphens and underscores");
     }
     let cwd = env::current_dir()?;
@@ -81,18 +80,14 @@ pub fn link(project: String) -> Result<()> {
     Ok(())
 }
 
-/// A project as the CLI names it: a stable key and a label.
+/// A project as the CLI names it: a stable key.
 pub struct ProjectName {
     pub id: String,
-    pub label: String,
 }
 
 pub fn project() -> Result<Option<ProjectName>> {
     if let Some(link) = linked()? {
-        return Ok(Some(ProjectName {
-            id: link.project.clone(),
-            label: link.project,
-        }));
+        return Ok(Some(ProjectName { id: link.project }));
     }
     let output = Command::new("git")
         .args([
@@ -107,20 +102,10 @@ pub fn project() -> Result<Option<ProjectName>> {
         return Ok(None);
     }
     let paths = String::from_utf8(output.stdout)?;
-    let [git_dir, checkout] = paths.lines().collect::<Vec<_>>()[..] else {
+    let [git_dir, _] = paths.lines().collect::<Vec<_>>()[..] else {
         bail!("Git did not return the repository directories");
     };
     let common = fs::canonicalize(git_dir)?;
-    let root = if common.ends_with(".git") {
-        common.parent().unwrap_or(Path::new(checkout))
-    } else {
-        Path::new(checkout)
-    };
-    let label = root
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("Git project")
-        .to_owned();
     // FNV-1a keeps this local key stable across builds and Git worktrees.
     let hash = common
         .as_os_str()
@@ -131,7 +116,6 @@ pub fn project() -> Result<Option<ProjectName>> {
         });
     Ok(Some(ProjectName {
         id: format!("git-{hash:016x}"),
-        label,
     }))
 }
 
@@ -139,22 +123,4 @@ pub fn detect_project() -> Result<ProjectName> {
     project()?.ok_or_else(|| {
         anyhow!("Run inside a Git checkout, set a project with rupicola link, or provide --out")
     })
-}
-
-pub fn output() -> Result<PathBuf> {
-    let root = data()?;
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
-    builder
-        .create(&root)
-        .with_context(|| format!("{}", root.display()))?;
-    let time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-    Ok(root
-        .join("captures")
-        .join(format!("{time}-{}", std::process::id())))
 }

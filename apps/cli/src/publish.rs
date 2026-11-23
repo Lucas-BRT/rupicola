@@ -1,9 +1,6 @@
 //! Publishing a capture directory (a `manifest.json` and its media files) to the backend.
 
-use crate::{
-    service,
-    session::{Remote, Server},
-};
+use crate::session::Remote;
 use anyhow::{Context, Result, bail};
 use rupicola_api::{
     BlobRef, CaptureStatus, Environment, NewCapture, NewCheckpoint, NewClip, NewFrame,
@@ -11,94 +8,12 @@ use rupicola_api::{
 use rupicola_client::Api;
 use rupicola_core::capture_manifest::{self, Manifest};
 use std::path::{Component, Path, PathBuf};
-use tempfile::TempDir;
 
 /// Largest manifest read, in bytes.
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 /// Manifest format this command understands.
 const MANIFEST_VERSION: u32 = 1;
 const MANIFEST_FILE: &str = "manifest.json";
-/// Prefix of the scratch directory a capture uses when it is published.
-const TEMP_PREFIX: &str = "rupicola-capture-";
-/// Run directory inside the scratch directory; capture commands need it not to exist.
-const RUN_DIR: &str = "run";
-
-/// Where a finished capture goes: the backend named by `--server-url` or stored by
-/// `rupicola login`, or only the disk.
-#[derive(clap::Args)]
-pub struct Destination {
-    #[command(flatten)]
-    server: Server,
-}
-
-/// The directory a capture is written to, removed with the value when it was scratch.
-pub struct Run {
-    dir: PathBuf,
-    _scratch: Option<TempDir>,
-}
-
-impl Run {
-    pub fn dir(&self) -> &Path {
-        &self.dir
-    }
-}
-
-impl Destination {
-    /// The directory to capture into: `explicit` when given; otherwise a scratch
-    /// directory when the capture will be published, or the local data directory.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the directory cannot be created.
-    pub fn run_dir(&self, explicit: Option<PathBuf>) -> Result<Run> {
-        match (explicit, self.server.url()?) {
-            (Some(dir), _) => Ok(Run {
-                dir,
-                _scratch: None,
-            }),
-            (None, Some(_)) => {
-                let scratch = tempfile::Builder::new().prefix(TEMP_PREFIX).tempdir()?;
-                Ok(Run {
-                    dir: scratch.path().join(RUN_DIR),
-                    _scratch: Some(scratch),
-                })
-            }
-            (None, None) => Ok(Run {
-                dir: service::output()?,
-                _scratch: None,
-            }),
-        }
-    }
-
-    /// Publishes the capture in `dir` when a backend is configured; does nothing otherwise.
-    /// The confirmation goes to stderr when `quiet`, so JSON output stays parseable.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the capture cannot be read, uploaded or accepted.
-    pub async fn publish(&self, dir: &Path, quiet: bool) -> Result<()> {
-        let Some(server_url) = self.server.url()? else {
-            return Ok(());
-        };
-        let bundle = Bundle::open(dir).await?;
-        let project = bundle.project();
-        if project.is_empty() {
-            bail!("the capture names no project");
-        }
-        let remote = Remote::connect(&server_url)?;
-        let capture = remote
-            .api
-            .publish_capture(&remote.token, project, &bundle.describe(&remote).await?)
-            .await?;
-        let message = format!("Published capture {} to project {project}", capture.id);
-        if quiet {
-            eprintln!("{message}");
-        } else {
-            println!("{message}");
-        }
-        Ok(())
-    }
-}
 
 /// A capture directory on disk.
 pub struct Bundle {
@@ -234,49 +149,5 @@ impl Bundle {
             checkpoints,
             clips,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SERVER: &str = "http://127.0.0.1:1";
-
-    fn remote() -> Destination {
-        Destination {
-            server: Server::at(SERVER),
-        }
-    }
-
-    #[test]
-    fn an_explicit_directory_is_used_as_given() {
-        let explicit = PathBuf::from("captures/run-1");
-        let run = remote().run_dir(Some(explicit.clone())).unwrap();
-        assert_eq!(run.dir(), explicit);
-    }
-
-    #[test]
-    fn a_published_capture_without_a_directory_uses_scratch_that_goes_away() {
-        let run = remote().run_dir(None).unwrap();
-        let scratch = run.dir().parent().unwrap().to_path_buf();
-        assert!(scratch.is_dir());
-        assert!(
-            !run.dir().exists(),
-            "capture commands create the run directory themselves"
-        );
-        drop(run);
-        assert!(!scratch.exists());
-    }
-
-    #[tokio::test]
-    async fn publishing_without_a_backend_does_nothing() {
-        let local = Destination {
-            server: Server::none(),
-        };
-        local
-            .publish(Path::new("does-not-exist"), false)
-            .await
-            .unwrap();
     }
 }

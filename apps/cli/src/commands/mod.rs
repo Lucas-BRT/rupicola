@@ -2,7 +2,6 @@
 
 mod account;
 mod analysis;
-mod capture;
 mod captures;
 mod client;
 mod design;
@@ -16,7 +15,6 @@ mod remote;
 use crate::{AuthAction, EXIT_CLEAN, Result, service};
 use account::{LoginArgs, Logout, WhoamiArgs};
 use analysis::{AuditArgs, CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs};
-use capture::CaptureArgs;
 use captures::CapturesArgs;
 use clap::Subcommand;
 use design::DesignArgs;
@@ -64,8 +62,6 @@ pub enum Command {
     Diff(DiffArgs),
     /// Analyze a directory of animation frames (PNG) for stalls, jumps and settling.
     Frames(FramesArgs),
-    /// Capture a declarative scenario in headless Chromium.
-    Capture(CaptureArgs),
     /// Link the current checkout to a project in the local panel.
     Link { project: String },
     /// Serve project evidence using the optional rupicola-panel executable.
@@ -105,7 +101,6 @@ impl Command {
             Self::Check(args) => args.run(),
             Self::Diff(args) => args.run(),
             Self::Frames(args) => args.run(),
-            Self::Capture(args) => args.run(),
             Self::Link { project } => {
                 service::link(project)?;
                 Ok(EXIT_CLEAN)

@@ -1,4 +1,3 @@
-mod backend;
 mod commands;
 use commands::Command;
 mod mcp_bridge;
@@ -7,7 +6,7 @@ mod service;
 mod session;
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
-use rupicola_core::{FRAMEWORKS, TOPICS, capture, check, discover, scan, scenario, visual};
+use rupicola_core::{FRAMEWORKS, TOPICS, capture, check, discover, scan, visual};
 use std::process::ExitCode;
 
 /// Process exit codes, documented in the README: success with nothing to
@@ -48,25 +47,6 @@ fn block_on<F: std::future::Future>(future: F) -> Result<F::Output> {
 fn json(value: &impl serde::Serialize) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
-}
-fn print_capture(
-    manifest: &scenario::Manifest,
-    out: &std::path::Path,
-    output_json: bool,
-) -> Result<u8> {
-    if output_json {
-        json(manifest)?;
-    } else {
-        println!(
-            "{}: {}",
-            out.join("manifest.json").display(),
-            manifest.status
-        );
-        if let Some(blocker) = &manifest.result.blocker {
-            eprintln!("{blocker}");
-        }
-    }
-    Ok(u8::from(manifest.result.blocker.is_some()))
 }
 #[derive(Subcommand)]
 enum AuthAction {
