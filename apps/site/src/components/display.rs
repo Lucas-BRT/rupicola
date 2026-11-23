@@ -82,12 +82,12 @@ pub async fn stage_strip() -> Result<impl View> {
         (
             "01",
             "Captures",
-            "Headless Playwright matrix across viewports, themes, and routes.",
+            "Headless scenarios across viewports and themes, published to the backend.",
         ),
         (
             "02",
             "Problems",
-            "Structured queue with live agent claims and task progress.",
+            "A triage queue of defects with their evidence, rules and discussion.",
         ),
         (
             "03",
@@ -96,18 +96,18 @@ pub async fn stage_strip() -> Result<impl View> {
         ),
         (
             "04",
-            "Proposes",
-            "Side-by-side HTML/image visual directions for design review.",
+            "Agents",
+            "MCP tools to file problems, record fixes and review captures.",
         ),
         (
             "05",
             "Design",
-            "Persistent art direction, palette, tactics, and decision log.",
+            "Briefs, art direction, tactics and decisions kept per project.",
         ),
         (
             "06",
-            "Storage",
-            "By-Fix/Date/Run disk breakdown with S3, R2, and rclone offload.",
+            "Backend",
+            "One API owns accounts, projects, captures and the media store.",
         ),
     ];
     Ok(view! {

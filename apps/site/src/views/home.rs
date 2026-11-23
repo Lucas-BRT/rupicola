@@ -46,11 +46,11 @@ pub async fn home_page(panel_url: &str, public_url: &str) -> Result<impl View> {
                 )
                 article_card(
                     <h3>"Agent Progress & Triage"</h3>
-                    <p class="muted">"Agents claim problems via CLI or MCP, stream live stage percentages to the panel, and record before/after diffs with zero manual screenshots."</p>
+                    <p class="muted">"Agents file and triage problems and record before/after fixes through MCP tools; reviewers approve them in the panel."</p>
                 )
                 article_card(
-                    <h3>"Lean Rust Containers"</h3>
-                    <p class="muted">"Workspace binaries split cleanly: CLI (" <code>"rupicola"</code> "), media-ready review panel (" <code>"rupicola-panel"</code> "), and this static-free site (" <code>"rupicola-site"</code> ")."</p>
+                    <h3>"Lean Rust Services"</h3>
+                    <p class="muted">"Workspace binaries split cleanly: CLI (" <code>"rupicola"</code> "), API backend (" <code>"rupicola-backend"</code> "), review panel (" <code>"rupicola-panel"</code> "), and this site (" <code>"rupicola-site"</code> ")."</p>
                 )
             )
             section(grid: "grid-2",

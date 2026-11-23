@@ -24,11 +24,15 @@ pub async fn architecture_page(panel_url: &str) -> Result<impl View> {
             section(grid: "grid-2",
                 article_card(
                     <h3><code>"rupicola"</code> " (CLI & Core)"</h3>
-                    <p class="muted">"MSRV 1.85.0. Runs " <code>"discover"</code> ", " <code>"scan"</code> ", " <code>"capture"</code> ", " <code>"problem"</code> ", " <code>"fix"</code> ", " <code>"propose"</code> ", " <code>"design"</code> ", " <code>"storage"</code> ", " <code>"video"</code> ", and " <code>"audit"</code> "."</p>
+                    <p class="muted">"MSRV 1.85.0. Runs " <code>"discover"</code> ", " <code>"scan"</code> ", " <code>"capture"</code> ", " <code>"publish"</code> ", " <code>"video"</code> ", " <code>"audit"</code> ", and the " <code>"mcp-bridge"</code> " to the backend."</p>
+                )
+                article_card(
+                    <h3><code>"rupicola-backend"</code> " (API)"</h3>
+                    <p class="muted">"Axum + SQLite: accounts, projects, captures, problems, fixes, design records, the media store and the MCP endpoint at " <code>"/mcp"</code> "."</p>
                 )
                 article_card(
                     <h3><code>"rupicola-panel"</code> " (Review App)"</h3>
-                    <p class="muted">"Axum/Topcoat + Turso SQLite + Argon2id auth + " <code>"ffmpeg"</code> " runtime for MP4 transcoding, Split Slider, and S3/R2 storage offload."</p>
+                    <p class="muted">"A Topcoat web client of the backend: sessions, review, Split Slider and Pixel Diff. It keeps only design-system versions of its own."</p>
                 )
                 article_card(
                     <h3><code>"rupicola-site"</code> " (Landing & Docs)"</h3>
@@ -43,14 +47,14 @@ pub async fn architecture_page(panel_url: &str) -> Result<impl View> {
                 card(
                     <h2>"CI/CD Image Pipeline"</h2>
                     <p class="muted">"GitHub Actions builds " <code>"linux/amd64"</code> " images with BuildKit + GHA cache, pushes to Docker Hub, and triggers Dokploy via webhook."</p>
-                    code_block(label: "Docker Hub + Dokploy", code: "services:\n  web:\n    image: lucasbrt/rupicola:latest\n    pull_policy: always\n  site:\n    image: lucasbrt/rupicola-site:latest\n    pull_policy: always")
+                    code_block(label: "Docker Hub + Dokploy", code: "services:\n  backend:\n    image: lucasbrt/rupicola-backend:latest\n    pull_policy: always\n  web:\n    image: lucasbrt/rupicola:latest\n    pull_policy: always\n  site:\n    image: lucasbrt/rupicola-site:latest\n    pull_policy: always")
                 )
                 card(
-                    <h2>"Storage Offload"</h2>
-                    <p class="muted">"Track disk usage by project, fix, date, and category. Strip raw frame sequences or offload archived fixes to S3, Cloudflare R2, or " <code>"rclone"</code> " remotes."</p>
+                    <h2>"Agents & the API"</h2>
+                    <p class="muted">"Agents reach the backend through " <code>"rupicola mcp-bridge"</code> ", authenticated with a token the backend issued; the panel and the CLI use the same API."</p>
                     <div class="cta-row">
                         button(href: panel_url, primary: true, external: true, "Open Panel")
-                        button(href: "/docs/overview", "CLI Storage Commands")
+                        button(href: "/docs/overview", "CLI Reference")
                     </div>
                 )
             )
