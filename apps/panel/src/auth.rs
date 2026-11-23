@@ -4,8 +4,9 @@
 
 use super::{
     Arc, Cx, Deserialize, Html, IntoResponse, PageResult, Panel, Response, StatusCode, ViewExt,
-    db_error, header, redirect, status, views,
+    db_error, header, redirect, status, view,
 };
+use crate::views::auth::sign_in_sheet;
 use http::{HeaderMap, HeaderValue, Method};
 use rupicola_api::{Credentials as SignIn, Me, PasswordChange, Register, Setup, TokenKind};
 use rupicola_client::{Api, ClientError};
@@ -397,18 +398,13 @@ async fn render(
         _ => "Sign in",
     };
     let cx = &Cx::default();
-    let sheet = views::auth::Sheet {
-        title,
-        registering,
-        initial,
-        handle,
-        error,
-        nonce: &nonce,
-    };
-    let content = views::auth::render(cx, sheet)
-        .single()
-        .await
-        .map_err(db_error)?;
+    let content = view! {
+        cx =>
+        sign_in_sheet(title: title, registering: registering, initial: initial, handle: handle, error: error, nonce: &nonce)
+    }
+    .single()
+    .await
+    .map_err(db_error)?;
     let mut response = Html(content.render(cx))
         .into_response(cx)
         .map_err(db_error)?;

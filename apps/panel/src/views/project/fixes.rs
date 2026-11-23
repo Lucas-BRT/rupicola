@@ -2,12 +2,17 @@ use super::{
     Account, AssetOption, Cx, FixRecord, FixStatus, Problem, Role, badge, effective_after_url,
     fix_status_badge, is_video_url, view,
 };
+use crate::components::{
+    display::{chip, counts, kind_label, metric, moment},
+    form::{csrf, field, select_field, stack_form, text_area},
+};
+use crate::fix_record::ComparisonPair;
+use topcoat::{
+    Result,
+    view::{View, attributes, component},
+};
 
 #[allow(clippy::too_many_arguments)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "the fixes view keeps its markup and presentation branches together"
-)]
 pub fn render_fixes<'a>(
     cx: &'a Cx,
     account: &'a Account,
@@ -40,74 +45,14 @@ pub fn render_fixes<'a>(
 
     topcoat::view::Child::new(view! {
         cx =>
-        <section class="studio-counts" aria-label="Fixes overview">
-            <a class=(if pending_count > 0 { "metric featured" } else { "metric" }) href=(format!("{base}/fixes?status=pending-review"))>
-                <small>"Pending approval"</small>
-                <strong>(pending_count)</strong>
-            </a>
-            <a class="metric" href=(format!("{base}/fixes?status=approved"))>
-                <small>"Approved fixes"</small>
-                <strong>(approved_count)</strong>
-            </a>
-            <a class="metric" href=(format!("{base}/fixes?status=changes-requested"))>
-                <small>"Changes requested"</small>
-                <strong>(changes_count)</strong>
-            </a>
-        </section>
-
+        counts(label: "Fixes overview",
+            metric(href: format!("{base}/fixes?status=pending-review"), value: pending_count, featured: pending_count > 0, arrow: false, "Pending approval")
+            metric(href: format!("{base}/fixes?status=approved"), value: approved_count, arrow: false, "Approved fixes")
+            metric(href: format!("{base}/fixes?status=changes-requested"), value: changes_count, arrow: false, "Changes requested")
+        )
         if role != Role::Reader {
-            <details class="surface panel-padding design-editor">
-                <summary>"Record a new Before/After Fix comparison"</summary>
-                <form class="stack-form" method="post" action=(format!("{base}/fixes/create"))>
-                    <input type="hidden" name="csrf" value=(&account.csrf)>
-                    <label for="fix-title">"Fix title"</label>
-                    <input id="fix-title" name="title" required="" maxlength="200" placeholder="e.g. Continuous 1px hairline seams in Settings & Project Settings">
-                    <label for="fix-problem">"Resolves Problem"</label>
-                    <select id="fix-problem" name="problem_id">
-                        <option value="">"Standalone fix"</option>
-                        for p in problems {
-                            <option value=(&p.id)>(&p.title) " (" (&p.route) " · " (p.status.label()) ")"</option>
-                        }
-                    </select>
-                    <div class="form-row-3">
-                        <div>
-                            <label for="fix-route">"Route"</label>
-                            <input id="fix-route" name="route" value="/settings" maxlength="160">
-                        </div>
-                        <div>
-                            <label for="fix-vp">"Viewport"</label>
-                            <input id="fix-vp" name="viewport" value="1440×900" maxlength="40">
-                        </div>
-                        <div>
-                            <label for="fix-theme">"Theme"</label>
-                            <input id="fix-theme" name="theme" value="dark" maxlength="30">
-                        </div>
-                    </div>
-                    <label for="fix-before">"Before capture (initial bug/problem — image or video)"</label>
-                    <select id="fix-before" name="before_url" required="">
-                        for a in assets.iter().take(100) {
-                            <option value=(&a.url)>(a.kind) " · " (&a.name) " · " (&a.scenario)</option>
-                        }
-                    </select>
-                    <label for="fix-after">"After capture (verified solution — image or video)"</label>
-                    <select id="fix-after" name="after_url" required="">
-                        for a in assets.iter().take(100) {
-                            <option value=(&a.url)>(a.kind) " · " (&a.name) " · " (&a.scenario)</option>
-                        }
-                    </select>
-                    <label for="fix-tactics">"Applied tactics (comma-separated)"</label>
-                    <input id="fix-tactics" name="tactics" value="hairline-seam-unification,oklch-surface,min-block-size-24px" maxlength="400">
-                    <label for="fix-files">"Modified files (comma-separated)"</label>
-                    <input id="fix-files" name="files" value="apps/panel/src/panel.css,apps/panel/src/pages.rs" maxlength="400">
-                    <label for="fix-summary">"Solution summary"</label>
-                    <textarea id="fix-summary" name="summary" required="" rows="2" maxlength="2000"></textarea>
-                    <label for="fix-steps">"Intermediate steps (one per line: Step Title :: Detail :: Verification)"</label>
-                    <textarea id="fix-steps" name="steps" rows="3" maxlength="3000" placeholder="CSS grid seam fix :: Replaced separate rounded card borders with 1px var(--line) grid :: Re-captured at 1440x900 and 320x844"></textarea>
-                    <button class="button primary" type="submit">"Record fix & link problem"</button>
-                </form>
-            </details>
+            record_form(base: base, token: &account.csrf, problems: problems, assets: assets)
         }
-
         <div class="propose-toolbar">
             <p class="muted">(filtered.len()) " recorded fixes with Before/After evidence"</p>
             <form class="filters" method="get" action=(format!("{base}/fixes"))>
@@ -121,7 +66,6 @@ pub fn render_fixes<'a>(
                 <button class="button" type="submit">"Filter"</button>
             </form>
         </div>
-
         if filtered.is_empty() {
             <section class="empty">
                 <h2>"No fixes recorded yet"</h2>
@@ -130,206 +74,317 @@ pub fn render_fixes<'a>(
         } else {
             <div class="fixes-list">
                 for fix in &filtered {
-                    <article class="surface fix-card" id=(format!("fix-{}", fix.id)) data-fix-card=(&fix.id)>
-                        <header class="propose-head">
-                            <div>
-                                <div class="propose-badges">
-                                    badge(variant: fix_status_badge(fix.status), (fix.status.label()))
-                                    for pid in &fix.problem_ids {
-                                        <a class="tactic-chip" href=(format!("{base}/problems#problem-{pid}"))>"Problem #" (pid.chars().take(10).collect::<String>()) " ↗"</a>
-                                    }
-                                    for file in &fix.modified_files {
-                                        <code class="tactic-chip">(file)</code>
-                                    }
-                                </div>
-                                <h2>(&fix.title)</h2>
-                                <p class="muted">(&fix.summary)</p>
-                            </div>
-                            <time data-epoch-ms=(fix.created_at_ms.to_string())></time>
-                        </header>
-
-                        if let Some(pair) = fix.comparisons.first() {
-                            <section class="fix-comparator" data-comparator="">
-                                <div class="stage-bar">
-                                    <div class="stage-viewports" role="group" aria-label="Comparison mode">
-                                        <button type="button" class="button primary" data-compare-mode="split">"Split Slider"</button>
-                                        <button type="button" class="button" data-compare-mode="side">"Side by Side"</button>
-                                        if is_video_url(&pair.before_url) || is_video_url(&effective_after_url(fix, pair)) {
-                                            <button type="button" class="button" data-compare-mode="video">"Video Player (Slow-Mo)"</button>
-                                        }
-                                        if pair.diff_url.is_some() {
-                                            <button type="button" class="button" data-compare-mode="diff">"Pixel Diff"</button>
-                                        }
-                                    </div>
-                                    if fix.comparisons.len() > 1 {
-                                        <div class="stage-viewports" role="group" aria-label="Coordinate pair">
-                                            for (idx, cmp) in fix.comparisons.iter().enumerate() {
-                                                <button type="button"
-                                                    class=(if idx == 0 { "button primary" } else { "button" })
-                                                    data-pair-before=(&cmp.before_url)
-                                                    data-pair-after=(effective_after_url(fix, cmp))
-                                                    data-pair-diff=(cmp.diff_url.as_deref().unwrap_or(""))
-                                                    data-pair-label=(&cmp.label)>
-                                                    (&cmp.label)
-                                                </button>
-                                            }
-                                        </div>
-                                    } else {
-                                        <span class="tactic-chip" data-pair-current-label="">
-                                            (&pair.label)
-                                            if is_video_url(&effective_after_url(fix, pair)) { " · VIDEO MP4" }
-                                        </span>
-                                    }
-                                </div>
-
-                                // 1. Interactive Split Slider View (supports Image vs Image, Image vs Video, Video vs Video)
-                                <div class="compare-stage compare-split" data-stage-mode="split">
-                                    <div class="split-viewport">
-                                        <figure class="split-layer split-before">
-                                            <img src=(if is_video_url(&pair.before_url) { "" } else { &pair.before_url })
-                                                alt="Before fix" data-img-before=""
-                                                if is_video_url(&pair.before_url) { hidden="" }>
-                                            <video src=(if is_video_url(&pair.before_url) { &pair.before_url } else { "" })
-                                                autoplay="" loop="" muted="" playsinline="" data-vid-before=""
-                                                if !is_video_url(&pair.before_url) { hidden="" }></video>
-                                            <span class="split-tag tag-before">
-                                                (if is_video_url(&pair.before_url) { "BEFORE (VIDEO)" } else { "BEFORE (INITIAL)" })
-                                            </span>
-                                        </figure>
-                                        <figure class="split-layer split-after">
-                                            <img src=(if is_video_url(&effective_after_url(fix, pair)) { "" } else { &pair.after_url })
-                                                alt="After fix" data-img-after=""
-                                                if is_video_url(&effective_after_url(fix, pair)) { hidden="" }>
-                                            <video src=(if is_video_url(&effective_after_url(fix, pair)) { effective_after_url(fix, pair) } else { String::new() })
-                                                autoplay="" loop="" muted="" playsinline="" data-vid-after=""
-                                                if !is_video_url(&effective_after_url(fix, pair)) { hidden="" }></video>
-                                            <span class="split-tag tag-after">
-                                                (if is_video_url(&effective_after_url(fix, pair)) { "AFTER (VIDEO)" } else { "AFTER (FINAL)" })
-                                            </span>
-                                        </figure>
-                                        <div class="split-divider" aria-hidden="true">
-                                            <span class="split-handle">"↔"</span>
-                                        </div>
-                                    </div>
-                                    <div class="split-control-bar">
-                                        <label for=(format!("slider-{}", fix.id))>"Split curtain"</label>
-                                        <input id=(format!("slider-{}", fix.id)) type="range" min="0" max="100" value="50" class="split-range" data-split-range="">
-                                        <output class="tactic-chip" data-split-output="">"50%"</output>
-                                    </div>
-                                    if is_video_url(&pair.before_url) || is_video_url(&effective_after_url(fix, pair)) {
-                                        <div class="split-control-bar video-transport-bar" data-video-transport="">
-                                            <button type="button" class="button" data-video-toggle="">"Pause ❚❚"</button>
-                                            <button type="button" class="button" data-video-restart="">"Restart ↺"</button>
-                                            <button type="button" class="button" data-video-rate="1">"1×"</button>
-                                            <button type="button" class="button" data-video-rate="0.5">"0.5×"</button>
-                                            <button type="button" class="button" data-video-rate="0.25">"0.25×"</button>
-                                            <label for=(format!("vscrub-{}", fix.id))>"Timeline"</label>
-                                            <input id=(format!("vscrub-{}", fix.id)) type="range" min="0" max="1000" value="0" class="split-range" data-video-scrub="">
-                                            <output class="tactic-chip" data-video-time="">"0.0s"</output>
-                                        </div>
-                                    }
-                                </div>
-
-                                // 2. Side-by-Side View (Image or Video with native controls)
-                                <div class="compare-stage compare-side" data-stage-mode="side" hidden="">
-                                    <figure class="checkpoint">
-                                        <img src=(if is_video_url(&pair.before_url) { "" } else { &pair.before_url })
-                                            alt="Before fix" data-side-before=""
-                                            if is_video_url(&pair.before_url) { hidden="" }>
-                                        <video src=(if is_video_url(&pair.before_url) { &pair.before_url } else { "" })
-                                            controls="" autoplay="" loop="" muted="" playsinline="" data-side-vid-before=""
-                                            if !is_video_url(&pair.before_url) { hidden="" }></video>
-                                        <figcaption>"BEFORE · Initial problem (" (&pair.label) ")"</figcaption>
-                                    </figure>
-                                    <figure class="checkpoint">
-                                        <img src=(if is_video_url(&effective_after_url(fix, pair)) { "" } else { &pair.after_url })
-                                            alt="After fix" data-side-after=""
-                                            if is_video_url(&effective_after_url(fix, pair)) { hidden="" }>
-                                        <video src=(if is_video_url(&effective_after_url(fix, pair)) { effective_after_url(fix, pair) } else { String::new() })
-                                            controls="" autoplay="" loop="" muted="" playsinline="" data-side-vid-after=""
-                                            if !is_video_url(&effective_after_url(fix, pair)) { hidden="" }></video>
-                                        <figcaption>"AFTER · Verified fix (" (&pair.label) ")"</figcaption>
-                                    </figure>
-                                </div>
-
-                                // 3. Dedicated Full Video Player View (when After or Before is a video)
-                                if is_video_url(&pair.before_url) || is_video_url(&effective_after_url(fix, pair)) {
-                                    <div class="compare-stage compare-video-full" data-stage-mode="video" hidden="">
-                                        <figure class="checkpoint">
-                                            <video src=(if is_video_url(&effective_after_url(fix, pair)) { effective_after_url(fix, pair) } else { pair.before_url.clone() })
-                                                controls="" autoplay="" loop="" muted="" playsinline="" data-full-video=""></video>
-                                            <figcaption>"FULL RECORDING · " (&pair.label) " (use timeline above for 0.25× / 0.5× slow-motion inspection)"</figcaption>
-                                        </figure>
-                                    </div>
-                                }
-
-                                // 4. Pixel Diff View
-                                if let Some(diff) = &pair.diff_url {
-                                    <div class="compare-stage compare-diff" data-stage-mode="diff" hidden="">
-                                        <figure class="checkpoint">
-                                            <img src=(diff) alt="Pixel diff" data-diff-img="">
-                                            <figcaption>"PIXEL DIFF · Changed regions highlighted"</figcaption>
-                                        </figure>
-                                    </div>
-                                }
-                            </section>
-                        }
-
-                        if !fix.tactics.is_empty() {
-                            <div class="tactic-chips">
-                                <small class="studio-kind">"TACTICS APPLIED:"</small>
-                                for t in &fix.tactics {
-                                    <span class="tactic-chip">(t)</span>
-                                }
-                            </div>
-                        }
-
-                        if !fix.steps.is_empty() {
-                            <details class="fix-steps-timeline" open="">
-                                <summary>"Intermediate steps & verification loop (" (fix.steps.len()) " steps)"</summary>
-                                <ol class="steps-list">
-                                    for step in &fix.steps {
-                                        <li>
-                                            <div class="step-head">
-                                                <span class="step-num">(format!("#{:02}", step.index))</span>
-                                                <strong>(&step.title)</strong>
-                                                <span class="tactic-chip">(&step.verification)</span>
-                                            </div>
-                                            if !step.detail.is_empty() {
-                                                <p class="muted">(&step.detail)</p>
-                                            }
-                                        </li>
-                                    }
-                                </ol>
-                            </details>
-                        }
-
-                        if !fix.reviews.is_empty() {
-                            <ul class="problem-comments">
-                                for rev in &fix.reviews {
-                                    <li>
-                                        <strong>(&rev.author)</strong> " (" (&rev.action) "): " (&rev.comment)
-                                        " " <time data-epoch-ms=(rev.created_at_ms.to_string())></time>
-                                    </li>
-                                }
-                            </ul>
-                        }
-
-                        if role != Role::Reader {
-                            <footer class="propose-foot">
-                                <form method="post" action=(format!("{base}/fixes/{}/review", fix.id)) class="fix-review-form">
-                                    <input type="hidden" name="csrf" value=(&account.csrf)>
-                                    <input name="comment" maxlength="1000" placeholder="Optional review note or requested adjustment…">
-                                    <button class="button primary" type="submit" name="status" value="approved">"Approve Fix"</button>
-                                    <button class="button" type="submit" name="status" value="changes-requested">
-                                        "Request Changes"
-                                    </button>
-                                </form>
-                            </footer>
-                        }
-                    </article>
+                    fix_card(fix: fix, base: base, role: role, token: &account.csrf)
                 }
             </div>
         }
+    })
+}
+
+/// The form that records a fix with its before and after captures.
+#[component]
+async fn record_form(
+    base: &str,
+    token: &str,
+    problems: &[Problem],
+    assets: &[AssetOption],
+) -> Result<impl View> {
+    Ok(view! {
+        <details class="surface panel-padding design-editor">
+            <summary>"Record a new Before/After Fix comparison"</summary>
+            stack_form(action: format!("{base}/fixes/create"), token: token,
+                field(id: "fix-title", name: "title", label: "Fix title",
+                    attrs: attributes! { required="" maxlength="200" placeholder="e.g. Continuous 1px hairline seams in Settings & Project Settings" })
+                select_field(id: "fix-problem", name: "problem_id", label: "Resolves Problem",
+                    <option value="">"Standalone fix"</option>
+                    for p in problems {
+                        <option value=(&p.id)>(&p.title) " (" (&p.route) " · " (p.status.label()) ")"</option>
+                    }
+                )
+                <div class="form-row-3">
+                    <div>
+                        field(id: "fix-route", name: "route", label: "Route",
+                            attrs: attributes! { value="/settings" maxlength="160" })
+                    </div>
+                    <div>
+                        field(id: "fix-vp", name: "viewport", label: "Viewport",
+                            attrs: attributes! { value="1440×900" maxlength="40" })
+                    </div>
+                    <div>
+                        field(id: "fix-theme", name: "theme", label: "Theme",
+                            attrs: attributes! { value="dark" maxlength="30" })
+                    </div>
+                </div>
+                select_field(id: "fix-before", name: "before_url", label: "Before capture (initial bug/problem — image or video)",
+                    attrs: attributes! { required="" },
+                    for a in assets.iter().take(100) {
+                        <option value=(&a.url)>(a.kind) " · " (&a.name) " · " (&a.scenario)</option>
+                    }
+                )
+                select_field(id: "fix-after", name: "after_url", label: "After capture (verified solution — image or video)",
+                    attrs: attributes! { required="" },
+                    for a in assets.iter().take(100) {
+                        <option value=(&a.url)>(a.kind) " · " (&a.name) " · " (&a.scenario)</option>
+                    }
+                )
+                field(id: "fix-tactics", name: "tactics", label: "Applied tactics (comma-separated)",
+                    attrs: attributes! { value="hairline-seam-unification,oklch-surface,min-block-size-24px" maxlength="400" })
+                field(id: "fix-files", name: "files", label: "Modified files (comma-separated)",
+                    attrs: attributes! { value="apps/panel/src/panel.css,apps/panel/src/pages.rs" maxlength="400" })
+                text_area(id: "fix-summary", name: "summary", label: "Solution summary",
+                    attrs: attributes! { required="" rows="2" maxlength="2000" })
+                text_area(id: "fix-steps", name: "steps", label: "Intermediate steps (one per line: Step Title :: Detail :: Verification)",
+                    attrs: attributes! { rows="3" maxlength="3000" placeholder="CSS grid seam fix :: Replaced separate rounded card borders with 1px var(--line) grid :: Re-captured at 1440x900 and 320x844" })
+                <button class="button primary" type="submit">"Record fix & link problem"</button>
+            )
+        </details>
+    })
+}
+
+/// One fix: its labels, comparison, tactics, steps, reviews and review controls.
+#[component]
+async fn fix_card(fix: &FixRecord, base: &str, role: Role, token: &str) -> Result<impl View> {
+    Ok(view! {
+        <article class="surface fix-card" id=(format!("fix-{}", fix.id)) data-fix-card=(&fix.id)>
+            <header class="propose-head">
+                <div>
+                    <div class="propose-badges">
+                        badge(variant: fix_status_badge(fix.status), (fix.status.label()))
+                        for pid in &fix.problem_ids {
+                            <a class="tactic-chip" href=(format!("{base}/problems#problem-{pid}"))>"Problem #" (pid.chars().take(10).collect::<String>()) " ↗"</a>
+                        }
+                        for file in &fix.modified_files {
+                            <code class="tactic-chip">(file)</code>
+                        }
+                    </div>
+                    <h2>(&fix.title)</h2>
+                    <p class="muted">(&fix.summary)</p>
+                </div>
+                moment(epoch_ms: fix.created_at_ms)
+            </header>
+            if let Some(pair) = fix.comparisons.first() {
+                comparator(fix: fix, pair: pair)
+            }
+            if !fix.tactics.is_empty() {
+                <div class="tactic-chips">
+                    kind_label("TACTICS APPLIED:")
+                    for t in &fix.tactics {
+                        chip((t))
+                    }
+                </div>
+            }
+            if !fix.steps.is_empty() {
+                <details class="fix-steps-timeline" open="">
+                    <summary>"Intermediate steps & verification loop (" (fix.steps.len()) " steps)"</summary>
+                    <ol class="steps-list">
+                        for step in &fix.steps {
+                            <li>
+                                <div class="step-head">
+                                    <span class="step-num">(format!("#{:02}", step.index))</span>
+                                    <strong>(&step.title)</strong>
+                                    chip((&step.verification))
+                                </div>
+                                if !step.detail.is_empty() {
+                                    <p class="muted">(&step.detail)</p>
+                                }
+                            </li>
+                        }
+                    </ol>
+                </details>
+            }
+            if !fix.reviews.is_empty() {
+                <ul class="problem-comments">
+                    for rev in &fix.reviews {
+                        <li>
+                            <strong>(&rev.author)</strong> " (" (&rev.action) "): " (&rev.comment)
+                            " " moment(epoch_ms: rev.created_at_ms)
+                        </li>
+                    }
+                </ul>
+            }
+            if role != Role::Reader {
+                <footer class="propose-foot">
+                    <form method="post" action=(format!("{base}/fixes/{}/review", fix.id)) class="fix-review-form">
+                        csrf(token: token)
+                        <input name="comment" maxlength="1000" placeholder="Optional review note or requested adjustment…">
+                        <button class="button primary" type="submit" name="status" value="approved">"Approve Fix"</button>
+                        <button class="button" type="submit" name="status" value="changes-requested">"Request Changes"</button>
+                    </form>
+                </footer>
+            }
+        </article>
+    })
+}
+
+/// The before and after of a fix, in the modes the capture supports.
+#[component]
+async fn comparator(fix: &FixRecord, pair: &ComparisonPair) -> Result<impl View> {
+    let after = effective_after_url(fix, pair);
+    let before_video = is_video_url(&pair.before_url);
+    let after_video = is_video_url(&after);
+    Ok(view! {
+        <section class="fix-comparator" data-comparator="">
+            <div class="stage-bar">
+                <div class="stage-viewports" role="group" aria-label="Comparison mode">
+                    <button type="button" class="button primary" data-compare-mode="split">"Split Slider"</button>
+                    <button type="button" class="button" data-compare-mode="side">"Side by Side"</button>
+                    if before_video || after_video {
+                        <button type="button" class="button" data-compare-mode="video">"Video Player (Slow-Mo)"</button>
+                    }
+                    if pair.diff_url.is_some() {
+                        <button type="button" class="button" data-compare-mode="diff">"Pixel Diff"</button>
+                    }
+                </div>
+                if fix.comparisons.len() > 1 {
+                    <div class="stage-viewports" role="group" aria-label="Coordinate pair">
+                        for (idx, cmp) in fix.comparisons.iter().enumerate() {
+                            <button type="button"
+                                class=(if idx == 0 { "button primary" } else { "button" })
+                                data-pair-before=(&cmp.before_url)
+                                data-pair-after=(effective_after_url(fix, cmp))
+                                data-pair-diff=(cmp.diff_url.as_deref().unwrap_or(""))
+                                data-pair-label=(&cmp.label)>
+                                (&cmp.label)
+                            </button>
+                        }
+                    </div>
+                } else {
+                    <span class="tactic-chip" data-pair-current-label="">
+                        (&pair.label)
+                        if after_video { " · VIDEO MP4" }
+                    </span>
+                }
+            </div>
+        split_stage(fix_id: &fix.id, pair: pair, after: &after, before_video: before_video, after_video: after_video)
+        side_stage(pair: pair, after: &after, before_video: before_video, after_video: after_video)
+        if before_video || after_video {
+            full_stage(pair: pair, after: &after, after_video: after_video)
+        }
+        if let Some(diff) = &pair.diff_url {
+            diff_stage(diff: diff)
+        }
+        </section>
+    })
+}
+
+/// The slider that wipes between the before and the after.
+#[component]
+async fn split_stage(
+    fix_id: &str,
+    pair: &ComparisonPair,
+    after: &str,
+    before_video: bool,
+    after_video: bool,
+) -> Result<impl View> {
+    Ok(view! {
+        <div class="compare-stage compare-split" data-stage-mode="split">
+            <div class="split-viewport">
+                <figure class="split-layer split-before">
+                    <img src=(if before_video { "" } else { &pair.before_url })
+                        alt="Before fix" data-img-before=""
+                        if before_video { hidden="" }>
+                    <video src=(if before_video { &pair.before_url } else { "" })
+                        autoplay="" loop="" muted="" playsinline="" data-vid-before=""
+                        if !before_video { hidden="" }></video>
+                    <span class="split-tag tag-before">
+                        (if before_video { "BEFORE (VIDEO)" } else { "BEFORE (INITIAL)" })
+                    </span>
+                </figure>
+                <figure class="split-layer split-after">
+                    <img src=(if after_video { "" } else { &pair.after_url })
+                        alt="After fix" data-img-after=""
+                        if after_video { hidden="" }>
+                    <video src=(if after_video { after } else { "" })
+                        autoplay="" loop="" muted="" playsinline="" data-vid-after=""
+                        if !after_video { hidden="" }></video>
+                    <span class="split-tag tag-after">
+                        (if after_video { "AFTER (VIDEO)" } else { "AFTER (FINAL)" })
+                    </span>
+                </figure>
+                <div class="split-divider" aria-hidden="true">
+                    <span class="split-handle">"↔"</span>
+                </div>
+            </div>
+            <div class="split-control-bar">
+                <label for=(format!("slider-{}", fix_id))>"Split curtain"</label>
+                <input id=(format!("slider-{}", fix_id)) type="range" min="0" max="100" value="50" class="split-range" data-split-range="">
+                <output class="tactic-chip" data-split-output="">"50%"</output>
+            </div>
+            if before_video || after_video {
+                <div class="split-control-bar video-transport-bar" data-video-transport="">
+                    <button type="button" class="button" data-video-toggle="">"Pause ❚❚"</button>
+                    <button type="button" class="button" data-video-restart="">"Restart ↺"</button>
+                    <button type="button" class="button" data-video-rate="1">"1×"</button>
+                    <button type="button" class="button" data-video-rate="0.5">"0.5×"</button>
+                    <button type="button" class="button" data-video-rate="0.25">"0.25×"</button>
+                    <label for=(format!("vscrub-{}", fix_id))>"Timeline"</label>
+                    <input id=(format!("vscrub-{}", fix_id)) type="range" min="0" max="1000" value="0" class="split-range" data-video-scrub="">
+                    <output class="tactic-chip" data-video-time="">"0.0s"</output>
+                </div>
+            }
+        </div>
+
+
+    })
+}
+
+/// The before and the after side by side.
+#[component]
+async fn side_stage(
+    pair: &ComparisonPair,
+    after: &str,
+    before_video: bool,
+    after_video: bool,
+) -> Result<impl View> {
+    Ok(view! {
+        <div class="compare-stage compare-side" data-stage-mode="side" hidden="">
+            <figure class="checkpoint">
+                <img src=(if before_video { "" } else { &pair.before_url })
+                    alt="Before fix" data-side-before=""
+                    if before_video { hidden="" }>
+                <video src=(if before_video { &pair.before_url } else { "" })
+                    controls="" autoplay="" loop="" muted="" playsinline="" data-side-vid-before=""
+                    if !before_video { hidden="" }></video>
+                <figcaption>"BEFORE · Initial problem (" (&pair.label) ")"</figcaption>
+            </figure>
+            <figure class="checkpoint">
+                <img src=(if after_video { "" } else { &pair.after_url })
+                    alt="After fix" data-side-after=""
+                    if after_video { hidden="" }>
+                <video src=(if after_video { after } else { "" })
+                    controls="" autoplay="" loop="" muted="" playsinline="" data-side-vid-after=""
+                    if !after_video { hidden="" }></video>
+                <figcaption>"AFTER · Verified fix (" (&pair.label) ")"</figcaption>
+            </figure>
+        </div>
+
+
+    })
+}
+
+/// The recording alone, at full size.
+#[component]
+async fn full_stage(pair: &ComparisonPair, after: &str, after_video: bool) -> Result<impl View> {
+    Ok(view! {
+            <div class="compare-stage compare-video-full" data-stage-mode="video" hidden="">
+                <figure class="checkpoint">
+                    <video src=(if after_video { after } else { pair.before_url.as_str() })
+                        controls="" autoplay="" loop="" muted="" playsinline="" data-full-video=""></video>
+                    <figcaption>"FULL RECORDING · " (&pair.label) " (use timeline above for 0.25× / 0.5× slow-motion inspection)"</figcaption>
+                </figure>
+            </div>
+    })
+}
+
+/// The pixel difference between the two.
+#[component]
+async fn diff_stage(diff: &str) -> Result<impl View> {
+    Ok(view! {
+        <div class="compare-stage compare-diff" data-stage-mode="diff" hidden="">
+            <figure class="checkpoint">
+                <img src=(diff) alt="Pixel diff" data-diff-img="">
+                <figcaption>"PIXEL DIFF · Changed regions highlighted"</figcaption>
+            </figure>
+        </div>
     })
 }

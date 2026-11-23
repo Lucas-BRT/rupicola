@@ -8,19 +8,20 @@ use topcoat::{
     view::{Child, View, component, view},
 };
 
-/// A linked counter: `child` is its label, `value` its number.
+/// A linked counter: `child` is its label, `value` its number; `arrow` adds the ↗ mark.
 #[component]
 pub async fn metric(
     #[into] href: String,
     value: impl std::fmt::Display + Send,
     #[default] featured: bool,
+    #[default(true)] arrow: bool,
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
         <a class=(if featured { "metric featured" } else { "metric" }) href=(href)>
             <small>(child)</small>
             <strong>(value.to_string())</strong>
-            <span aria-hidden="true">"↗"</span>
+            if arrow { <span aria-hidden="true">"↗"</span> }
         </a>
     })
 }
@@ -35,7 +36,7 @@ pub async fn counts(label: &str, #[default] child: Child<'_>) -> Result<impl Vie
 
 /// A heading with controls beside it: `child` holds the controls.
 #[component]
-pub async fn section_head(title: &str, #[default] child: Child<'_>) -> Result<impl View> {
+pub async fn section_head(#[into] title: String, #[default] child: Child<'_>) -> Result<impl View> {
     Ok(view! {
         <div class="section-head">
             <h2>(title)</h2>
@@ -126,5 +127,19 @@ pub async fn run_list(runs: &[&Run], message: &str) -> Result<impl View> {
                 }
             </ul>
         }
+    })
+}
+
+/// A counter that is not a link.
+#[component]
+pub async fn stat(
+    value: impl std::fmt::Display + Send,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+        <div class="metric">
+            <small>(child)</small>
+            <strong>(value.to_string())</strong>
+        </div>
     })
 }

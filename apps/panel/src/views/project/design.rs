@@ -2,6 +2,7 @@ use crate::components::{
     display::moment,
     form::{field, select_field, stack_form, text_area},
 };
+use crate::views::design_system::design_studio;
 use crate::{Account, auth::Role, design_system, media, project::AssetOption, records};
 use rupicola_core::design_record;
 use std::collections::BTreeSet;
@@ -35,7 +36,7 @@ pub fn render<'a>(cx: &'a Cx, account: &'a Account, data: Design<'a>) -> Child<'
     } = data;
     let design_tab = tab;
     Child::new(view! { cx =>
-        (crate::views::design_system::render(cx, account, role, base, design_tab, studio))
+        design_studio(account: account, role: role, base: base, tab: design_tab, studio: studio)
         if design_tab == "records" {
             if role == Role::Owner {
                 record_editor(base: base, token: &account.csrf, records: records, superseded: superseded, all_assets: all_assets)

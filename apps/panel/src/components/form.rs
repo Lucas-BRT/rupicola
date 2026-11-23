@@ -14,44 +14,44 @@ pub async fn csrf(token: &str) -> Result<impl View> {
 /// A labelled one-line input; `attrs` goes on the `<input>`.
 #[component]
 pub async fn field(
-    id: &str,
+    #[into] id: String,
     name: &str,
     label: &str,
     #[default] attrs: Attributes,
 ) -> Result<impl View> {
     Ok(view! {
-        <label for=(id)>(label)</label>
-        <input id=(id) name=(name) (attrs)>
+        <label for=(&id)>(label)</label>
+        <input id=(&id) name=(name) (attrs)>
     })
 }
 
 /// A labelled text area holding `value`; `attrs` goes on the `<textarea>`.
 #[component]
 pub async fn text_area(
-    id: &str,
+    #[into] id: String,
     name: &str,
     label: &str,
     #[default] value: &str,
     #[default] attrs: Attributes,
 ) -> Result<impl View> {
     Ok(view! {
-        <label for=(id)>(label)</label>
-        <textarea id=(id) name=(name) (attrs)>(value)</textarea>
+        <label for=(&id)>(label)</label>
+        <textarea id=(&id) name=(name) (attrs)>(value)</textarea>
     })
 }
 
 /// A labelled select; `child` holds the `<option>`s.
 #[component]
 pub async fn select_field(
-    id: &str,
+    #[into] id: String,
     name: &str,
     label: &str,
     #[default] attrs: Attributes,
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-        <label for=(id)>(label)</label>
-        <select id=(id) name=(name) (attrs)>(child)</select>
+        <label for=(&id)>(label)</label>
+        <select id=(&id) name=(name) (attrs)>(child)</select>
     })
 }
 

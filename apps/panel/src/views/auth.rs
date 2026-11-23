@@ -1,32 +1,22 @@
 use crate::components::button::button;
 use topcoat::{
-    context::Cx,
-    view::{Child, attributes, view},
+    Result,
+    view::{View, attributes, component, view},
 };
 
 /// The sign-in and registration page.
-#[derive(Clone, Copy)]
-pub struct Sheet<'a> {
-    pub title: &'a str,
-    pub registering: bool,
+#[component]
+pub async fn sign_in_sheet(
+    title: &str,
+    registering: bool,
     /// Whether this registration creates the workspace's first account.
-    pub initial: bool,
-    pub handle: &'a str,
-    pub error: Option<&'a str>,
+    initial: bool,
+    handle: &str,
+    error: Option<&str>,
     /// The one-time token the form must send back.
-    pub nonce: &'a str,
-}
-
-pub fn render<'a>(cx: &'a Cx, sheet: Sheet<'a>) -> Child<'a> {
-    let Sheet {
-        title,
-        registering,
-        initial,
-        handle,
-        error,
-        nonce,
-    } = sheet;
-    Child::new(view! { cx =>
+    nonce: &str,
+) -> Result<impl View> {
+    Ok(view! {
         <!DOCTYPE html>
         <html lang="en">
             <head>

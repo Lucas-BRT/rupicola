@@ -1,24 +1,25 @@
 use crate::design_system::{HeadingStyle, Outcome, Phase, Studio, Version};
 use crate::{Account, auth::Role};
 use topcoat::{
-    context::Cx,
-    view::{Child, view},
+    Result,
+    view::{View, component, view},
 };
 
 fn version_url(base: &str, tab: &str, id: &str) -> String {
     format!("{base}/design?view={tab}&version={id}")
 }
 
-pub fn render<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
+/// The design tab's studio: the tab row and, when asked for, the system versions.
+#[component]
+pub async fn design_studio(
+    account: &Account,
     role: Role,
-    base: &'a str,
-    tab: &'a str,
-    studio: &'a Studio,
-) -> Child<'a> {
+    base: &str,
+    tab: &str,
+    studio: &Studio,
+) -> Result<impl View> {
     let action = format!("{base}/design/version");
-    Child::new(view! { cx =>
+    Ok(view! {
         <nav class="tabs design-tabs" aria-label="Design">
             <a href=(format!("{base}/design")) if tab == "records" { aria-current="page" }>"Overview"</a>
             for (key, title) in [("system", "System"), ("screens", "Screens"), ("proposals", "Proposals")] {
@@ -56,34 +57,37 @@ pub fn render<'a>(
             </section>
             if let Some(version) = &studio.selected {
                 if tab == "system" {
-                    (document(cx, account, base, role, version))
+                    document(account: account, base: base, role: role, version: version)
                 } else if tab == "screens" {
-                    (screens(cx, account, base, role, version, studio.active.as_deref()))
+                    screens(account: account, base: base, role: role, version: version, active: studio.active.as_deref())
                 } else {
-                    (proposal(cx, account, base, role, version, studio.active.as_deref()))
+                    proposal(account: account, base: base, role: role, version: version, active: studio.active.as_deref())
                 }
             }
         }
     })
 }
 
-fn form_fields<'a>(cx: &'a Cx, account: &'a Account, version: &'a Version) -> Child<'a> {
-    Child::new(view! { cx =>
+/// The hidden fields that say which version a form is about.
+#[component]
+async fn form_fields(account: &Account, version: &Version) -> Result<impl View> {
+    Ok(view! {
         <input type="hidden" name="csrf" value=(&account.csrf)>
         <input type="hidden" name="version" value=(&version.id)>
         <input type="hidden" name="generation" value=(version.generation.to_string())>
     })
 }
 
-fn document<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
-    base: &'a str,
+/// The design document of the selected version.
+#[component]
+async fn document(
+    account: &Account,
+    base: &str,
     role: Role,
-    version: &'a Version,
-) -> Child<'a> {
+    version: &Version,
+) -> Result<impl View> {
     let doc = &version.document;
-    Child::new(view! { cx =>
+    Ok(view! {
         <article class="surface panel-padding design-studio">
             <div class="design-studio-head">
                 <h2>(&doc.name)</h2>
@@ -114,19 +118,21 @@ fn document<'a>(
                 </section>
             </div>
             if version.phase == Phase::Draft && role == Role::Owner {
-                (editor(cx, account, base, version))
+                editor(account: account, base: base, version: version)
             }
         </article>
     })
 }
 
-fn editor<'a>(cx: &'a Cx, account: &'a Account, base: &'a str, version: &'a Version) -> Child<'a> {
+/// The form that edits a draft.
+#[component]
+async fn editor(account: &Account, base: &str, version: &Version) -> Result<impl View> {
     let doc = &version.document;
-    Child::new(view! { cx =>
+    Ok(view! {
         <details class="design-editor">
             <summary>"Edit document and screen"</summary>
             <form class="stack-form" method="post" action=(format!("{base}/design/edit"))>
-                (form_fields(cx, account, version))
+                form_fields(account: account, version: version)
                 <label for="system-name">"Name"</label><input id="system-name" name="name" value=(&doc.name) required="" maxlength="120">
                 <label for="system-direction">"Identity and direction"</label><textarea id="system-direction" name="direction" rows="3" required="" maxlength="2500">(&doc.direction)</textarea>
                 <label for="system-usage">"Usage and content"</label><textarea id="system-usage" name="usage" rows="3" required="" maxlength="2500">(&doc.usage)</textarea>
@@ -168,17 +174,18 @@ fn editor<'a>(cx: &'a Cx, account: &'a Account, base: &'a str, version: &'a Vers
     })
 }
 
-fn screens<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
-    base: &'a str,
+/// The example pages and the validation of the selected version.
+#[component]
+async fn screens(
+    account: &Account,
+    base: &str,
     role: Role,
-    version: &'a Version,
-    active: Option<&'a str>,
-) -> Child<'a> {
+    version: &Version,
+    active: Option<&str>,
+) -> Result<impl View> {
     let preview = format!("{base}/design/preview/{}", version.id);
     let ready = version.ready(active);
-    Child::new(view! { cx =>
+    Ok(view! {
         <section class="surface panel-padding design-studio">
             <div class="design-studio-head">
                 <h2>"Components and example pages"</h2>
@@ -196,7 +203,7 @@ fn screens<'a>(
                 <h2>"Validation"</h2>
                 if version.phase == Phase::Draft && role == Role::Owner {
                     <form method="post" action=(format!("{base}/design/version"))>
-                        (form_fields(cx, account, version))
+                        form_fields(account: account, version: version)
                         <button class="button primary" type="submit" name="action" value="validate">"Validate examples"</button>
                     </form>
                 }
@@ -228,16 +235,17 @@ fn screens<'a>(
     })
 }
 
-fn proposal<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
-    base: &'a str,
+/// The selected version's review state and history.
+#[component]
+async fn proposal(
+    account: &Account,
+    base: &str,
     role: Role,
-    version: &'a Version,
-    active: Option<&'a str>,
-) -> Child<'a> {
+    version: &Version,
+    active: Option<&str>,
+) -> Result<impl View> {
     let adopted = active == Some(version.id.as_str());
-    Child::new(view! { cx =>
+    Ok(view! {
         <section class="surface panel-padding design-studio">
             <div class="design-studio-head">
                 <h2>(&version.document.name)</h2>
@@ -249,7 +257,7 @@ fn proposal<'a>(
                 }
             </p>
             if role == Role::Owner {
-                (review_form(cx, account, base, version, adopted, active))
+                review_form(account: account, base: base, version: version, adopted: adopted, active: active)
             }
             if !version.notes.is_empty() {
                 <h3>"Review history"</h3>
@@ -266,17 +274,18 @@ fn proposal<'a>(
     })
 }
 
-fn review_form<'a>(
-    cx: &'a Cx,
-    account: &'a Account,
-    base: &'a str,
-    version: &'a Version,
+/// The form that sends a version for review, comments on it or decides it.
+#[component]
+async fn review_form(
+    account: &Account,
+    base: &str,
+    version: &Version,
     adopted: bool,
-    active: Option<&'a str>,
-) -> Child<'a> {
-    Child::new(view! { cx =>
+    active: Option<&str>,
+) -> Result<impl View> {
+    Ok(view! {
         <form class="stack-form" method="post" action=(format!("{base}/design/version"))>
-            (form_fields(cx, account, version))
+            form_fields(account: account, version: version)
             if version.phase == Phase::Draft {
                 <div class="actions">
                     if version.ready(active) {
