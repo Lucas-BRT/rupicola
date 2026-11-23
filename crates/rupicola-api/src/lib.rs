@@ -11,6 +11,7 @@ mod design;
 mod design_system;
 mod fixes;
 mod problems;
+pub mod record;
 pub use design::*;
 pub use design_system::*;
 pub use fixes::*;
