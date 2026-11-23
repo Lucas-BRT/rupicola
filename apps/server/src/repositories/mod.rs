@@ -8,9 +8,11 @@
 
 pub mod accounts;
 pub mod audit;
+pub mod blobs;
 pub mod credentials;
 pub mod design;
 pub mod projects;
+pub mod settings;
 pub mod tokens;
 
 use anyhow::Context;

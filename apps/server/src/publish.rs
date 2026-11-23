@@ -3,7 +3,6 @@
 //! same id is refused.
 
 use crate::{
-    blobs,
     domain::Access,
     domain::ApiError,
     domain::{Principal, secret::now_ms},
@@ -85,7 +84,7 @@ async fn check(
             "this server does not keep UI snapshots yet; publish the capture without them",
         ));
     }
-    let limits = state.limits.effective(state, project).await?;
+    let limits = crate::services::limits::effective(state, project).await?;
     let most = usize::try_from(limits.max_artifacts_per_capture).unwrap_or(usize::MAX);
     if record.members.len() > most {
         return Err(ApiError::invalid(format!(
@@ -200,7 +199,7 @@ async fn keep(
         .bind(&member.path)
         .bind(&member.sha256)
         .bind(i64::try_from(member.bytes).map_err(anyhow::Error::from)?)
-        .bind(blobs::mime(&member.path))
+        .bind(crate::domain::blob::mime(&member.path))
         .bind(member.target_ms.and_then(|ms| i64::try_from(ms).ok()))
         .bind(member.video_ms.and_then(|ms| i64::try_from(ms).ok()))
         .bind(surface)

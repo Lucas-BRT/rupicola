@@ -3,6 +3,7 @@
 //! Handlers translate between HTTP and the use cases in [`crate::services`]; they
 //! hold no rules of their own.
 
+pub mod blob;
 mod error;
 mod extract;
 mod handlers;

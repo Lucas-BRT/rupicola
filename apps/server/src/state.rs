@@ -1,9 +1,9 @@
 //! Shared server state handed to every handler.
 
 use crate::{
-    blobs::Blobs,
-    limits::LimitDefaults,
+    domain::limits::LimitDefaults,
     services::passwords::{Lockout, Passwords},
+    storage::blobs::Blobs,
 };
 use anyhow::Context;
 use sqlx::SqlitePool;

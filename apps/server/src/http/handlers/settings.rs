@@ -1,212 +1,80 @@
-//! Editing the upload limits: an administrator sets them for the server, and a project's owner
-//! tightens them for the project. Setting nothing leaves the level above in charge.
+//! `/settings` and `/projects/{id}/settings`: the upload limits an administrator sets for
+//! the server and an owner tightens for a project.
 
 use crate::{
-    domain::ApiError,
-    domain::{Principal, secret::now_ms},
-    limits::LimitDefaults,
-    repositories::audit,
-    services::access::access,
+    domain::{ApiError, Principal},
+    services::settings,
     state::Shared,
 };
 use axum::{
     Json,
     extract::{Path, State},
 };
-use rupicola_api::{LimitSetting, LimitSettings, LimitValue, Role};
+use rupicola_api::{LimitSettings, LimitValue};
 
-/// The setting a path names.
-fn key(raw: &str) -> Result<LimitSetting, ApiError> {
-    raw.parse().map_err(|_| {
-        ApiError::invalid(format!(
-            "`{raw}` is not a setting; use one of {}",
-            LimitSetting::NAMES.join(", ")
-        ))
-    })
-}
-
-fn positive(value: LimitValue) -> Result<u64, ApiError> {
-    if value.value == 0 {
-        Err(ApiError::invalid("a limit must be greater than zero"))
-    } else {
-        Ok(value.value)
-    }
-}
-
-/// Only an administrator changes the server; the name they act under.
-fn administrator(principal: &Principal) -> Result<&str, ApiError> {
-    let handle = principal.person()?;
-    if principal.admin {
-        Ok(handle)
-    } else {
-        Err(ApiError::Forbidden)
-    }
-}
-
-async fn server_view(state: &crate::state::AppState) -> Result<Json<LimitSettings>, ApiError> {
-    Ok(Json(LimitSettings {
-        set: LimitDefaults::stored(state, None)
-            .await?
-            .into_iter()
-            .collect(),
-        effective: state.limits.server(state).await?,
-    }))
-}
-
-async fn project_view(
-    state: &crate::state::AppState,
-    project: &str,
-) -> Result<Json<LimitSettings>, ApiError> {
-    Ok(Json(LimitSettings {
-        set: LimitDefaults::stored(state, Some(project))
-            .await?
-            .into_iter()
-            .collect(),
-        effective: state.limits.effective(state, project).await?,
-    }))
-}
-
-/// `GET /v1/settings`: the limits an administrator set for the server, and what they make.
+/// `GET /v1/settings`
 pub async fn server(
     State(state): State<Shared>,
     principal: Principal,
 ) -> Result<Json<LimitSettings>, ApiError> {
-    administrator(&principal)?;
-    server_view(&state).await
+    settings::server(&state, &principal).await.map(Json)
 }
 
-/// `PUT /v1/settings/{key}`: sets a limit for the whole server. It may be higher or lower than
-/// the value the server started with.
+/// `PUT /v1/settings/{key}`
 pub async fn set_server(
     State(state): State<Shared>,
     principal: Principal,
     Path(raw): Path<String>,
     Json(value): Json<LimitValue>,
 ) -> Result<Json<LimitSettings>, ApiError> {
-    let actor = administrator(&principal)?.to_owned();
-    let key = key(&raw)?;
-    let value = positive(value)?;
-    let mut tx = state.db.begin().await?;
-    sqlx::query(
-        "INSERT INTO server_settings (key, value, generation, updated_by, updated_at)
-         VALUES (?1, ?2, 0, ?3, ?4)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, generation = generation + 1,
-           updated_by = excluded.updated_by, updated_at = excluded.updated_at",
-    )
-    .bind(key.as_str())
-    .bind(value.to_string())
-    .bind(&actor)
-    .bind(now_ms())
-    .execute(&mut *tx)
-    .await?;
-    audit::record(
-        &mut *tx,
-        None,
-        &actor,
-        &format!("Set the server's {key} to {value}"),
-    )
-    .await?;
-    tx.commit().await?;
-    server_view(&state).await
+    settings::set_server(&state, &principal, &raw, value)
+        .await
+        .map(Json)
 }
 
-/// `DELETE /v1/settings/{key}`: the limit goes back to the value the server started with.
+/// `DELETE /v1/settings/{key}`
 pub async fn reset_server(
     State(state): State<Shared>,
     principal: Principal,
     Path(raw): Path<String>,
 ) -> Result<Json<LimitSettings>, ApiError> {
-    let actor = administrator(&principal)?.to_owned();
-    let key = key(&raw)?;
-    let mut tx = state.db.begin().await?;
-    sqlx::query("DELETE FROM server_settings WHERE key = ?1")
-        .bind(key.as_str())
-        .execute(&mut *tx)
-        .await?;
-    audit::record(&mut *tx, None, &actor, &format!("Reset the server's {key}")).await?;
-    tx.commit().await?;
-    server_view(&state).await
+    settings::reset_server(&state, &principal, &raw)
+        .await
+        .map(Json)
 }
 
-/// `GET /v1/projects/{id}/settings`: the limits the owner set for the project, and what holds.
+/// `GET /v1/projects/{id}/settings`
 pub async fn project(
     State(state): State<Shared>,
     principal: Principal,
     Path(project): Path<String>,
 ) -> Result<Json<LimitSettings>, ApiError> {
-    access(&state, &principal, &project)
-        .await?
-        .require(Role::Reader)?;
-    project_view(&state, &project).await
+    settings::project(&state, &principal, &project)
+        .await
+        .map(Json)
 }
 
-/// `PUT /v1/projects/{id}/settings/{key}`: tightens a limit for the project. A value above what
-/// the server allows is refused rather than quietly ignored.
+/// `PUT /v1/projects/{id}/settings/{key}`
 pub async fn set_project(
     State(state): State<Shared>,
     principal: Principal,
     Path((project, raw)): Path<(String, String)>,
     Json(value): Json<LimitValue>,
 ) -> Result<Json<LimitSettings>, ApiError> {
-    access(&state, &principal, &project)
-        .await?
-        .require(Role::Owner)?;
-    let actor = principal.person()?.to_owned();
-    let key = key(&raw)?;
-    let value = positive(value)?;
-    let allowed = state.limits.server(&state).await?.get(key);
-    if value > allowed {
-        return Err(ApiError::invalid(format!(
-            "the server allows at most {allowed} for {key}; a project can only tighten it"
-        )));
-    }
-    let mut tx = state.db.begin().await?;
-    sqlx::query(
-        "INSERT INTO project_settings (project_id, key, value, generation, updated_by, updated_at)
-         VALUES (?1, ?2, ?3, 0, ?4, ?5)
-         ON CONFLICT(project_id, key) DO UPDATE SET value = excluded.value,
-           generation = generation + 1, updated_by = excluded.updated_by,
-           updated_at = excluded.updated_at",
-    )
-    .bind(&project)
-    .bind(key.as_str())
-    .bind(value.to_string())
-    .bind(&actor)
-    .bind(now_ms())
-    .execute(&mut *tx)
-    .await?;
-    audit::record(
-        &mut *tx,
-        Some(&project),
-        &actor,
-        &format!("Set {key} to {value}"),
-    )
-    .await?;
-    tx.commit().await?;
-    project_view(&state, &project).await
+    settings::set_project(&state, &principal, &project, &raw, value)
+        .await
+        .map(Json)
 }
 
-/// `DELETE /v1/projects/{id}/settings/{key}`: the project follows the server for this limit
-/// again.
+/// `DELETE /v1/projects/{id}/settings/{key}`
 pub async fn reset_project(
     State(state): State<Shared>,
     principal: Principal,
     Path((project, raw)): Path<(String, String)>,
 ) -> Result<Json<LimitSettings>, ApiError> {
-    access(&state, &principal, &project)
-        .await?
-        .require(Role::Owner)?;
-    let actor = principal.person()?.to_owned();
-    let key = key(&raw)?;
-    let mut tx = state.db.begin().await?;
-    sqlx::query("DELETE FROM project_settings WHERE project_id = ?1 AND key = ?2")
-        .bind(&project)
-        .bind(key.as_str())
-        .execute(&mut *tx)
-        .await?;
-    audit::record(&mut *tx, Some(&project), &actor, &format!("Reset {key}")).await?;
-    tx.commit().await?;
-    project_view(&state, &project).await
+    settings::reset_project(&state, &principal, &project, &raw)
+        .await
+        .map(Json)
 }
 
 #[cfg(test)]
@@ -288,7 +156,7 @@ mod tests {
         assert!(view.set.is_empty());
         assert_eq!(
             view.effective.max_artifacts_per_capture,
-            super::super::limits::DEFAULT_MAX_ARTIFACTS
+            crate::config::DEFAULT_MAX_ARTIFACTS
         );
         let logged: i64 =
             sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE project_id IS NULL")

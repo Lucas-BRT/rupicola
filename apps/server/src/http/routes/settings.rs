@@ -1,6 +1,7 @@
 //! `/settings`: the server-wide settings an administrator edits.
 
-use crate::{settings, state::Shared};
+use super::super::handlers::settings;
+use crate::state::Shared;
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {

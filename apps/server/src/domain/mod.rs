@@ -3,9 +3,11 @@
 //! The shapes clients see live in `rupicola-api`; this layer only decides.
 
 pub mod account;
+pub mod blob;
 pub mod credential;
 pub mod design;
 pub mod error;
+pub mod limits;
 pub mod principal;
 pub mod project;
 pub mod secret;

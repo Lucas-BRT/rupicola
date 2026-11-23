@@ -1,13 +1,12 @@
 //! Rupicola server: the API server every client (web panel, CLI, desktop GUI) talks to.
 //! It is the only process that touches the database and the media store.
 
-mod blobs;
 mod captures;
+mod config;
 mod design_system;
 mod domain;
 mod fixes;
 mod http;
-mod limits;
 mod lineage;
 mod problems;
 mod publish;
@@ -16,8 +15,8 @@ mod repositories;
 mod search;
 mod selections;
 mod services;
-mod settings;
 mod state;
+mod storage;
 #[cfg(test)]
 mod testkit;
 mod topics;
@@ -61,7 +60,7 @@ struct Args {
     #[command(flatten)]
     security: http::security::Security,
     #[command(flatten)]
-    uploads: limits::UploadLimits,
+    uploads: config::UploadLimits,
     /// Whether any project may remove a capture that something cites; `never` overrides
     /// every project's policy.
     #[arg(long, env = "RUPICOLA_CITED_DELETION", value_enum, default_value_t)]
@@ -92,7 +91,11 @@ async fn main() -> anyhow::Result<()> {
         &args.db,
         setup_code,
         args.bind.is_loopback(),
-        limits::LimitDefaults::new(&args.security, &args.uploads),
+        domain::limits::LimitDefaults::new(
+            args.security.blob_limit,
+            args.security.body_limit,
+            &args.uploads,
+        ),
     )
     .await?;
     state.cited_deletion.store(

@@ -5,7 +5,6 @@
 //! describes the capture by referencing those digests.
 
 use crate::{
-    blobs,
     domain::Access,
     domain::ApiError,
     domain::{Principal, secret::now_ms},
@@ -69,11 +68,11 @@ pub async fn upload(
         Access::Device => {}
         person @ Access::Person(_) => person.require(Role::Reviewer)?,
     }
-    let limits = state.limits.effective(&state, &project).await?;
+    let limits = crate::services::limits::effective(&state, &project).await?;
     let mut upload = state.blobs.begin(&sha256)?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(limits.upload_timeout_secs);
     let idle = Duration::from_secs(limits.upload_idle_secs);
-    let mut head = Vec::with_capacity(blobs::MAGIC_LEN);
+    let mut head = Vec::with_capacity(crate::domain::blob::MAGIC_LEN);
     let mut limit: Option<u64> = None;
     let mut body = body;
     loop {
@@ -89,10 +88,10 @@ pub async fn upload(
             continue;
         };
         if limit.is_none() {
-            let take = (blobs::MAGIC_LEN - head.len()).min(chunk.len());
+            let take = (crate::domain::blob::MAGIC_LEN - head.len()).min(chunk.len());
             head.extend_from_slice(&chunk[..take]);
-            if head.len() == blobs::MAGIC_LEN {
-                limit = Some(blobs::BlobKind::of(&head).limit(&limits));
+            if head.len() == crate::domain::blob::MAGIC_LEN {
+                limit = Some(crate::domain::blob::BlobKind::of(&head).limit(&limits));
             }
         }
         let allowed = limit.unwrap_or(limits.max_blob_bytes);
@@ -103,13 +102,13 @@ pub async fn upload(
         upload.write(&chunk).await?;
     }
     // A file shorter than the magic bytes is checked against its kind at the end.
-    if upload.bytes() > blobs::BlobKind::of(&head).limit(&limits) {
+    if upload.bytes() > crate::domain::blob::BlobKind::of(&head).limit(&limits) {
         return Err(ApiError::PayloadTooLarge);
     }
     let bytes = upload.bytes();
     let created = upload.finish(&state.blobs).await?;
     let mut connection = state.db.acquire().await?;
-    blobs::BlobIndex::record(&mut connection, &project, &sha256, bytes).await?;
+    crate::repositories::blobs::record(&mut connection, &project, &sha256, bytes).await?;
     Ok(if created {
         StatusCode::CREATED
     } else {
@@ -131,8 +130,8 @@ pub async fn missing(
     }
     query.validate().map_err(ApiError::invalid)?;
     Ok(Json(Missing {
-        missing: blobs::BlobIndex::missing(&state.db, &project, &query.sha256).await?,
-        limits: state.limits.effective(&state, &project).await?,
+        missing: crate::repositories::blobs::missing(&state.db, &project, &query.sha256).await?,
+        limits: crate::services::limits::effective(&state, &project).await?,
     }))
 }
 
@@ -221,7 +220,7 @@ fn plan(form: &NewCapture, max_artifacts: usize) -> Result<Vec<Planned<'_>>, Api
         || planned.iter().any(|item| {
             !valid_name(item.owner)
                 || !valid_path(&item.file.path)
-                || !blobs::valid_digest(&item.file.sha256)
+                || !crate::domain::blob::valid_digest(&item.file.sha256)
                 || !paths.insert(item.file.path.as_str())
         })
     {
@@ -249,7 +248,7 @@ pub async fn create(
             "the scenario must have 1–{MAX_SCENARIO_CHARS} characters"
         )));
     }
-    let limits = state.limits.effective(&state, &project).await?;
+    let limits = crate::services::limits::effective(&state, &project).await?;
     let max_artifacts = usize::try_from(limits.max_artifacts_per_capture).unwrap_or(usize::MAX);
     let planned = plan(&form, max_artifacts)?;
     let mut sizes = Vec::with_capacity(planned.len());
@@ -294,13 +293,13 @@ pub async fn create(
         .bind(&item.file.path)
         .bind(&item.file.sha256)
         .bind(i64::try_from(*size).map_err(anyhow::Error::from)?)
-        .bind(blobs::mime(&item.file.path))
+        .bind(crate::domain::blob::mime(&item.file.path))
         .bind(item.target_ms)
         .bind(item.video_ms)
         .execute(&mut *tx)
         .await?;
         // The project now cites the file, so it is no longer missing for it.
-        blobs::BlobIndex::record(&mut tx, &project, &item.file.sha256, *size).await?;
+        crate::repositories::blobs::record(&mut tx, &project, &item.file.sha256, *size).await?;
     }
     let actor = principal.handle.as_deref().unwrap_or("device");
     crate::repositories::audit::record(
@@ -683,7 +682,7 @@ pub async fn artifact(
     access(&state, &principal, &blob.project_id)
         .await?
         .require(Role::Reader)?;
-    state.blobs.respond(&blob.sha256, &blob.mime, request).await
+    crate::http::blob::respond(&state.blobs, &blob.sha256, &blob.mime, request).await
 }
 
 #[cfg(test)]

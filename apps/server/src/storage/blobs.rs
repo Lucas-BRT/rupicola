@@ -1,33 +1,18 @@
 //! Content-addressed media store: every file is kept once, under its SHA-256.
-//! Disk in production; memory in tests.
+//! Disk in production; memory in tests. What a file is and which project holds it are
+//! decided elsewhere: [`crate::domain::blob`] and [`crate::repositories::blobs`].
 
-use crate::domain::ApiError;
-use axum::{
-    body::Body,
-    extract::Request,
-    http::{HeaderValue, header},
-    response::Response,
-};
+use crate::domain::{ApiError, blob::valid_digest};
 use sha2::{Digest, Sha256};
 use std::{
     fs, io,
     path::{Path, PathBuf},
 };
-use tower::ServiceExt;
-use tower_http::services::ServeFile;
 
 pub enum Blobs {
     Disk(PathBuf),
     #[cfg(test)]
     Memory(std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>),
-}
-
-/// Whether `sha256` is a lowercase hex SHA-256 digest, safe as a file name.
-pub fn valid_digest(sha256: &str) -> bool {
-    sha256.len() == crate::domain::secret::HEX_SECRET_LEN
-        && sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 impl Blobs {
@@ -152,47 +137,41 @@ impl Blobs {
         }
     }
 
-    /// Answers `request` with the blob's bytes as `mime`. On disk this supports
-    /// range requests (video seeking) and conditional requests.
+    /// Where the blob is kept, for answering a request with it.
     ///
     /// # Errors
     ///
     /// [`ApiError::NotFound`] when the blob is missing.
-    pub async fn respond(
-        &self,
-        sha256: &str,
-        mime: &str,
-        request: Request,
-    ) -> Result<Response, ApiError> {
-        let mime = HeaderValue::from_str(mime).map_err(anyhow::Error::from)?;
-        let mut response = match self {
+    pub fn locate(&self, sha256: &str) -> Result<Stored, ApiError> {
+        if !valid_digest(sha256) {
+            return Err(ApiError::NotFound);
+        }
+        match self {
             Self::Disk(root) => {
                 let path = disk_path(root, sha256);
-                if !valid_digest(sha256) || !path.is_file() {
-                    return Err(ApiError::NotFound);
+                if path.is_file() {
+                    Ok(Stored::File(path))
+                } else {
+                    Err(ApiError::NotFound)
                 }
-                ServeFile::new(path)
-                    .oneshot(request)
-                    .await
-                    .map_err(anyhow::Error::from)?
-                    .map(Body::new)
             }
             #[cfg(test)]
-            Self::Memory(map) => {
-                drop(request);
-                let data = map
-                    .lock()
-                    .expect("blob map poisoned")
-                    .get(sha256)
-                    .cloned()
-                    .ok_or(ApiError::NotFound)?;
-                axum::response::IntoResponse::into_response(data)
-            }
-        };
-        // Blobs carry no extension, so the recorded media type replaces any guess.
-        response.headers_mut().insert(header::CONTENT_TYPE, mime);
-        Ok(response)
+            Self::Memory(map) => map
+                .lock()
+                .expect("blob map poisoned")
+                .get(sha256)
+                .cloned()
+                .map(Stored::Bytes)
+                .ok_or(ApiError::NotFound),
+        }
     }
+}
+
+/// A stored blob: a file on disk, or its bytes in the test store.
+pub enum Stored {
+    File(PathBuf),
+    #[cfg(test)]
+    Bytes(Vec<u8>),
 }
 
 /// Leading hex characters naming the directory a blob lives in, so no single
@@ -201,58 +180,6 @@ const FANOUT_CHARS: usize = 2;
 
 fn disk_path(root: &Path, sha256: &str) -> PathBuf {
     root.join(&sha256[..FANOUT_CHARS]).join(sha256)
-}
-
-/// Media type served for an artifact path.
-pub fn mime(path: &str) -> &'static str {
-    match Path::new(path).extension().and_then(|ext| ext.to_str()) {
-        Some("png") => "image/png",
-        Some("gif") => "image/gif",
-        Some("mp4") => "video/mp4",
-        Some("webm") => "video/webm",
-        Some("json") => "application/json",
-        _ => "application/octet-stream",
-    }
-}
-
-/// Bytes read from the start of an upload to tell what kind of file it is.
-pub const MAGIC_LEN: usize = 12;
-const PNG_MAGIC: &[u8] = &[0x89, b'P', b'N', b'G'];
-const GIF_MAGIC: &[u8] = b"GIF8";
-const WEBM_MAGIC: &[u8] = &[0x1a, 0x45, 0xdf, 0xa3];
-/// An MP4 names its type in bytes 4 to 8.
-const MP4_BRAND_AT: std::ops::Range<usize> = 4..8;
-const MP4_BRAND: &[u8] = b"ftyp";
-
-/// What an upload is, by its first bytes, never by what the client says.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BlobKind {
-    Image,
-    Video,
-    Other,
-}
-
-impl BlobKind {
-    /// The kind of a file that starts with `head`.
-    pub fn of(head: &[u8]) -> Self {
-        if head.starts_with(PNG_MAGIC) || head.starts_with(GIF_MAGIC) {
-            Self::Image
-        } else if head.starts_with(WEBM_MAGIC) || head.get(MP4_BRAND_AT) == Some(MP4_BRAND) {
-            Self::Video
-        } else {
-            Self::Other
-        }
-    }
-
-    /// The largest file of this kind `limits` allow.
-    pub fn limit(self, limits: &rupicola_api::Limits) -> u64 {
-        match self {
-            Self::Image => limits.max_image_bytes,
-            Self::Video => limits.max_video_bytes,
-            Self::Other => limits.max_blob_bytes,
-        }
-        .min(limits.max_blob_bytes)
-    }
 }
 
 /// A file being received: written to a temporary file next to where it will live (never in
@@ -387,75 +314,10 @@ impl Upload {
     }
 }
 
-/// Which blobs exist and which projects know them. A project only learns of a blob it
-/// uploaded or a capture of it cites, so asking what is missing reveals nothing about other
-/// projects.
-pub struct BlobIndex;
-
-impl BlobIndex {
-    /// Records that `project` holds the blob `sha256` of `bytes` bytes.
-    ///
-    /// # Errors
-    ///
-    /// When the database refuses the rows.
-    pub async fn record(
-        tx: &mut sqlx::SqliteConnection,
-        project: &str,
-        sha256: &str,
-        bytes: u64,
-    ) -> Result<(), ApiError> {
-        let now = crate::domain::secret::now_ms();
-        sqlx::query("INSERT OR IGNORE INTO blobs (sha256, bytes, created_at) VALUES (?1, ?2, ?3)")
-            .bind(sha256)
-            .bind(i64::try_from(bytes).map_err(anyhow::Error::from)?)
-            .bind(now)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "INSERT OR IGNORE INTO project_blobs (project_id, sha256, created_at)
-             VALUES (?1, ?2, ?3)",
-        )
-        .bind(project)
-        .bind(sha256)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
-        Ok(())
-    }
-
-    /// Of `hashes`, those `project` does not hold, in the order given and each once.
-    ///
-    /// # Errors
-    ///
-    /// When the database cannot be read.
-    pub async fn missing(
-        db: &sqlx::SqlitePool,
-        project: &str,
-        hashes: &[String],
-    ) -> Result<Vec<String>, ApiError> {
-        let asked = serde_json::to_string(hashes).map_err(anyhow::Error::from)?;
-        let known: std::collections::HashSet<String> = sqlx::query_scalar(
-            "SELECT sha256 FROM project_blobs
-             WHERE project_id = ?1 AND sha256 IN (SELECT value FROM json_each(?2))",
-        )
-        .bind(project)
-        .bind(asked)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect();
-        let mut seen = std::collections::HashSet::new();
-        Ok(hashes
-            .iter()
-            .filter(|hash| !known.contains(*hash) && seen.insert(hash.as_str()))
-            .cloned()
-            .collect())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::blob::mime;
 
     fn digest(data: &[u8]) -> String {
         format!("{:x}", Sha256::digest(data))
@@ -484,6 +346,7 @@ mod tests {
 #[cfg(test)]
 mod upload_tests {
     use super::*;
+    use crate::domain::blob::BlobKind;
 
     fn digest(data: &[u8]) -> String {
         format!("{:x}", Sha256::digest(data))
