@@ -270,12 +270,8 @@ mod tests {
     use axum::http::StatusCode;
     use rupicola_api::{
         Capture, CaptureStatus,
-        record::{
-            Appearance, CaptureRecord, Display, Environment, Member, MemberRole, ParentKind,
-            ParentRef, RECORD_FORMAT, RecordKind, ScenarioRef,
-        },
+        record::{MemberRole, ParentKind, ParentRef},
     };
-    use std::collections::BTreeMap;
 
     const FIRST: &str = "01936f2c-aaaa-7bbb-8ccc-000000000001";
     const SECOND: &str = "01936f2c-aaaa-7bbb-8ccc-000000000002";
@@ -307,61 +303,6 @@ mod tests {
         (port, state, [ana, bruno])
     }
 
-    fn record(id: &str, sha: &str, bytes: u64, parents: Vec<ParentRef>) -> CaptureRecord {
-        CaptureRecord {
-            format: RECORD_FORMAT,
-            id: id.to_owned(),
-            project: "demo".to_owned(),
-            kind: RecordKind::Scenario,
-            scenario: ScenarioRef {
-                name: "Home".to_owned(),
-                sha256: None,
-            },
-            revision: None,
-            series: "Home@web".to_owned(),
-            parents,
-            captured_at: 1_795_000_000_000,
-            status: CaptureStatus::Complete,
-            blocker: None,
-            environment: Environment {
-                display: Some(Display {
-                    width: Some(800),
-                    height: Some(600),
-                    scale_milli: Some(2000),
-                    orientation: None,
-                }),
-                appearance: Some(Appearance {
-                    color_scheme: Some("dark".to_owned()),
-                    ..Appearance::default()
-                }),
-                ..Environment::default()
-            },
-            members: vec![Member {
-                path: "checkpoints/home.png".to_owned(),
-                sha256: sha.to_owned(),
-                bytes,
-                mime: "image/png".to_owned(),
-                role: MemberRole::Checkpoint,
-                owner: "home".to_owned(),
-                surface: Some("home".to_owned()),
-                locator: BTreeMap::from([("route".to_owned(), "/".to_owned())]),
-                target_ms: None,
-                video_ms: None,
-            }],
-        }
-    }
-
-    async fn publish(port: u16, token: &str, record: &CaptureRecord) -> String {
-        call(
-            port,
-            "PUT",
-            &format!("/v1/projects/demo/captures/{}", record.id),
-            Some(token),
-            Some(&serde_json::to_string(record).unwrap()),
-        )
-        .await
-    }
-
     async fn count(state: &Shared, sql: &str) -> i64 {
         sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_owned()))
             .fetch_one(&state.db)
@@ -373,8 +314,8 @@ mod tests {
     async fn a_record_is_kept_once_and_the_same_record_again_changes_nothing() {
         let (port, state, [ana, _]) = demo().await;
         let sha = stream_blob(port, &ana, "demo", HOME).await;
-        let first = record(FIRST, &sha, 11, Vec::new());
-        let created = publish(port, &ana, &first).await;
+        let first = capture_record(FIRST, &sha, 11, Vec::new());
+        let created = publish_record(port, &ana, &first).await;
         assert_eq!(status(&created), StatusCode::CREATED, "{created}");
         let capture: Capture = json(&created);
         assert_eq!(capture.id, FIRST);
@@ -385,7 +326,7 @@ mod tests {
             "the views read the older shape"
         );
         assert_eq!(capture.environment.scale, Some(2.0));
-        let again = publish(port, &ana, &first).await;
+        let again = publish_record(port, &ana, &first).await;
         assert_eq!(status(&again), StatusCode::OK, "{again}");
         assert_eq!(count(&state, "SELECT count(*) FROM captures").await, 1);
         let surface = count(
@@ -408,10 +349,10 @@ mod tests {
     async fn other_content_under_a_kept_id_is_a_conflict() {
         let (port, _, [ana, _]) = demo().await;
         let sha = stream_blob(port, &ana, "demo", HOME).await;
-        publish(port, &ana, &record(FIRST, &sha, 11, Vec::new())).await;
-        let mut changed = record(FIRST, &sha, 11, Vec::new());
+        publish_record(port, &ana, &capture_record(FIRST, &sha, 11, Vec::new())).await;
+        let mut changed = capture_record(FIRST, &sha, 11, Vec::new());
         changed.captured_at += 1;
-        let response = publish(port, &ana, &changed).await;
+        let response = publish_record(port, &ana, &changed).await;
         assert_eq!(status(&response), StatusCode::CONFLICT, "{response}");
     }
 
@@ -419,7 +360,8 @@ mod tests {
     async fn files_must_be_held_and_their_sizes_true() {
         let (port, _, [ana, _]) = demo().await;
         let absent = "2".repeat(64);
-        let response = publish(port, &ana, &record(FIRST, &absent, 11, Vec::new())).await;
+        let response =
+            publish_record(port, &ana, &capture_record(FIRST, &absent, 11, Vec::new())).await;
         assert_eq!(
             status(&response),
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -427,7 +369,8 @@ mod tests {
         );
         assert!(body(&response).contains(&absent), "{response}");
         let sha = stream_blob(port, &ana, "demo", HOME).await;
-        let wrong_size = publish(port, &ana, &record(FIRST, &sha, 99, Vec::new())).await;
+        let wrong_size =
+            publish_record(port, &ana, &capture_record(FIRST, &sha, 99, Vec::new())).await;
         assert_eq!(
             status(&wrong_size),
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -443,11 +386,16 @@ mod tests {
             id: FIRST.to_owned(),
             kind: ParentKind::Previous,
         }];
-        let early = publish(port, &ana, &record(SECOND, &sha, 11, parent.clone())).await;
+        let early = publish_record(
+            port,
+            &ana,
+            &capture_record(SECOND, &sha, 11, parent.clone()),
+        )
+        .await;
         assert_eq!(status(&early), StatusCode::UNPROCESSABLE_ENTITY, "{early}");
         assert!(body(&early).contains(FIRST), "{early}");
-        publish(port, &ana, &record(FIRST, &sha, 11, Vec::new())).await;
-        let child = publish(port, &ana, &record(SECOND, &sha, 11, parent)).await;
+        publish_record(port, &ana, &capture_record(FIRST, &sha, 11, Vec::new())).await;
+        let child = publish_record(port, &ana, &capture_record(SECOND, &sha, 11, parent)).await;
         assert_eq!(status(&child), StatusCode::CREATED, "{child}");
         let edges = count(
             &state,
@@ -462,7 +410,7 @@ mod tests {
     async fn a_record_that_does_not_match_its_address_or_rules_is_refused() {
         let (port, _, [ana, bruno]) = demo().await;
         let sha = stream_blob(port, &ana, "demo", HOME).await;
-        let first = record(FIRST, &sha, 11, Vec::new());
+        let first = capture_record(FIRST, &sha, 11, Vec::new());
         let elsewhere = call(
             port,
             "PUT",
@@ -478,7 +426,7 @@ mod tests {
         );
         let mut blocked = first.clone();
         blocked.status = CaptureStatus::Blocked;
-        let invalid = publish(port, &ana, &blocked).await;
+        let invalid = publish_record(port, &ana, &blocked).await;
         assert_eq!(
             status(&invalid),
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -488,9 +436,9 @@ mod tests {
         let mut snapshot = first.clone();
         snapshot.members[0].role = MemberRole::UiSnapshot;
         snapshot.members[0].path = "checkpoints/home.json".to_owned();
-        let tree = publish(port, &ana, &snapshot).await;
+        let tree = publish_record(port, &ana, &snapshot).await;
         assert_eq!(status(&tree), StatusCode::UNPROCESSABLE_ENTITY, "{tree}");
-        let reader = publish(port, &bruno, &first).await;
+        let reader = publish_record(port, &bruno, &first).await;
         assert_eq!(status(&reader), StatusCode::FORBIDDEN);
     }
 }

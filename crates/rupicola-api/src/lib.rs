@@ -11,12 +11,14 @@ mod design;
 mod design_system;
 mod fixes;
 mod limits;
+mod lineage;
 mod problems;
 pub mod record;
 pub use design::*;
 pub use design_system::*;
 pub use fixes::*;
 pub use limits::*;
+pub use lineage::*;
 pub use problems::*;
 pub use text_enum::UnknownValue;
 

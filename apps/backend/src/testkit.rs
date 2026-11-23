@@ -3,7 +3,15 @@
 
 use crate::{app, db, security, send, state};
 use axum::http::StatusCode;
+use rupicola_api::{
+    CaptureStatus,
+    record::{
+        Appearance, CaptureRecord, Display, Environment, Member, MemberRole, ParentRef,
+        RECORD_FORMAT, RecordKind, ScenarioRef,
+    },
+};
 use serde::de::DeserializeOwned;
+use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
 
 /// Media uploads in tests are tiny; a small cap keeps mistakes visible.
@@ -244,4 +252,61 @@ pub async fn demo_with_artifacts() -> (u16, [String; USERS]) {
     insert_capture(&state.db, "demo", PROJECT_ARTIFACT).await;
     insert_capture(&state.db, "other", FOREIGN_ARTIFACT).await;
     (port, [ana, bruno, carla])
+}
+
+/// A one-file capture record of project `demo`, citing the blob `sha` of `bytes` bytes.
+pub fn capture_record(id: &str, sha: &str, bytes: u64, parents: Vec<ParentRef>) -> CaptureRecord {
+    CaptureRecord {
+        format: RECORD_FORMAT,
+        id: id.to_owned(),
+        project: "demo".to_owned(),
+        kind: RecordKind::Scenario,
+        scenario: ScenarioRef {
+            name: "Home".to_owned(),
+            sha256: None,
+        },
+        revision: None,
+        series: "Home@web".to_owned(),
+        parents,
+        captured_at: 1_795_000_000_000,
+        status: CaptureStatus::Complete,
+        blocker: None,
+        environment: Environment {
+            display: Some(Display {
+                width: Some(800),
+                height: Some(600),
+                scale_milli: Some(2000),
+                orientation: None,
+            }),
+            appearance: Some(Appearance {
+                color_scheme: Some("dark".to_owned()),
+                ..Appearance::default()
+            }),
+            ..Environment::default()
+        },
+        members: vec![Member {
+            path: "checkpoints/home.png".to_owned(),
+            sha256: sha.to_owned(),
+            bytes,
+            mime: "image/png".to_owned(),
+            role: MemberRole::Checkpoint,
+            owner: "home".to_owned(),
+            surface: Some("home".to_owned()),
+            locator: BTreeMap::from([("route".to_owned(), "/".to_owned())]),
+            target_ms: None,
+            video_ms: None,
+        }],
+    }
+}
+
+/// Publishes `record` to project `demo`.
+pub async fn publish_record(port: u16, token: &str, record: &CaptureRecord) -> String {
+    call(
+        port,
+        "PUT",
+        &format!("/v1/projects/demo/captures/{}", record.id),
+        Some(token),
+        Some(&serde_json::to_string(record).unwrap()),
+    )
+    .await
 }

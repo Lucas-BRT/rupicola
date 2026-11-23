@@ -11,6 +11,7 @@ mod design_system;
 mod error;
 mod fixes;
 mod limits;
+mod lineage;
 mod mcp;
 mod problems;
 mod projects;
@@ -126,6 +127,7 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
         .merge(design_system::routes())
         .merge(settings::routes())
         .merge(publish::routes())
+        .merge(lineage::routes())
         .route("/setup", routing::get(auth::setup_status))
         .route("/me", routing::get(auth::me))
         .route("/sessions/current", routing::delete(auth::sign_out))
