@@ -1,6 +1,6 @@
 use super::{
     Account, Arc, BTreeMap, Checkpoint, Cx, Deserialize, Html, IntoResponse, PageResult, Panel,
-    Response, Run, StatusCode, auth, db_error, design_record, design_system, fs, media, pipeline,
+    Response, Run, StatusCode, auth, db_error, design_record, design_system, media, pipeline,
     proposes, records, redirect, runs, safe_name, storage, view,
 };
 use crate::components::badge::{BadgeVariant, badge};
@@ -24,23 +24,6 @@ async fn catalog(
         .map_err(|e| auth::api_error(&e))?
     {
         projects.insert(project.id, project.label);
-    }
-    if account.owner {
-        match fs::read_dir(&panel.design) {
-            Ok(dirs) => {
-                for dir in dirs {
-                    let path = dir.map_err(db_error)?.path();
-                    if let Ok(project) = design_record::project(&path)
-                        && safe_name(&project.id)
-                        && path.file_name().and_then(|name| name.to_str()) == Some(&project.id)
-                    {
-                        projects.entry(project.id).or_insert(project.label);
-                    }
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(db_error(error)),
-        }
     }
     for run in runs {
         if safe_name(&run.project_id) {
@@ -127,15 +110,6 @@ fn pick_hero_checkpoint(checkpoints: &[Checkpoint]) -> Option<&Checkpoint> {
         .or_else(|| checkpoints.first())
 }
 
-fn project_design(panel: &Panel, id: &str) -> Vec<design_record::Entry> {
-    let root = panel.design.join(id);
-    if design_record::project(&root).is_ok_and(|project| project.id == id) {
-        design_record::entries(&root).unwrap_or_default()
-    } else {
-        Vec::new()
-    }
-}
-
 #[expect(
     clippy::too_many_lines,
     reason = "the dashboard view keeps its markup with the data it displays"
@@ -150,7 +124,7 @@ pub async fn dashboard(
     let project_count = projects.len();
     let mut activity = Vec::new();
     for (id, label) in &projects {
-        let records = project_design(&panel, id);
+        let records = records::design(&panel, &account, id).await?;
         let superseded = design_record::superseded(&records);
         activity.extend(
             records
@@ -263,17 +237,19 @@ pub async fn projects(
             search.is_empty() || id.contains(&search) || label.to_lowercase().contains(&search)
         })
         .collect();
-    let summaries: BTreeMap<_, _> = visible
-        .iter()
-        .filter_map(|(id, _)| {
-            project_design(&panel, id).into_iter().next().map(|entry| {
-                (
-                    (*id).clone(),
-                    format!("{} · {}", entry.title, entry.status.label()),
-                )
-            })
-        })
-        .collect();
+    let mut summaries = BTreeMap::new();
+    for (id, _) in &visible {
+        if let Some(entry) = records::design(&panel, &account, id)
+            .await?
+            .into_iter()
+            .next()
+        {
+            summaries.insert(
+                (*id).clone(),
+                format!("{} · {}", entry.title, entry.status.label()),
+            );
+        }
+    }
     let cx = &Cx::default();
     let content = shell!(cx, "Projects", account, panel, "projects", {
         <div class="page-title studio-heading"><div><h1>"Projects"</h1><p class="muted">(visible.len()) " of " (total_projects) (if total_projects == 1 { " project" } else { " projects" })</p></div>
@@ -441,13 +417,7 @@ async fn project_view(
         section.as_str(),
         "design" | "proposes" | "overview" | "problems"
     ) {
-        let path = panel.design.join(&id);
-        match design_record::project(&path) {
-            Ok(project) if project.id == id => design_record::entries(&path).map_err(db_error)?,
-            Ok(_) => return Err(StatusCode::NOT_FOUND),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(db_error(error)),
-        }
+        records::design(&panel, &account, &id).await?
     } else {
         Vec::new()
     };
@@ -458,11 +428,6 @@ async fn project_view(
         .count();
     let records = &design;
     let superseded = &obsolete;
-    let captures: BTreeMap<_, _> = related
-        .iter()
-        .map(|run| (run.key.as_str(), format!("/run/{}", run.key)))
-        .collect();
-
     let mut all_assets = Vec::new();
     for run in &related {
         let manifest = &run.manifest;
@@ -755,8 +720,8 @@ async fn project_view(
                         <label for="design-reference">"Reference URL (optional)"</label><input id="design-reference" name="reference" type="url" maxlength="2048">
                         <label for="design-evidence">"Capture evidence (optional)"</label>
                         <select id="design-evidence" name="evidence"><option value="">"None"</option>
-                            for (name, _) in &captures {
-                                <option value=(*name)>(related.iter().find(|run| run.key.ends_with(&format!("/{name}"))).map_or(*name, |run| run.scenario.as_str()))</option>
+                            for asset in all_assets.iter().take(80) {
+                                <option value=(records::artifact_of(&asset.url))>(asset.kind) " · " (&asset.name) " (" (&asset.scenario) ")"</option>
                             }
                         </select>
                         if !records.is_empty() {
@@ -794,8 +759,8 @@ async fn project_view(
                                     if let Some(url) = entry.reference.as_deref().filter(|url| url.starts_with("https://") || url.starts_with("http://")) {
                                         <a href=(url) rel="noreferrer">"Design reference"</a>
                                     }
-                                    if let Some(run) = entry.evidence.as_deref().and_then(|run| captures.get(run)) {
-                                        " " <a href=(run)>"Capture evidence"</a>
+                                    if let Some(artifact) = entry.evidence.as_deref() {
+                                        " " <a href=(media::url(artifact))>"Capture evidence"</a>
                                     }
                                 </li>
                             }
@@ -1157,8 +1122,8 @@ pub async fn accept_invitation(
 pub struct DesignForm {
     #[serde(default)]
     csrf: String,
-    kind: design_record::Kind,
-    status: design_record::Status,
+    kind: rupicola_api::DesignKind,
+    status: rupicola_api::DesignStatus,
     title: String,
     note: String,
     surface: Option<String>,
@@ -1175,19 +1140,14 @@ pub async fn record_design(
     form: DesignForm,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
-    if !account.owner {
-        return Err(StatusCode::FORBIDDEN);
-    }
     if !safe_name(&id) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let runs = visible_runs(&panel, &account).await?;
-    let label = catalog(&panel, &account, &runs)
-        .await?
-        .remove(&id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    if auth::role(&panel, &account, &id).await? == Role::Reader {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let return_to_proposals = form.return_to.as_deref() == Some("proposes");
-    save_design(&panel, &id, &account.handle, &label, &runs, form).await?;
+    save_design(&panel, &account, &id, form).await?;
     let target = if return_to_proposals {
         format!("/projects/{id}/design?view=proposals")
     } else {
@@ -1198,90 +1158,38 @@ pub async fn record_design(
 
 async fn save_design(
     panel: &Panel,
+    account: &Account,
     id: &str,
-    actor: &str,
-    label: &str,
-    runs: &[Run],
     form: DesignForm,
 ) -> PageResult<String> {
     let clean =
         |value: Option<String>| value.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
     let reference = clean(form.reference);
-    let surface = clean(form.surface);
-    let evidence = clean(form.evidence);
-    let supersedes = clean(form.supersedes);
     let title = form.title.trim();
     let note = form.note.trim();
     if title.is_empty()
-        || title.chars().count() > 200
         || note.is_empty()
-        || note.chars().count() > 4000
-        || surface.as_ref().is_some_and(|x| x.chars().count() > 200)
         || reference.as_ref().is_some_and(|x| {
-            x.len() > 2048
-                || !url::Url::parse(x)
-                    .is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host().is_some())
-        })
-        || evidence.as_ref().is_some_and(|name| {
-            !safe_name(name)
-                || !runs
-                    .iter()
-                    .any(|run| run.project_id == id && name == &run.key)
+            !url::Url::parse(x)
+                .is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host().is_some())
         })
     {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let _guard = panel.index.lock().await;
-    let root = panel.design.join(id);
-    fs::create_dir_all(&root).map_err(db_error)?;
-    let persist = |path: &std::path::Path, value: serde_json::Value| -> PageResult<()> {
-        let mut tmp = tempfile::NamedTempFile::new_in(&root).map_err(db_error)?;
-        serde_json::to_writer(&mut tmp, &value).map_err(db_error)?;
-        tmp.as_file().sync_all().map_err(db_error)?;
-        tmp.persist_noclobber(path).map_err(db_error)?;
-        Ok(())
-    };
-    match design_record::project(&root) {
-        Ok(project) if project.id == id => {}
-        Ok(_) => return Err(StatusCode::CONFLICT),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            persist(
-                &root.join("project.json"),
-                serde_json::json!({"id":id,"label":label}),
-            )?;
-        }
-        Err(error) => return Err(db_error(error)),
-    }
-    let records = design_record::entries(&root).map_err(db_error)?;
-    let obsolete = design_record::superseded(&records);
-    if supersedes.as_ref().is_some_and(|old| {
-        obsolete.contains(old.as_str())
-            || !records
-                .iter()
-                .any(|entry| entry.id == *old && entry.kind == form.kind)
-    }) {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(db_error)?;
-    let entry = design_record::Entry {
-        id: format!("{}-{}", now.as_nanos(), std::process::id()),
-        timestamp_ms: u64::try_from(now.as_millis()).unwrap_or(u64::MAX),
+    let new = rupicola_api::NewDesignEntry {
         kind: form.kind,
         status: form.status,
         title: title.into(),
         note: note.into(),
-        surface,
+        surface: clean(form.surface),
+        supersedes: clean(form.supersedes),
         reference,
-        evidence,
-        supersedes,
-        author: Some(actor.into()),
+        evidence: clean(form.evidence),
     };
-    let entry_id = entry.id.clone();
-    persist(
-        &root.join(format!("{entry_id}.json")),
-        serde_json::to_value(entry).map_err(db_error)?,
-    )?;
-    Ok(entry_id)
+    panel
+        .api
+        .add_design(&account.session, id, &new)
+        .await
+        .map(|entry| entry.id)
+        .map_err(|e| auth::api_error(&e))
 }

@@ -3,7 +3,8 @@
 //! artifact standing where a media path used to.
 
 use super::{
-    Account, PageResult, Panel, auth, fix_record, media, pipeline::AssetOption, problem_record,
+    Account, PageResult, Panel, auth, design_record, fix_record, media, pipeline::AssetOption,
+    problem_record,
 };
 use rupicola_api::{Fix, Problem};
 use std::collections::BTreeMap;
@@ -295,6 +296,50 @@ pub async fn open_inferred(
             .map_err(|e| auth::api_error(&e))?;
     }
     Ok(())
+}
+
+/// The design records of `project`, newest first.
+///
+/// # Errors
+///
+/// The status of a failed call to the backend.
+pub async fn design(
+    panel: &Panel,
+    account: &Account,
+    project: &str,
+) -> PageResult<Vec<design_record::Entry>> {
+    let entries = panel
+        .api
+        .design(&account.session, project)
+        .await
+        .map_err(|e| auth::api_error(&e))?;
+    Ok(entries.into_iter().map(design_entry_of).collect())
+}
+
+fn design_entry_of(record: rupicola_api::DesignEntry) -> design_record::Entry {
+    let entry = record.entry;
+    design_record::Entry {
+        id: record.id,
+        timestamp_ms: millis(record.created_at),
+        kind: match entry.kind {
+            rupicola_api::DesignKind::Brief => design_record::Kind::Brief,
+            rupicola_api::DesignKind::Direction => design_record::Kind::Direction,
+            rupicola_api::DesignKind::Tactic => design_record::Kind::Tactic,
+            rupicola_api::DesignKind::Decision => design_record::Kind::Decision,
+        },
+        status: match entry.status {
+            rupicola_api::DesignStatus::Proposed => design_record::Status::Proposed,
+            rupicola_api::DesignStatus::Adopted => design_record::Status::Adopted,
+            rupicola_api::DesignStatus::Rejected => design_record::Status::Rejected,
+        },
+        title: entry.title,
+        note: entry.note,
+        surface: entry.surface,
+        supersedes: entry.supersedes,
+        reference: entry.reference,
+        evidence: entry.evidence,
+        author: record.author,
+    }
 }
 
 #[cfg(test)]
