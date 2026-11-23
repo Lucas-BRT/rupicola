@@ -1,7 +1,8 @@
 //! Blob uploads, mounted apart from the other routes because their body limits and
 //! deadlines differ.
 
-use crate::{captures, state::Shared};
+use super::super::handlers::captures;
+use crate::state::Shared;
 use axum::{Router, routing};
 
 /// Streamed uploads into a project, under the project's own limits and deadlines.

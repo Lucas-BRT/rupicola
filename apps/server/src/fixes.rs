@@ -1,11 +1,11 @@
 //! Fixes that answer problems: filing with before/after proof, steps and review.
 
 use crate::{
-    captures::require_project_artifact,
     domain::Access,
     domain::ApiError,
     domain::{Principal, secret::now_ms},
     services::access::access,
+    services::captures::require_project_artifact,
     state::Shared,
 };
 use axum::{

@@ -370,7 +370,9 @@ pub async fn captures(
         .fetch_all(&state.db)
         .await?
     };
-    Ok(Json(crate::captures::summaries(&state, &ids).await?))
+    Ok(Json(
+        crate::repositories::captures::summaries(&state.db, &ids).await?,
+    ))
 }
 
 /// `PUT /v1/topics/{id}/captures/{capture}`: files a capture of the same project under the

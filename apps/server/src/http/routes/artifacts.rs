@@ -1,6 +1,7 @@
 //! `/artifacts`: one file of a capture.
 
-use crate::{captures, state::Shared};
+use super::super::handlers::captures;
+use crate::state::Shared;
 use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {

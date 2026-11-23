@@ -1,7 +1,6 @@
 //! Rupicola server: the API server every client (web panel, CLI, desktop GUI) talks to.
 //! It is the only process that touches the database and the media store.
 
-mod captures;
 mod config;
 mod design_system;
 mod domain;

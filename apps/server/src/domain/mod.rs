@@ -4,6 +4,7 @@
 
 pub mod account;
 pub mod blob;
+pub mod capture;
 pub mod credential;
 pub mod design;
 pub mod error;

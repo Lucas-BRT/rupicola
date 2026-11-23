@@ -1,9 +1,9 @@
 //! Design records of a project.
 
 use crate::{
-    domain::{Access, ApiError, Principal, design::validate, secret::now_ms},
+    domain::{ApiError, Principal, design::validate, secret::now_ms},
     repositories::{audit, design},
-    services::access::{access, require},
+    services::access::{require, require_publisher},
     state::AppState,
 };
 use rupicola_api::{DesignEntry, NewDesignEntry, Role};
@@ -25,13 +25,10 @@ pub async fn create(
     project: &str,
     form: NewDesignEntry,
 ) -> Result<DesignEntry, ApiError> {
-    match access(state, principal, project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reviewer)?,
-    }
+    require_publisher(state, principal, project, Role::Reviewer).await?;
     validate(&form)?;
     if let Some(artifact) = &form.evidence {
-        crate::captures::require_project_artifact(state, project, artifact).await?;
+        crate::services::captures::require_project_artifact(state, project, artifact).await?;
     }
     if let Some(older) = &form.supersedes
         && !design::belongs(&state.db, older, project).await?

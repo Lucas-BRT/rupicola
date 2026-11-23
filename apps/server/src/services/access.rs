@@ -48,3 +48,17 @@ pub async fn require(
 ) -> Result<(), ApiError> {
     access(state, principal, project).await?.require(role)
 }
+
+/// Requires a caller who may publish into `project`: its capture device, or a person
+/// holding at least `role`.
+pub async fn require_publisher(
+    state: &AppState,
+    principal: &Principal,
+    project: &str,
+    role: Role,
+) -> Result<(), ApiError> {
+    match access(state, principal, project).await? {
+        Access::Device => Ok(()),
+        person @ Access::Person(_) => person.require(role),
+    }
+}

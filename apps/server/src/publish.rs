@@ -52,7 +52,7 @@ pub async fn put(
         return if owner == project && stored.as_deref() == Some(digest.as_str()) {
             Ok((
                 StatusCode::OK,
-                Json(crate::captures::load(&state, &id).await?),
+                Json(crate::repositories::captures::load(&state.db, &id).await?),
             ))
         } else {
             Err(ApiError::Conflict(
@@ -64,7 +64,7 @@ pub async fn put(
     keep(&state, &principal, &project, &record, &digest).await?;
     Ok((
         StatusCode::CREATED,
-        Json(crate::captures::load(&state, &id).await?),
+        Json(crate::repositories::captures::load(&state.db, &id).await?),
     ))
 }
 

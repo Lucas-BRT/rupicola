@@ -5,10 +5,9 @@
 //! in step.
 
 use crate::{
-    captures,
     domain::{ApiError, Principal},
     fixes, problems,
-    services::{design, projects},
+    services::{captures, design, projects},
     state::Shared,
 };
 use axum::{
@@ -129,17 +128,12 @@ impl Call {
             Self::ProjectList {} => value(&projects::list(&state, &principal).await?),
             Self::ProjectCreate(form) => value(&projects::create(&state, &principal, form).await?),
             Self::CaptureList { project } => {
-                value(&captures::list(state_arg, principal, Path(project)).await?.0)
+                value(&captures::list(&state, &principal, &project).await?)
             }
-            Self::CaptureGet { id } => {
-                value(&captures::get(state_arg, principal, Path(id)).await?.0)
+            Self::CaptureGet { id } => value(&captures::get(&state, &principal, &id).await?),
+            Self::CaptureReview { id, finding } => {
+                value(&captures::add_finding(&state, &principal, &id, finding).await?)
             }
-            Self::CaptureReview { id, finding } => value(
-                &captures::add_finding(state_arg, principal, Path(id), Json(finding))
-                    .await?
-                    .1
-                    .0,
-            ),
             Self::ArtifactRead { id, offset, length } => {
                 read_artifact(&state, &principal, &id, offset, length).await
             }
@@ -206,7 +200,8 @@ async fn read_artifact(
     offset: u64,
     length: usize,
 ) -> Result<Value, ApiError> {
-    let (sha256, mime, bytes) = captures::artifact_blob(state, principal, id).await?;
+    let blob = captures::artifact(state, principal, id).await?;
+    let (sha256, mime, bytes) = (blob.sha256, blob.mime, blob.bytes);
     let data = state
         .blobs
         .read_range(&sha256, offset, length.min(MAX_READ_BYTES))?;

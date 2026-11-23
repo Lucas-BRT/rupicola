@@ -9,6 +9,7 @@
 pub mod accounts;
 pub mod audit;
 pub mod blobs;
+pub mod captures;
 pub mod credentials;
 pub mod design;
 pub mod projects;

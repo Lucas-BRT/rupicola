@@ -1,0 +1,375 @@
+//! The `captures`, `artifacts` and `capture_findings` tables.
+
+use crate::domain::{
+    ApiError,
+    capture::{Planned, status_text},
+};
+use rupicola_api::{
+    Artifact, Capture, CaptureStatus, CaptureSummary, Checkpoint, Clip, Finding, Frame, Inspection,
+    NewCapture, Tombstone,
+};
+use sqlx::SqliteExecutor;
+
+/// A `captures` row as listed, with its first checkpoint as preview.
+#[derive(sqlx::FromRow)]
+struct SummaryRow {
+    id: String,
+    scenario: String,
+    status: String,
+    inspection: String,
+    created_at: i64,
+    preview: Option<String>,
+}
+
+impl From<SummaryRow> for CaptureSummary {
+    fn from(row: SummaryRow) -> Self {
+        Self {
+            id: row.id,
+            scenario: row.scenario,
+            status: row.status.parse().unwrap_or(CaptureStatus::Complete),
+            inspection: row.inspection.parse().unwrap_or(Inspection::Pending),
+            created_at: row.created_at,
+            preview: row.preview,
+        }
+    }
+}
+
+/// A `captures` row.
+#[derive(sqlx::FromRow)]
+struct CaptureRow {
+    project_id: String,
+    scenario: String,
+    revision: Option<String>,
+    status: String,
+    blocker: Option<String>,
+    inspection: String,
+    environment: String,
+    created_at: i64,
+    /// Set for a capture published as a record, whose environment has the record's shape.
+    digest: Option<String>,
+    deleted_at: Option<i64>,
+    deleted_by: Option<String>,
+    delete_reason: Option<String>,
+}
+
+/// A `capture_findings` row.
+#[derive(sqlx::FromRow)]
+struct FindingRow {
+    id: String,
+    note: String,
+    evidence_artifact_id: Option<String>,
+    author: Option<String>,
+    created_at: i64,
+}
+
+impl From<FindingRow> for Finding {
+    fn from(row: FindingRow) -> Self {
+        Self {
+            id: row.id,
+            note: row.note,
+            evidence_artifact_id: row.evidence_artifact_id,
+            author: row.author,
+            created_at: row.created_at,
+        }
+    }
+}
+
+/// An `artifacts` row.
+#[derive(sqlx::FromRow)]
+struct ArtifactRow {
+    id: String,
+    role: String,
+    owner_id: String,
+    path: String,
+    sha256: String,
+    bytes: i64,
+    mime: String,
+    target_ms: Option<f64>,
+    video_ms: Option<f64>,
+}
+
+/// Project, digest, media type and size of an artifact.
+#[derive(sqlx::FromRow)]
+pub struct ArtifactBlob {
+    pub project_id: String,
+    pub sha256: String,
+    pub mime: String,
+    pub bytes: i64,
+}
+
+/// What a summary selects, with its first checkpoint as preview.
+const SUMMARY_COLUMNS: &str = "c.id, c.scenario, c.status, c.inspection, c.created_at,
+   (SELECT a.id FROM artifacts a WHERE a.capture_id = c.id AND a.role = 'checkpoint'
+    ORDER BY a.position LIMIT 1) AS preview";
+
+/// A project's live captures, newest first.
+pub async fn of_project(
+    db: impl SqliteExecutor<'_>,
+    project: &str,
+) -> sqlx::Result<Vec<CaptureSummary>> {
+    let rows: Vec<SummaryRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {SUMMARY_COLUMNS}
+         FROM captures c WHERE c.project_id = ?1 AND c.deleted_at IS NULL
+         ORDER BY c.created_at DESC, c.id DESC"
+    )))
+    .bind(project)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(CaptureSummary::from).collect())
+}
+
+/// The summaries of the live captures named in `ids`, newest first.
+pub async fn summaries(
+    db: impl SqliteExecutor<'_>,
+    ids: &[String],
+) -> Result<Vec<CaptureSummary>, ApiError> {
+    let rows: Vec<SummaryRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {SUMMARY_COLUMNS}
+         FROM captures c
+         WHERE c.deleted_at IS NULL AND c.id IN (SELECT value FROM json_each(?1))
+         ORDER BY c.created_at DESC, c.id DESC"
+    )))
+    .bind(serde_json::to_string(ids).map_err(anyhow::Error::from)?)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(CaptureSummary::from).collect())
+}
+
+/// The project a capture belongs to.
+pub async fn project_of(
+    db: impl SqliteExecutor<'_>,
+    capture: &str,
+) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar("SELECT project_id FROM captures WHERE id = ?1")
+        .bind(capture)
+        .fetch_optional(db)
+        .await
+}
+
+/// Whether `artifact` is a file of one of `project`'s captures.
+pub async fn artifact_in_project(
+    db: impl SqliteExecutor<'_>,
+    artifact: &str,
+    project: &str,
+) -> sqlx::Result<bool> {
+    let belongs: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM artifacts a JOIN captures c ON c.id = a.capture_id
+         WHERE a.id = ?1 AND c.project_id = ?2",
+    )
+    .bind(artifact)
+    .bind(project)
+    .fetch_optional(db)
+    .await?;
+    Ok(belongs.is_some())
+}
+
+/// Whether `artifact` is a file of `capture`.
+pub async fn artifact_in_capture(
+    db: impl SqliteExecutor<'_>,
+    artifact: &str,
+    capture: &str,
+) -> sqlx::Result<bool> {
+    let belongs: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM artifacts WHERE id = ?1 AND capture_id = ?2")
+            .bind(artifact)
+            .bind(capture)
+            .fetch_optional(db)
+            .await?;
+    Ok(belongs.is_some())
+}
+
+pub async fn artifact_blob(
+    db: impl SqliteExecutor<'_>,
+    artifact: &str,
+) -> sqlx::Result<Option<ArtifactBlob>> {
+    sqlx::query_as(
+        "SELECT c.project_id, a.sha256, a.mime, a.bytes FROM artifacts a
+         JOIN captures c ON c.id = a.capture_id WHERE a.id = ?1",
+    )
+    .bind(artifact)
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn insert(
+    db: impl SqliteExecutor<'_>,
+    id: &str,
+    project: &str,
+    form: &NewCapture,
+    now: i64,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO captures (id, project_id, scenario, revision, status, blocker, inspection,
+           environment, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8)",
+    )
+    .bind(id)
+    .bind(project)
+    .bind(&form.scenario)
+    .bind(&form.revision)
+    .bind(status_text(form.status))
+    .bind(&form.blocker)
+    .bind(serde_json::to_string(&form.environment).map_err(anyhow::Error::from)?)
+    .bind(now)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn insert_artifact(
+    db: impl SqliteExecutor<'_>,
+    capture: &str,
+    position: usize,
+    item: &Planned<'_>,
+    size: u64,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO artifacts (id, capture_id, role, owner_id, position, path, sha256, bytes,
+           mime, target_ms, video_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+    )
+    .bind(uuid::Uuid::now_v7().to_string())
+    .bind(capture)
+    .bind(item.role)
+    .bind(item.owner)
+    .bind(i64::try_from(position).map_err(anyhow::Error::from)?)
+    .bind(&item.file.path)
+    .bind(&item.file.sha256)
+    .bind(i64::try_from(size).map_err(anyhow::Error::from)?)
+    .bind(crate::domain::blob::mime(&item.file.path))
+    .bind(item.target_ms)
+    .bind(item.video_ms)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn insert_finding(
+    db: impl SqliteExecutor<'_>,
+    capture: &str,
+    finding: &Finding,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO capture_findings (id, capture_id, note, evidence_artifact_id, author, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )
+    .bind(&finding.id)
+    .bind(capture)
+    .bind(&finding.note)
+    .bind(&finding.evidence_artifact_id)
+    .bind(&finding.author)
+    .bind(finding.created_at)
+    .execute(db)
+    .await
+    .map(drop)
+}
+
+pub async fn mark_reviewed(db: impl SqliteExecutor<'_>, capture: &str) -> sqlx::Result<()> {
+    sqlx::query("UPDATE captures SET inspection = 'reviewed' WHERE id = ?1")
+        .bind(capture)
+        .execute(db)
+        .await
+        .map(drop)
+}
+
+/// Groups a capture's files, in order, into its checkpoints and clips.
+fn arrange(artifacts: Vec<ArtifactRow>) -> (Vec<Checkpoint>, Vec<Clip>) {
+    let mut checkpoints = Vec::new();
+    let mut clips: Vec<Clip> = Vec::new();
+    for row in artifacts {
+        let (role, owner, target_ms, video_ms) =
+            (row.role, row.owner_id, row.target_ms, row.video_ms);
+        let artifact = Artifact {
+            id: row.id,
+            path: row.path,
+            mime: row.mime,
+            bytes: u64::try_from(row.bytes).unwrap_or_default(),
+            sha256: row.sha256,
+        };
+        if role == "checkpoint" {
+            checkpoints.push(Checkpoint {
+                id: owner,
+                artifact,
+            });
+            continue;
+        }
+        let index = if let Some(index) = clips.iter().position(|clip| clip.id == owner) {
+            index
+        } else {
+            clips.push(Clip {
+                id: owner,
+                video: None,
+                sheet: None,
+                analysis: None,
+                frames: Vec::new(),
+            });
+            clips.len() - 1
+        };
+        let clip = &mut clips[index];
+        match role.as_str() {
+            "clip-video" => clip.video = Some(artifact),
+            "clip-sheet" => clip.sheet = Some(artifact),
+            "clip-analysis" => clip.analysis = Some(artifact),
+            _ => clip.frames.push(Frame {
+                artifact,
+                target_ms: target_ms.unwrap_or_default(),
+                video_ms,
+            }),
+        }
+    }
+    (checkpoints, clips)
+}
+
+/// A capture with its files and findings, removed or not.
+pub async fn load(db: &sqlx::SqlitePool, id: &str) -> Result<Capture, ApiError> {
+    let capture: CaptureRow = sqlx::query_as(
+        "SELECT project_id, scenario, revision, status, blocker, inspection, environment,
+               created_at, digest, deleted_at, deleted_by, delete_reason
+         FROM captures WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let artifacts: Vec<ArtifactRow> = sqlx::query_as(
+        "SELECT id, role, owner_id, path, sha256, bytes, mime, target_ms, video_ms
+         FROM artifacts WHERE capture_id = ?1 ORDER BY position",
+    )
+    .bind(id)
+    .fetch_all(db)
+    .await?;
+    let findings: Vec<FindingRow> = sqlx::query_as(
+        "SELECT id, note, evidence_artifact_id, author, created_at FROM capture_findings
+         WHERE capture_id = ?1 ORDER BY created_at, id",
+    )
+    .bind(id)
+    .fetch_all(db)
+    .await?;
+    let (checkpoints, clips) = arrange(artifacts);
+    let deleted = capture.deleted_at.map(|at| Tombstone {
+        at,
+        by: capture.deleted_by.clone().unwrap_or_default(),
+        reason: capture.delete_reason.clone().unwrap_or_default(),
+    });
+    Ok(Capture {
+        id: id.to_owned(),
+        project_id: capture.project_id,
+        scenario: capture.scenario,
+        revision: capture.revision,
+        status: capture.status.parse().unwrap_or(CaptureStatus::Complete),
+        blocker: capture.blocker,
+        inspection: capture.inspection.parse().unwrap_or(Inspection::Pending),
+        environment: if capture.digest.is_some() {
+            let recorded: rupicola_api::record::Environment =
+                serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?;
+            rupicola_api::Environment::from(&recorded)
+        } else {
+            serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?
+        },
+        created_at: capture.created_at,
+        checkpoints,
+        clips,
+        findings: findings.into_iter().map(Finding::from).collect(),
+        deleted,
+    })
+}

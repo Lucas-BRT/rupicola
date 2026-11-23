@@ -240,11 +240,11 @@ pub async fn search(
             .unwrap_or_default()
     });
     let ids: Vec<String> = rows.into_iter().map(|(id, _)| id).collect();
-    let items = crate::captures::summaries(&state, &ids).await?;
+    let items = crate::repositories::captures::summaries(&state.db, &ids).await?;
     let mut details = Vec::new();
     if search.details {
         for id in &ids {
-            details.push(crate::captures::load(&state, id).await?);
+            details.push(crate::repositories::captures::load(&state.db, id).await?);
         }
     }
     Ok(Json(CapturePage {

@@ -2,11 +2,11 @@
 
 use crate::{
     domain::{
-        Access, ApiError, Principal,
+        ApiError, Principal,
         limits::{effective as tighten, setting},
     },
     repositories::settings::{self, SettingRow},
-    services::access::access,
+    services::access::require_publisher,
     state::AppState,
 };
 use rupicola_api::{LimitSetting, Limits, Role};
@@ -49,9 +49,6 @@ pub async fn of_project(
     principal: &Principal,
     project: &str,
 ) -> Result<Limits, ApiError> {
-    match access(state, principal, project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reader)?,
-    }
+    require_publisher(state, principal, project, Role::Reader).await?;
     effective(state, project).await
 }
