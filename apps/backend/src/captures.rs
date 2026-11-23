@@ -24,8 +24,6 @@ use rupicola_api::{
 };
 use std::collections::HashSet;
 
-/// Files in one capture.
-const MAX_ARTIFACTS: usize = 256;
 /// Longest file path inside a capture, and deepest nesting (slashes).
 const MAX_PATH_LEN: usize = 180;
 const MAX_PATH_DEPTH: usize = 4;
@@ -98,7 +96,7 @@ struct Planned<'a> {
     video_ms: Option<f64>,
 }
 
-fn plan(form: &NewCapture) -> Result<Vec<Planned<'_>>, ApiError> {
+fn plan(form: &NewCapture, max_artifacts: usize) -> Result<Vec<Planned<'_>>, ApiError> {
     let mut planned = Vec::new();
     for checkpoint in &form.checkpoints {
         planned.push(Planned {
@@ -136,7 +134,7 @@ fn plan(form: &NewCapture) -> Result<Vec<Planned<'_>>, ApiError> {
         }
     }
     let mut paths = HashSet::new();
-    if planned.len() > MAX_ARTIFACTS
+    if planned.len() > max_artifacts
         || planned.iter().any(|item| {
             !valid_name(item.owner)
                 || !valid_path(&item.file.path)
@@ -145,7 +143,7 @@ fn plan(form: &NewCapture) -> Result<Vec<Planned<'_>>, ApiError> {
         })
     {
         return Err(ApiError::invalid(format!(
-            "a capture needs at most {MAX_ARTIFACTS} files with unique, plain relative paths \
+            "a capture needs at most {max_artifacts} files with unique, plain relative paths \
                  and valid SHA-256 digests"
         )));
     }
@@ -168,7 +166,9 @@ pub async fn create(
             "the scenario must have 1–{MAX_SCENARIO_CHARS} characters"
         )));
     }
-    let planned = plan(&form)?;
+    let limits = state.limits.effective(&state, &project).await?;
+    let max_artifacts = usize::try_from(limits.max_artifacts_per_capture).unwrap_or(usize::MAX);
+    let planned = plan(&form, max_artifacts)?;
     let mut sizes = Vec::with_capacity(planned.len());
     for item in &planned {
         let size = state

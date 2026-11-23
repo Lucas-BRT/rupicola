@@ -45,6 +45,7 @@ pub async fn start_custom(
         crate::blobs::Blobs::memory(),
         setup_code,
         open_setup,
+        crate::limits::LimitDefaults::new(&settings, &crate::limits::UploadLimits::default()),
     )
     .unwrap();
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))

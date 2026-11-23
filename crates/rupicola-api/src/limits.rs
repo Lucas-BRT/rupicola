@@ -33,6 +33,19 @@ pub struct Limits {
     pub upload_idle_secs: u64,
 }
 
+text_enum! {
+    /// A limit an administrator can set for the server and an owner can tighten for a
+    /// project, as the key it is stored under.
+    LimitSetting {
+        MaxBlobBytes => "max_blob_bytes",
+        MaxImageBytes => "max_image_bytes",
+        MaxVideoBytes => "max_video_bytes",
+        MaxArtifactsPerCapture => "max_artifacts_per_capture",
+        UploadTimeoutSecs => "upload_timeout_secs",
+        UploadIdleSecs => "upload_idle_secs",
+    }
+}
+
 /// A file or a capture that does not fit in the limits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Violation {
@@ -60,6 +73,50 @@ impl fmt::Display for Violation {
 }
 
 impl Limits {
+    /// The value of one setting.
+    #[must_use]
+    pub fn get(&self, key: LimitSetting) -> u64 {
+        match key {
+            LimitSetting::MaxBlobBytes => self.max_blob_bytes,
+            LimitSetting::MaxImageBytes => self.max_image_bytes,
+            LimitSetting::MaxVideoBytes => self.max_video_bytes,
+            LimitSetting::MaxArtifactsPerCapture => u64::from(self.max_artifacts_per_capture),
+            LimitSetting::UploadTimeoutSecs => self.upload_timeout_secs,
+            LimitSetting::UploadIdleSecs => self.upload_idle_secs,
+        }
+    }
+
+    /// Sets one setting to `value`; a count too large for its field is held at the field's
+    /// largest value.
+    pub fn set(&mut self, key: LimitSetting, value: u64) {
+        match key {
+            LimitSetting::MaxBlobBytes => self.max_blob_bytes = value,
+            LimitSetting::MaxImageBytes => self.max_image_bytes = value,
+            LimitSetting::MaxVideoBytes => self.max_video_bytes = value,
+            LimitSetting::MaxArtifactsPerCapture => {
+                self.max_artifacts_per_capture = u32::try_from(value).unwrap_or(u32::MAX);
+            }
+            LimitSetting::UploadTimeoutSecs => self.upload_timeout_secs = value,
+            LimitSetting::UploadIdleSecs => self.upload_idle_secs = value,
+        }
+    }
+
+    /// Lowers one setting to `value`; a value above the current one changes nothing, so a
+    /// project can only tighten what the server allows.
+    pub fn tighten(&mut self, key: LimitSetting, value: u64) {
+        if value < self.get(key) {
+            self.set(key, value);
+        }
+    }
+
+    /// The limits with no kind of file allowed more than the ceiling.
+    #[must_use]
+    pub fn clamped(mut self) -> Self {
+        self.max_image_bytes = self.max_image_bytes.min(self.max_blob_bytes);
+        self.max_video_bytes = self.max_video_bytes.min(self.max_blob_bytes);
+        self
+    }
+
     /// The largest size of the file at `path`, by its extension.
     #[must_use]
     pub fn max_bytes_for(&self, path: &str) -> u64 {
@@ -172,6 +229,37 @@ mod tests {
             target_ms: None,
             video_ms: None,
         }
+    }
+
+    #[test]
+    fn a_setting_is_read_written_and_only_tightened_by_a_project() {
+        let mut limits = limits();
+        for key in LimitSetting::ALL {
+            let value = limits.get(*key);
+            limits.set(*key, value);
+            assert_eq!(limits.get(*key), value, "{key}");
+        }
+        limits.tighten(LimitSetting::MaxArtifactsPerCapture, 2);
+        assert_eq!(limits.max_artifacts_per_capture, 2);
+        limits.tighten(LimitSetting::MaxArtifactsPerCapture, 50);
+        assert_eq!(
+            limits.max_artifacts_per_capture, 2,
+            "a project cannot loosen a limit"
+        );
+        limits.set(LimitSetting::MaxArtifactsPerCapture, u64::MAX);
+        assert_eq!(limits.max_artifacts_per_capture, u32::MAX);
+        assert_eq!("upload_idle_secs".parse(), Ok(LimitSetting::UploadIdleSecs));
+    }
+
+    #[test]
+    fn clamping_keeps_every_kind_under_the_ceiling() {
+        let mut limits = limits();
+        limits.max_blob_bytes = MIB;
+        let clamped = limits.clamped();
+        assert_eq!(
+            (clamped.max_image_bytes, clamped.max_video_bytes),
+            (MIB, MIB)
+        );
     }
 
     #[test]

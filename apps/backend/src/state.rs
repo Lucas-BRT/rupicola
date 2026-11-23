@@ -3,6 +3,7 @@
 use crate::{
     auth::{Lockout, Passwords},
     blobs::Blobs,
+    limits::LimitDefaults,
 };
 use anyhow::Context;
 use sqlx::SqlitePool;
@@ -22,6 +23,8 @@ pub struct AppState {
     pub open_setup: bool,
     /// Lets one browser validation of a design system run at a time.
     pub design_validation: tokio::sync::Semaphore,
+    /// What uploads may be before any setting changes it.
+    pub limits: LimitDefaults,
 }
 
 impl AppState {
@@ -36,6 +39,7 @@ impl AppState {
         path: &Path,
         setup_code: Option<&str>,
         open_setup: bool,
+        limits: LimitDefaults,
     ) -> anyhow::Result<Shared> {
         let root = path
             .parent()
@@ -44,7 +48,13 @@ impl AppState {
             .join("blobs");
         let blobs = Blobs::disk(root.clone())
             .with_context(|| format!("cannot create {}", root.display()))?;
-        Self::new(crate::db::open(path).await?, blobs, setup_code, open_setup)
+        Self::new(
+            crate::db::open(path).await?,
+            blobs,
+            setup_code,
+            open_setup,
+            limits,
+        )
     }
 
     /// Builds the state around an already migrated pool.
@@ -57,6 +67,7 @@ impl AppState {
         blobs: Blobs,
         setup_code: Option<&str>,
         open_setup: bool,
+        limits: LimitDefaults,
     ) -> anyhow::Result<Shared> {
         Ok(Arc::new(Self {
             db,
@@ -66,6 +77,7 @@ impl AppState {
             setup_code: setup_code.map(crate::auth::digest),
             open_setup,
             design_validation: tokio::sync::Semaphore::new(1),
+            limits,
         }))
     }
 }

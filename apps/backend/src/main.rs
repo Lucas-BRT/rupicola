@@ -10,6 +10,7 @@ mod design;
 mod design_system;
 mod error;
 mod fixes;
+mod limits;
 mod mcp;
 mod problems;
 mod projects;
@@ -63,6 +64,8 @@ struct Args {
     healthcheck: bool,
     #[command(flatten)]
     security: security::Security,
+    #[command(flatten)]
+    uploads: limits::UploadLimits,
 }
 
 /// Every route, wrapped in the request hardening from [`security`].
@@ -116,6 +119,7 @@ fn v1(settings: &security::Security) -> Router<state::Shared> {
                 .delete(projects::delete),
         )
         .route("/projects/{id}/members", routing::get(projects::members))
+        .route("/projects/{id}/limits", routing::get(limits::get))
         .route(
             "/projects/{id}/members/{handle}",
             routing::put(projects::put_member).delete(projects::delete_member),
@@ -208,7 +212,13 @@ async fn main() -> anyhow::Result<()> {
     if setup_code.is_some_and(|code| code.len() < MIN_SETUP_CODE_LEN) {
         bail!("RUPICOLA_SETUP_CODE must contain at least {MIN_SETUP_CODE_LEN} characters");
     }
-    let state = state::AppState::open(&args.db, setup_code, args.bind.is_loopback()).await?;
+    let state = state::AppState::open(
+        &args.db,
+        setup_code,
+        args.bind.is_loopback(),
+        limits::LimitDefaults::new(&args.security, &args.uploads),
+    )
+    .await?;
     let listener = tokio::net::TcpListener::bind((args.bind, args.port))
         .await
         .with_context(|| format!("cannot listen on {}:{}", args.bind, args.port))?;
