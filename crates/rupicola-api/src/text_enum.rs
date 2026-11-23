@@ -30,6 +30,9 @@ macro_rules! text_enum {
             /// Every value, in declaration order.
             pub const ALL: &'static [Self] = &[$(Self::$variant),+];
 
+            /// The text of every value, in declaration order.
+            pub const NAMES: &'static [&'static str] = &[$($text),+];
+
             /// The text stored in the database and used on the wire.
             #[must_use]
             pub const fn as_str(self) -> &'static str {
