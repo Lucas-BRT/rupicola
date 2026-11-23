@@ -71,9 +71,10 @@ mod db;
 mod design_system;
 mod media;
 mod pages;
-mod pipeline;
+mod project;
 mod records;
 mod runs;
+mod views;
 use auth::Account;
 use rupicola_core::{design_record, fix_record, problem_record};
 

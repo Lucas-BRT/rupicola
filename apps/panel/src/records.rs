@@ -3,8 +3,8 @@
 //! artifact standing where a media path used to.
 
 use super::{
-    Account, PageResult, Panel, auth, design_record, fix_record, media, pipeline::AssetOption,
-    problem_record,
+    Account, PageResult, Panel, auth, design_record, fix_record, media, problem_record,
+    project::AssetOption,
 };
 use rupicola_api::{Fix, Problem};
 use std::collections::BTreeMap;

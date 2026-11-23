@@ -1,11 +1,7 @@
 use super::{
-    Account, Arc, AssetOption, Cx, Deserialize, FixRecord, FixStatus, PageResult, Panel, Problem,
-    Response, Role, StatusCode, auth, badge, effective_after_url, fix_status_badge, is_video_url,
-    pages, redirect, view,
+    Account, AssetOption, Cx, FixRecord, FixStatus, Problem, Role, badge, effective_after_url,
+    fix_status_badge, is_video_url, view,
 };
-
-/// Verification recorded for a step written without one.
-const DEFAULT_VERIFICATION: &str = "Verified visually";
 
 #[allow(clippy::too_many_arguments)]
 #[expect(
@@ -18,7 +14,7 @@ pub fn render_fixes<'a>(
     role: Role,
     _project_id: &'a str,
     base: &'a str,
-    filter: &'a pages::Filter,
+    filter: &'a crate::project::Filter,
     fixes: &'a [FixRecord],
     problems: &'a [Problem],
     assets: &'a [AssetOption],
@@ -336,142 +332,4 @@ pub fn render_fixes<'a>(
             </div>
         }
     })
-}
-
-#[derive(Deserialize)]
-pub struct CreateFixForm {
-    pub csrf: String,
-    pub title: String,
-    pub problem_id: Option<String>,
-    pub route: String,
-    pub viewport: String,
-    pub theme: String,
-    pub before_url: String,
-    pub after_url: String,
-    pub tactics: String,
-    pub files: String,
-    pub summary: String,
-    pub steps: String,
-}
-
-pub async fn create_fix_action(
-    panel: Arc<Panel>,
-    account: Account,
-    project_id: String,
-    form: CreateFixForm,
-) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
-    if auth::role(&panel, &account, &project_id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    let title = form.title.trim();
-    let summary = form.summary.trim();
-    if title.is_empty() || summary.is_empty() {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    let problems: Vec<String> = form
-        .problem_id
-        .into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    let list = |text: &str| -> Vec<String> {
-        text.split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    };
-    let steps: Vec<rupicola_api::NewStep> = form
-        .steps
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(|line| {
-            let parts: Vec<&str> = line.splitn(3, "::").collect();
-            let (st_title, detail, verification) = match parts.as_slice() {
-                [a, b, c] => (a.trim(), b.trim(), c.trim()),
-                [a, b] => (a.trim(), b.trim(), DEFAULT_VERIFICATION),
-                _ => (line, "", DEFAULT_VERIFICATION),
-            };
-            rupicola_api::NewStep {
-                title: st_title.into(),
-                detail: detail.into(),
-                verification: verification.into(),
-                evidence: None,
-            }
-        })
-        .collect();
-    let route = form.route.trim().to_string();
-    let viewport = form.viewport.trim().to_string();
-    let theme = form.theme.trim().to_string();
-    let (before, after) = (form.before_url.trim(), form.after_url.trim());
-    let comparisons = if before.is_empty() || after.is_empty() {
-        Vec::new()
-    } else {
-        vec![rupicola_api::Comparison {
-            label: format!("{route} · {viewport} · {theme}"),
-            route,
-            viewport,
-            theme,
-            before: crate::records::artifact_of(before).to_owned(),
-            after: crate::records::artifact_of(after).to_owned(),
-            diff: None,
-            changed_ratio: None,
-        }]
-    };
-    let new = rupicola_api::NewFix {
-        title: title.into(),
-        summary: summary.into(),
-        problems,
-        tactics: list(&form.tactics),
-        files: list(&form.files),
-        comparisons,
-        steps,
-    };
-    let fix = panel
-        .api
-        .create_fix(&account.session, &project_id, &new)
-        .await
-        .map_err(|e| auth::api_error(&e))?;
-    Ok(redirect(&format!(
-        "/projects/{project_id}/fixes#fix-{}",
-        fix.id
-    )))
-}
-
-#[derive(Deserialize)]
-pub struct ReviewFixForm {
-    #[serde(default)]
-    pub csrf: String,
-    pub status: String,
-    pub comment: Option<String>,
-}
-
-pub async fn review_fix_action(
-    panel: Arc<Panel>,
-    account: Account,
-    (project_id, fix_id): (String, String),
-    form: ReviewFixForm,
-) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
-    if auth::role(&panel, &account, &project_id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    let outcome = form
-        .status
-        .trim()
-        .parse()
-        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
-    let review = rupicola_api::NewReview {
-        outcome,
-        comment: form.comment.unwrap_or_default().trim().to_owned(),
-    };
-    panel
-        .api
-        .review_fix(&account.session, &fix_id, &review)
-        .await
-        .map_err(|e| auth::api_error(&e))?;
-    Ok(redirect(&format!(
-        "/projects/{project_id}/fixes#fix-{fix_id}"
-    )))
 }

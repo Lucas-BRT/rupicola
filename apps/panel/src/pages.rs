@@ -1,39 +1,12 @@
 use super::{
     Account, Arc, BTreeMap, Checkpoint, Cx, Deserialize, Html, IntoResponse, PageResult, Panel,
-    Response, Run, StatusCode, auth, db_error, design_record, design_system, media, pipeline,
-    records, redirect, runs, safe_name, view,
+    Response, Run, StatusCode, auth, db_error, design_record, design_system, media,
+    project::{self, Filter},
+    records, redirect, runs, safe_name, view, views,
 };
 use crate::components::badge::{BadgeVariant, badge};
 use auth::Role;
 use rupicola_api::{NewFinding, NewInvite, NewProject, PasswordChange, Redeem};
-
-async fn visible_runs(panel: &Panel, account: &Account) -> PageResult<Vec<Run>> {
-    runs::list(panel, account).await
-}
-
-async fn catalog(
-    panel: &Panel,
-    account: &Account,
-    runs: &[Run],
-) -> PageResult<BTreeMap<String, String>> {
-    let mut projects = BTreeMap::new();
-    for project in panel
-        .api
-        .projects(&account.session)
-        .await
-        .map_err(|e| auth::api_error(&e))?
-    {
-        projects.insert(project.id, project.label);
-    }
-    for run in runs {
-        if safe_name(&run.project_id) {
-            projects
-                .entry(run.project_id.clone())
-                .or_insert_with(|| run.project.clone());
-        }
-    }
-    Ok(projects)
-}
 
 fn run_list<'a>(cx: &'a Cx, runs: &'a [&'a Run], empty: &'a str) -> topcoat::view::Child<'a> {
     topcoat::view::Child::new(view! {
@@ -62,39 +35,6 @@ fn run_list<'a>(cx: &'a Cx, runs: &'a [&'a Run], empty: &'a str) -> topcoat::vie
     })
 }
 
-#[derive(Default, Deserialize)]
-pub struct Filter {
-    pub project: Option<String>,
-    pub state: Option<String>,
-    pub q: Option<String>,
-    pub kind: Option<String>,
-    pub status: Option<String>,
-    pub view: Option<String>,
-    pub version: Option<String>,
-    pub health: Option<String>,
-    pub asset: Option<String>,
-    pub name: Option<String>,
-}
-
-impl Filter {
-    pub fn accepts(&self, run: &Run) -> bool {
-        let state = self.state.as_deref().unwrap_or("");
-        let query = self.q.as_deref().unwrap_or("").trim().to_lowercase();
-        self.project
-            .as_deref()
-            .is_none_or(|p| p.is_empty() || p == run.project_id)
-            && match state {
-                "pending" => run.inspection == "pending" && run.status == "complete",
-                "blocked" => run.status == "blocked",
-                "reviewed" => run.inspection == "reviewed",
-                _ => true,
-            }
-            && (query.is_empty()
-                || run.scenario.to_lowercase().contains(&query)
-                || run.project.to_lowercase().contains(&query))
-    }
-}
-
 fn pick_hero_checkpoint(checkpoints: &[Checkpoint]) -> Option<&Checkpoint> {
     checkpoints
         .iter()
@@ -119,8 +59,8 @@ pub async fn dashboard(
     account: Account,
     filter: Filter,
 ) -> PageResult<Html<String>> {
-    let runs = visible_runs(&panel, &account).await?;
-    let projects = catalog(&panel, &account, &runs).await?;
+    let runs = project::visible_runs(&panel, &account).await?;
+    let projects = project::catalog(&panel, &account, &runs).await?;
     let project_count = projects.len();
     let mut activity = Vec::new();
     for (id, label) in &projects {
@@ -226,8 +166,8 @@ pub async fn projects(
     account: Account,
     filter: Filter,
 ) -> PageResult<Html<String>> {
-    let runs = visible_runs(&panel, &account).await?;
-    let projects = catalog(&panel, &account, &runs).await?;
+    let runs = project::visible_runs(&panel, &account).await?;
+    let projects = project::catalog(&panel, &account, &runs).await?;
     let search = filter.q.as_deref().unwrap_or("").trim().to_lowercase();
     let empty_catalog = projects.is_empty();
     let total_projects = projects.len();
@@ -404,8 +344,8 @@ async fn project_view(
         other => other.to_string(),
     };
     let role = auth::role(&panel, &account, &id).await?;
-    let runs = visible_runs(&panel, &account).await?;
-    let label = catalog(&panel, &account, &runs)
+    let runs = project::visible_runs(&panel, &account).await?;
+    let label = project::catalog(&panel, &account, &runs)
         .await?
         .remove(&id)
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -423,42 +363,7 @@ async fn project_view(
         .count();
     let records = &design;
     let superseded = &obsolete;
-    let mut all_assets = Vec::new();
-    for run in &related {
-        let manifest = &run.manifest;
-        if manifest.project.id != id {
-            continue;
-        }
-        for item in &manifest.checkpoints {
-            all_assets.push(pipeline::AssetOption {
-                run_key: run.key.clone(),
-                scenario: run.scenario.clone(),
-                name: item.id.clone(),
-                url: media::url(&item.path),
-                kind: "Screenshot",
-            });
-        }
-        for clip in &manifest.clips {
-            if let Some(path) = &clip.video_path {
-                all_assets.push(pipeline::AssetOption {
-                    run_key: run.key.clone(),
-                    scenario: run.scenario.clone(),
-                    name: clip.id.clone(),
-                    url: media::url(path),
-                    kind: "Recording",
-                });
-            }
-            if let Some(path) = &clip.sheet_path {
-                all_assets.push(pipeline::AssetOption {
-                    run_key: run.key.clone(),
-                    scenario: run.scenario.clone(),
-                    name: format!("{} · sheet", clip.id),
-                    url: media::url(path),
-                    kind: "Contact sheet",
-                });
-            }
-        }
-    }
+    let all_assets = project::assets(&related, &id);
 
     let fix_count = panel
         .api
@@ -620,7 +525,7 @@ async fn project_view(
             </section>
         }
         if section == "captures" {
-            (pipeline::render_captures(
+            (views::project::render_captures(
                 cx,
                 &account,
                 role,
@@ -633,7 +538,7 @@ async fn project_view(
             ))
         }
         if section == "problems" {
-            (pipeline::render_problems(
+            (views::project::render_problems(
                 cx,
                 &account,
                 role,
@@ -646,7 +551,7 @@ async fn project_view(
             ))
         }
         if section == "fixes" {
-            (pipeline::render_fixes(
+            (views::project::render_fixes(
                 cx,
                 &account,
                 role,

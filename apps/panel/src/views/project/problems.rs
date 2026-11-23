@@ -1,7 +1,6 @@
 use super::{
-    Account, Arc, AssetOption, Cx, Deserialize, PageResult, Panel, Problem, ProblemStatus,
-    Response, Role, Severity, StatusCode, auth, badge, design_record, pages, problem_status_badge,
-    redirect, severity_badge, view,
+    Account, AssetOption, Cx, Problem, ProblemStatus, Role, Severity, badge, design_record,
+    problem_status_badge, severity_badge, view,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -15,7 +14,7 @@ pub fn render_problems<'a>(
     role: Role,
     _project_id: &'a str,
     base: &'a str,
-    filter: &'a pages::Filter,
+    filter: &'a crate::project::Filter,
     problems: &'a [Problem],
     assets: &'a [AssetOption],
     design_entries: &'a [design_record::Entry],
@@ -300,133 +299,4 @@ pub fn render_problems<'a>(
             </div>
         </dialog>
     })
-}
-
-#[derive(Deserialize)]
-pub struct CreateProblemForm {
-    pub csrf: String,
-    pub title: String,
-    pub route: String,
-    pub viewport: String,
-    pub theme: String,
-    pub severity: String,
-    pub evidence_url: String,
-    pub global_rule: String,
-    pub project_rule: String,
-    pub diagnosis: String,
-    pub solution: String,
-}
-
-pub async fn create_problem_action(
-    panel: Arc<Panel>,
-    account: Account,
-    project_id: String,
-    form: CreateProblemForm,
-) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
-    if auth::role(&panel, &account, &project_id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    let title = form.title.trim();
-    let diagnosis = form.diagnosis.trim();
-    let solution = form.solution.trim();
-    if title.is_empty() || diagnosis.is_empty() || solution.is_empty() {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    let severity = form
-        .severity
-        .trim()
-        .parse()
-        .unwrap_or(rupicola_api::Severity::Major);
-    let mut rules = Vec::new();
-    for (scope, raw) in [
-        ("global", &form.global_rule),
-        ("project", &form.project_rule),
-    ] {
-        if !raw.trim().is_empty() {
-            let (code, rule_title) = raw.split_once(':').unwrap_or((raw.as_str(), raw.as_str()));
-            rules.push(rupicola_api::Rule {
-                scope: scope.into(),
-                code: code.trim().into(),
-                title: rule_title.trim().into(),
-            });
-        }
-    }
-    let evidence: Vec<String> = Some(form.evidence_url.trim())
-        .filter(|url| !url.is_empty())
-        .map(|url| crate::records::artifact_of(url).to_owned())
-        .into_iter()
-        .collect();
-    let new = rupicola_api::NewProblem {
-        title: title.into(),
-        severity,
-        origin: rupicola_api::ProblemOrigin::UserReported,
-        route: form.route.trim().into(),
-        viewport: form.viewport.trim().into(),
-        theme: form.theme.trim().into(),
-        diagnosis: diagnosis.into(),
-        proposed_solution: solution.into(),
-        rules,
-        evidence,
-    };
-    panel
-        .api
-        .create_problem(&account.session, &project_id, &new)
-        .await
-        .map_err(|e| auth::api_error(&e))?;
-    Ok(redirect(&format!("/projects/{project_id}/problems")))
-}
-
-#[derive(Deserialize)]
-pub struct TriageProblemForm {
-    #[serde(default)]
-    pub csrf: String,
-    pub status: String,
-    pub comment: Option<String>,
-    pub solution: Option<String>,
-}
-
-pub async fn triage_problem_action(
-    panel: Arc<Panel>,
-    account: Account,
-    (project_id, problem_id): (String, String),
-    form: TriageProblemForm,
-) -> PageResult<Response> {
-    auth::check_csrf(&account, &form.csrf)?;
-    if auth::role(&panel, &account, &project_id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    let status = form
-        .status
-        .trim()
-        .parse()
-        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
-    let nonblank = |text: Option<String>| {
-        text.map(|text| text.trim().to_owned())
-            .filter(|text| !text.is_empty())
-    };
-    let patch = rupicola_api::ProblemPatch {
-        status: Some(status),
-        severity: None,
-        proposed_solution: nonblank(form.solution),
-    };
-    panel
-        .api
-        .update_problem(&account.session, &problem_id, &patch)
-        .await
-        .map_err(|e| auth::api_error(&e))?;
-    if let Some(text) = nonblank(form.comment) {
-        panel
-            .api
-            .comment_problem(
-                &account.session,
-                &problem_id,
-                &rupicola_api::NewComment { text },
-            )
-            .await
-            .map_err(|e| auth::api_error(&e))?;
-    }
-    Ok(redirect(&format!(
-        "/projects/{project_id}/problems#problem-{problem_id}"
-    )))
 }
