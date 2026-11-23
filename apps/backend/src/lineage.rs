@@ -11,17 +11,210 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use rupicola_api::{Lineage, LineageEvent, ParentEdge, ParentsEdit, Role, record::ParentRef};
-use std::collections::HashSet;
+use rupicola_api::{
+    CaptureDiff, ChangedFile, FacetChange, Lineage, LineageEvent, LineageGraph, LineageLink,
+    LineageNode, ParentEdge, ParentsEdit, Role, record::ParentRef,
+};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// Longest reason an edit may give, in characters.
 const MAX_REASON_CHARS: usize = 500;
 /// The error the database raises when an edge would close a loop.
 const CYCLE_ERROR: &str = "capture lineage cycle";
 
+/// How far a lineage graph reaches either way unless asked otherwise, and the farthest it may.
+const DEFAULT_DEPTH: u32 = 5;
+const MAX_DEPTH: u32 = 20;
+
 /// The routes of the lineage.
 pub fn routes() -> axum::Router<Shared> {
-    axum::Router::new().route("/captures/{id}/parents", axum::routing::get(get).put(edit))
+    use axum::routing;
+    axum::Router::new()
+        .route("/captures/{id}/parents", routing::get(get).put(edit))
+        .route("/captures/{id}/lineage", routing::get(graph))
+        .route("/captures/{a}/compare/{b}", routing::get(compare))
+}
+
+#[derive(serde::Deserialize)]
+pub struct Reach {
+    depth: Option<u32>,
+}
+
+/// A row of a lineage graph's nodes.
+#[derive(sqlx::FromRow)]
+struct NodeRow {
+    id: String,
+    scenario: String,
+    series: Option<String>,
+    created_at: i64,
+    deleted: bool,
+}
+
+/// A row of a lineage graph's links.
+#[derive(sqlx::FromRow)]
+struct LinkRow {
+    capture_id: String,
+    parent_id: String,
+    kind: String,
+    origin: String,
+}
+
+/// `GET /v1/captures/{id}/lineage?depth=N`: the captures this one descends from and those that
+/// descend from it, `depth` steps either way, with the links between them.
+pub async fn graph(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(capture): Path<String>,
+    axum::extract::Query(reach): axum::extract::Query<Reach>,
+) -> Result<Json<LineageGraph>, ApiError> {
+    project_of(&state, &principal, &capture, Role::Reader).await?;
+    let depth = reach.depth.unwrap_or(DEFAULT_DEPTH);
+    if !(1..=MAX_DEPTH).contains(&depth) {
+        return Err(ApiError::invalid(format!("depth must be 1 to {MAX_DEPTH}")));
+    }
+    let ids: Vec<String> = sqlx::query_scalar(
+        "WITH RECURSIVE
+           up(id, depth) AS (
+             SELECT ?1, 0
+             UNION SELECT p.parent_id, up.depth + 1 FROM capture_parents p
+               JOIN up ON p.capture_id = up.id WHERE up.depth < ?2),
+           down(id, depth) AS (
+             SELECT ?1, 0
+             UNION SELECT p.capture_id, down.depth + 1 FROM capture_parents p
+               JOIN down ON p.parent_id = down.id WHERE down.depth < ?2)
+         SELECT id FROM up UNION SELECT id FROM down",
+    )
+    .bind(&capture)
+    .bind(depth)
+    .fetch_all(&state.db)
+    .await?;
+    let wanted = serde_json::to_string(&ids).map_err(anyhow::Error::from)?;
+    let nodes: Vec<NodeRow> = sqlx::query_as(
+        "SELECT id, scenario, series, created_at, deleted_at IS NOT NULL AS deleted FROM captures
+         WHERE id IN (SELECT value FROM json_each(?1)) ORDER BY created_at, id",
+    )
+    .bind(&wanted)
+    .fetch_all(&state.db)
+    .await?;
+    let links: Vec<LinkRow> = sqlx::query_as(
+        "SELECT capture_id, parent_id, kind, origin FROM capture_parents
+         WHERE capture_id IN (SELECT value FROM json_each(?1))
+           AND parent_id IN (SELECT value FROM json_each(?1))
+         ORDER BY capture_id, position",
+    )
+    .bind(&wanted)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(LineageGraph {
+        root: capture,
+        nodes: nodes
+            .into_iter()
+            .map(|row| LineageNode {
+                id: row.id,
+                scenario: row.scenario,
+                series: row.series,
+                created_at: row.created_at,
+                deleted: row.deleted,
+            })
+            .collect(),
+        links: links
+            .into_iter()
+            .map(|row| {
+                Ok(LineageLink {
+                    child: row.capture_id,
+                    parent: row.parent_id,
+                    kind: row.kind.parse().map_err(anyhow::Error::from)?,
+                    origin: row.origin.parse().map_err(anyhow::Error::from)?,
+                })
+            })
+            .collect::<Result<_, ApiError>>()?,
+    }))
+}
+
+/// The files of a capture by path, and its environment facets by key.
+async fn contents(
+    state: &Shared,
+    capture: &str,
+) -> Result<(BTreeMap<String, String>, BTreeMap<String, String>), ApiError> {
+    let files: Vec<(String, String)> =
+        sqlx::query_as("SELECT path, sha256 FROM artifacts WHERE capture_id = ?1")
+            .bind(capture)
+            .fetch_all(&state.db)
+            .await?;
+    let facets: Vec<(String, String)> =
+        sqlx::query_as("SELECT key, value FROM capture_facets WHERE capture_id = ?1")
+            .bind(capture)
+            .fetch_all(&state.db)
+            .await?;
+    Ok((files.into_iter().collect(), facets.into_iter().collect()))
+}
+
+/// `GET /v1/captures/{a}/compare/{b}`: what changed from capture `a` to capture `b` of the same
+/// project: files matched by path, and environment facets. Removed captures can be compared.
+pub async fn compare(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path((before, after)): Path<(String, String)>,
+) -> Result<Json<CaptureDiff>, ApiError> {
+    let owners: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, project_id FROM captures WHERE id IN (?1, ?2)")
+            .bind(&before)
+            .bind(&after)
+            .fetch_all(&state.db)
+            .await?;
+    let found = |id: &str| {
+        owners
+            .iter()
+            .find(|(capture, _)| capture == id)
+            .map(|(_, p)| p)
+    };
+    let (Some(project), Some(other)) = (found(&before), found(&after)) else {
+        return Err(ApiError::NotFound);
+    };
+    if project != other {
+        return Err(ApiError::NotFound);
+    }
+    match access(&state, &principal, project).await? {
+        Access::Device => {}
+        person @ Access::Person(_) => person.require(Role::Reader)?,
+    }
+    let (old_files, old_facets) = contents(&state, &before).await?;
+    let (new_files, new_facets) = contents(&state, &after).await?;
+    let mut diff = CaptureDiff {
+        before: before.clone(),
+        after: after.clone(),
+        same: Vec::new(),
+        changed: Vec::new(),
+        added: new_files
+            .keys()
+            .filter(|path| !old_files.contains_key(*path))
+            .cloned()
+            .collect(),
+        removed: Vec::new(),
+        facets: Vec::new(),
+    };
+    for (path, sha) in &old_files {
+        match new_files.get(path) {
+            Some(other) if other == sha => diff.same.push(path.clone()),
+            Some(other) => diff.changed.push(ChangedFile {
+                path: path.clone(),
+                before: sha.clone(),
+                after: other.clone(),
+            }),
+            None => diff.removed.push(path.clone()),
+        }
+    }
+    let keys: BTreeSet<&String> = old_facets.keys().chain(new_facets.keys()).collect();
+    diff.facets = keys
+        .into_iter()
+        .filter(|key| old_facets.get(*key) != new_facets.get(*key))
+        .map(|key| FacetChange {
+            key: key.clone(),
+            before: old_facets.get(key).cloned(),
+            after: new_facets.get(key).cloned(),
+        })
+        .collect();
+    Ok(Json(diff))
 }
 
 /// The project of a live capture, after checking the caller may act there as `role`.
@@ -263,13 +456,14 @@ mod tests {
     use crate::testkit::*;
     use axum::http::StatusCode;
     use rupicola_api::{
-        Lineage, ParentOrigin,
+        CaptureDiff, Lineage, LineageGraph, ParentOrigin,
         record::{ParentKind, ParentRef},
     };
 
     const A: &str = "01936f2c-aaaa-7bbb-8ccc-00000000000a";
     const B: &str = "01936f2c-aaaa-7bbb-8ccc-00000000000b";
     const C: &str = "01936f2c-aaaa-7bbb-8ccc-00000000000c";
+    const D: &str = "01936f2c-aaaa-7bbb-8ccc-00000000000d";
 
     fn parent(id: &str, kind: ParentKind) -> ParentRef {
         ParentRef {
@@ -427,5 +621,108 @@ mod tests {
         assert_eq!(status(&outsider), StatusCode::NOT_FOUND);
         let missing = lineage(port, &bruno, "no-such-capture").await;
         assert_eq!(status(&missing), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn the_graph_reaches_up_and_down_as_far_as_asked() {
+        let (port, [ana, bruno, _]) = demo().await;
+        edit(
+            port,
+            &ana,
+            C,
+            &[parent(B, ParentKind::Previous)],
+            0,
+            "C continues B",
+        )
+        .await;
+        let graph = |capture: &str, depth: &str| {
+            let (path, token) = (
+                format!("/v1/captures/{capture}/lineage{depth}"),
+                bruno.clone(),
+            );
+            async move { call(port, "GET", &path, Some(&token), None).await }
+        };
+        let whole: LineageGraph = json(&graph(B, "").await);
+        let mut nodes: Vec<&str> = whole.nodes.iter().map(|n| n.id.as_str()).collect();
+        nodes.sort_unstable();
+        assert_eq!(nodes, [A, B, C], "one parent up and one child down");
+        assert_eq!(whole.links.len(), 2);
+        let near: LineageGraph = json(&graph(A, "?depth=1").await);
+        let mut nodes: Vec<&str> = near.nodes.iter().map(|n| n.id.as_str()).collect();
+        nodes.sort_unstable();
+        assert_eq!(nodes, [A, B], "C is two steps away");
+        assert_eq!(near.links[0].origin, ParentOrigin::Record);
+        for bad in ["?depth=0", "?depth=21"] {
+            assert_eq!(
+                status(&graph(A, bad).await),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_comparison_pairs_files_by_path_and_lists_the_facets_that_differ() {
+        let (port, [ana, bruno, carla]) = demo().await;
+        let same: CaptureDiff = json(
+            &call(
+                port,
+                "GET",
+                &format!("/v1/captures/{A}/compare/{B}"),
+                Some(&bruno),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(same.same, ["checkpoints/home.png"]);
+        assert!(same.changed.is_empty() && same.added.is_empty() && same.removed.is_empty());
+        assert_eq!(same.facets, Vec::new());
+        let menu = stream_blob(port, &ana, "demo", b"other pixels").await;
+        let mut other = capture_record(D, &menu, 12, Vec::new());
+        other.members[0].path = "checkpoints/menu.png".to_owned();
+        other.environment.appearance = Some(rupicola_api::record::Appearance {
+            color_scheme: Some("light".to_owned()),
+            ..rupicola_api::record::Appearance::default()
+        });
+        publish_record(port, &ana, &other).await;
+        let diff: CaptureDiff = json(
+            &call(
+                port,
+                "GET",
+                &format!("/v1/captures/{A}/compare/{D}"),
+                Some(&bruno),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(diff.removed, ["checkpoints/home.png"]);
+        assert_eq!(diff.added, ["checkpoints/menu.png"]);
+        assert_eq!(diff.facets.len(), 1);
+        assert_eq!(diff.facets[0].key, "appearance.color_scheme");
+        assert_eq!(
+            (
+                diff.facets[0].before.as_deref(),
+                diff.facets[0].after.as_deref()
+            ),
+            (Some("dark"), Some("light"))
+        );
+        let outsider = call(
+            port,
+            "GET",
+            &format!("/v1/captures/{A}/compare/{B}"),
+            Some(&carla),
+            None,
+        )
+        .await;
+        assert_eq!(status(&outsider), StatusCode::NOT_FOUND);
+        let unknown = call(
+            port,
+            "GET",
+            &format!("/v1/captures/{A}/compare/nope"),
+            Some(&ana),
+            None,
+        )
+        .await;
+        assert_eq!(status(&unknown), StatusCode::NOT_FOUND);
     }
 }

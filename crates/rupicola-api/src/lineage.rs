@@ -53,3 +53,61 @@ pub struct ParentsEdit {
     /// Why the lineage changes, kept in its history.
     pub reason: String,
 }
+
+/// One capture in a lineage graph.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct LineageNode {
+    pub id: String,
+    pub scenario: String,
+    pub series: Option<String>,
+    pub created_at: i64,
+    /// Whether the capture was removed; it stays in the graph as a tombstone.
+    pub deleted: bool,
+}
+
+/// One parent link in a lineage graph.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct LineageLink {
+    pub child: String,
+    pub parent: String,
+    pub kind: ParentKind,
+    pub origin: ParentOrigin,
+}
+
+/// `GET /v1/captures/{id}/lineage`: the captures a capture descends from and those that descend
+/// from it, up to a depth either way.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct LineageGraph {
+    pub root: String,
+    pub nodes: Vec<LineageNode>,
+    pub links: Vec<LineageLink>,
+}
+
+/// A file present in both captures but with other content.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct ChangedFile {
+    pub path: String,
+    pub before: String,
+    pub after: String,
+}
+
+/// An environment facet that differs between two captures; a side without it is `None`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct FacetChange {
+    pub key: String,
+    pub before: Option<String>,
+    pub after: Option<String>,
+}
+
+/// `GET /v1/captures/{a}/compare/{b}`: what changed from capture `a` to capture `b`, file by
+/// file (matched by path) and facet by facet.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct CaptureDiff {
+    pub before: String,
+    pub after: String,
+    pub same: Vec<String>,
+    pub changed: Vec<ChangedFile>,
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+    pub facets: Vec<FacetChange>,
+}
