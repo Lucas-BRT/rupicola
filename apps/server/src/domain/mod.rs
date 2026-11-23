@@ -11,6 +11,7 @@ pub mod error;
 pub mod limits;
 pub mod principal;
 pub mod project;
+pub mod record;
 pub mod secret;
 
 pub use error::ApiError;

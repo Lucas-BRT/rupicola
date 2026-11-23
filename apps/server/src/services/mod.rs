@@ -10,5 +10,6 @@ pub mod design;
 pub mod limits;
 pub mod passwords;
 pub mod projects;
+pub mod publish;
 pub mod settings;
 pub mod uploads;

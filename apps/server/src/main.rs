@@ -8,7 +8,6 @@ mod fixes;
 mod http;
 mod lineage;
 mod problems;
-mod publish;
 mod removal;
 mod repositories;
 mod search;

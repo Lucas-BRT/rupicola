@@ -13,6 +13,7 @@ pub mod captures;
 pub mod credentials;
 pub mod design;
 pub mod projects;
+pub mod records;
 pub mod settings;
 pub mod tokens;
 
