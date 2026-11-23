@@ -147,26 +147,92 @@ pub async fn audit(
     Ok(())
 }
 
+/// A `projects` row with the caller's role in it, if any.
+#[derive(sqlx::FromRow)]
+struct ProjectRow {
+    id: String,
+    label: String,
+    created_at: i64,
+    role: Option<String>,
+}
+
+impl From<ProjectRow> for Project {
+    fn from(row: ProjectRow) -> Self {
+        Self {
+            id: row.id,
+            label: row.label,
+            created_at: row.created_at,
+            role: row.role.as_deref().and_then(parse_role),
+        }
+    }
+}
+
+/// A `projects` row without a role.
+#[derive(sqlx::FromRow)]
+struct ProjectHead {
+    label: String,
+    created_at: i64,
+}
+
+/// A `members` row.
+#[derive(sqlx::FromRow)]
+struct MemberRow {
+    handle: String,
+    role: String,
+}
+
+impl MemberRow {
+    /// `None` when the stored role is unknown.
+    fn into_member(self) -> Option<Member> {
+        Some(Member {
+            handle: self.handle,
+            role: parse_role(&self.role)?,
+        })
+    }
+}
+
+/// An `audit_events` row.
+#[derive(sqlx::FromRow)]
+struct AuditRow {
+    id: String,
+    actor: String,
+    event: String,
+    occurred_at: i64,
+}
+
+impl From<AuditRow> for AuditEvent {
+    fn from(row: AuditRow) -> Self {
+        Self {
+            id: row.id,
+            actor: row.actor,
+            event: row.event,
+            occurred_at: row.occurred_at,
+        }
+    }
+}
+
 /// `GET /v1/projects`
 pub async fn list(
     State(state): State<Shared>,
     principal: Principal,
 ) -> Result<Json<Vec<Project>>, ApiError> {
-    let rows: Vec<(String, String, i64, Option<String>)> = match principal.kind {
+    let rows: Vec<ProjectRow> = match principal.kind {
         TokenKind::Device => {
-            sqlx::query_as("SELECT id, label, created_at, NULL FROM projects WHERE id = ?1")
+            sqlx::query_as("SELECT id, label, created_at, NULL AS role FROM projects WHERE id = ?1")
                 .bind(&principal.project)
                 .fetch_all(&state.db)
                 .await?
         }
         _ if principal.admin => {
-            sqlx::query_as("SELECT id, label, created_at, 'owner' FROM projects ORDER BY label, id")
-                .fetch_all(&state.db)
-                .await?
+            sqlx::query_as(
+                "SELECT id, label, created_at, 'owner' AS role FROM projects ORDER BY label, id",
+            )
+            .fetch_all(&state.db)
+            .await?
         }
         _ => {
             sqlx::query_as(
-                "SELECT p.id, p.label, p.created_at, m.role FROM projects p
+                "SELECT p.id, p.label, p.created_at, m.role AS role FROM projects p
                  JOIN members m ON m.project_id = p.id
                  WHERE m.handle = ?1 ORDER BY p.label, p.id",
             )
@@ -175,16 +241,7 @@ pub async fn list(
             .await?
         }
     };
-    Ok(Json(
-        rows.into_iter()
-            .map(|(id, label, created_at, role)| Project {
-                id,
-                label,
-                created_at,
-                role: role.as_deref().and_then(parse_role),
-            })
-            .collect(),
-    ))
+    Ok(Json(rows.into_iter().map(Project::from).collect()))
 }
 
 /// `POST /v1/projects`: the creator becomes its owner.
@@ -240,15 +297,14 @@ pub async fn get(
     Path(id): Path<String>,
 ) -> Result<Json<Project>, ApiError> {
     let access = access(&state, &principal, &id).await?;
-    let (label, created_at): (String, i64) =
-        sqlx::query_as("SELECT label, created_at FROM projects WHERE id = ?1")
-            .bind(&id)
-            .fetch_one(&state.db)
-            .await?;
+    let head: ProjectHead = sqlx::query_as("SELECT label, created_at FROM projects WHERE id = ?1")
+        .bind(&id)
+        .fetch_one(&state.db)
+        .await?;
     Ok(Json(Project {
         id,
-        label,
-        created_at,
+        label: head.label,
+        created_at: head.created_at,
         role: match access {
             Access::Person(role) => Some(role),
             Access::Device => None,
@@ -314,19 +370,14 @@ pub async fn members(
     access(&state, &principal, &id)
         .await?
         .require(Role::Reader)?;
-    let rows: Vec<(String, String)> =
+    let rows: Vec<MemberRow> =
         sqlx::query_as("SELECT handle, role FROM members WHERE project_id = ?1 ORDER BY handle")
             .bind(&id)
             .fetch_all(&state.db)
             .await?;
     Ok(Json(
         rows.into_iter()
-            .filter_map(|(handle, role)| {
-                Some(Member {
-                    handle,
-                    role: parse_role(&role)?,
-                })
-            })
+            .filter_map(MemberRow::into_member)
             .collect(),
     ))
 }
@@ -442,7 +493,7 @@ pub async fn audit_log(
     access(&state, &principal, &id)
         .await?
         .require(Role::Owner)?;
-    let rows: Vec<(String, String, String, i64)> = sqlx::query_as(
+    let rows: Vec<AuditRow> = sqlx::query_as(
         "SELECT id, actor, event, occurred_at FROM audit_events
          WHERE project_id = ?1 ORDER BY occurred_at DESC, id DESC LIMIT ?2",
     )
@@ -450,16 +501,7 @@ pub async fn audit_log(
     .bind(AUDIT_PAGE)
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(|(id, actor, event, occurred_at)| AuditEvent {
-                id,
-                actor,
-                event,
-                occurred_at,
-            })
-            .collect(),
-    ))
+    Ok(Json(rows.into_iter().map(AuditEvent::from).collect()))
 }
 
 #[cfg(test)]
