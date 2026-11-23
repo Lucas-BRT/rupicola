@@ -56,28 +56,59 @@ fn parse_kind(text: &str) -> Option<TokenKind> {
     }
 }
 
-type CredentialRow = (
-    String,
-    String,
-    String,
-    Option<String>,
-    i64,
-    Option<i64>,
-    Option<i64>,
-);
+/// A `tokens` row, as shown to its owner.
+#[derive(sqlx::FromRow)]
+struct CredentialRow {
+    digest: String,
+    kind: String,
+    label: String,
+    project_id: Option<String>,
+    created_at: i64,
+    expires_at: Option<i64>,
+    last_used_at: Option<i64>,
+}
 
-fn credential(
-    (id, kind, label, project_id, created_at, expires_at, last_used_at): CredentialRow,
-) -> Option<Credential> {
-    Some(Credential {
-        id,
-        kind: parse_kind(&kind)?,
-        label,
-        project_id,
-        created_at,
-        expires_at,
-        last_used_at,
-    })
+impl CredentialRow {
+    /// `None` when the stored kind is unknown.
+    fn into_credential(self) -> Option<Credential> {
+        Some(Credential {
+            id: self.digest,
+            kind: parse_kind(&self.kind)?,
+            label: self.label,
+            project_id: self.project_id,
+            created_at: self.created_at,
+            expires_at: self.expires_at,
+            last_used_at: self.last_used_at,
+        })
+    }
+}
+
+/// An `invites` row.
+#[derive(sqlx::FromRow)]
+struct InviteRow {
+    digest: String,
+    role: String,
+    created_by: Option<String>,
+    expires_at: i64,
+}
+
+impl InviteRow {
+    /// `None` when the stored role is unknown.
+    fn into_invite(self) -> Option<Invite> {
+        Some(Invite {
+            id: self.digest,
+            role: parse_role(&self.role)?,
+            created_by: self.created_by,
+            expires_at: self.expires_at,
+        })
+    }
+}
+
+/// What a consumed invitation grants.
+#[derive(sqlx::FromRow)]
+struct InviteGrant {
+    project_id: String,
+    role: String,
 }
 
 /// Inserts a new non-expiring credential and returns its one-time secret.
@@ -163,7 +194,11 @@ pub async fn list_tokens(
     .bind(now_ms())
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(rows.into_iter().filter_map(credential).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .filter_map(CredentialRow::into_credential)
+            .collect(),
+    ))
 }
 
 /// `DELETE /v1/tokens/{id}`: revoke one of the caller's sessions or machine tokens.
@@ -226,7 +261,11 @@ pub async fn list_devices(
     .bind(&project)
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(rows.into_iter().filter_map(credential).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .filter_map(CredentialRow::into_credential)
+            .collect(),
+    ))
 }
 
 /// `DELETE /v1/projects/{id}/devices/{device}`
@@ -320,7 +359,7 @@ pub async fn list_invites(
     access(&state, &principal, &project)
         .await?
         .require(Role::Owner)?;
-    let rows: Vec<(String, String, Option<String>, i64)> = sqlx::query_as(
+    let rows: Vec<InviteRow> = sqlx::query_as(
         "SELECT digest, role, created_by, expires_at FROM invites
          WHERE project_id = ?1 AND expires_at > ?2 ORDER BY expires_at",
     )
@@ -330,14 +369,7 @@ pub async fn list_invites(
     .await?;
     Ok(Json(
         rows.into_iter()
-            .filter_map(|(id, role, created_by, expires_at)| {
-                Some(Invite {
-                    id,
-                    role: parse_role(&role)?,
-                    created_by,
-                    expires_at,
-                })
-            })
+            .filter_map(InviteRow::into_invite)
             .collect(),
     ))
 }
@@ -371,7 +403,7 @@ pub async fn delete_invite(
 async fn take_invite(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     code: &str,
-) -> Result<Option<(String, String)>, ApiError> {
+) -> Result<Option<InviteGrant>, ApiError> {
     Ok(sqlx::query_as(
         "DELETE FROM invites WHERE digest = ?1 AND expires_at > ?2
          RETURNING project_id, role",
@@ -396,7 +428,11 @@ pub async fn register(
     }
     let password = state.passwords.hash(form.password).await?;
     let mut tx = state.db.begin().await?;
-    let Some((project, role)) = take_invite(&mut tx, &form.code).await? else {
+    let Some(InviteGrant {
+        project_id: project,
+        role,
+    }) = take_invite(&mut tx, &form.code).await?
+    else {
         drop(tx);
         state.lockout.fail(INVITE_LOCKOUT_KEY).await;
         return Err(ApiError::Forbidden);
@@ -447,7 +483,11 @@ pub async fn redeem(
         return Err(ApiError::TooManyRequests { retry_after });
     }
     let mut tx = state.db.begin().await?;
-    let Some((project, role)) = take_invite(&mut tx, &form.code).await? else {
+    let Some(InviteGrant {
+        project_id: project,
+        role,
+    }) = take_invite(&mut tx, &form.code).await?
+    else {
         drop(tx);
         state.lockout.fail(INVITE_LOCKOUT_KEY).await;
         return Err(ApiError::Forbidden);
