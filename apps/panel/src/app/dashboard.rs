@@ -3,7 +3,7 @@
 use crate::app::{account, panel, respond};
 use crate::components::display::run_list;
 use crate::{
-    Account, Arc, PageResult, Panel, media,
+    PageResult, media,
     project::{self, Filter, pick_hero_checkpoint},
     records,
     views::{self, dashboard::Dashboard},
@@ -18,10 +18,7 @@ use topcoat::{
 
 #[route(GET)]
 async fn dashboard(cx: &Cx) -> Result<Response> {
-    respond(
-        cx,
-        show(panel(cx), account(cx), parse_query_params(cx)?).await,
-    )
+    respond(cx, show(cx, parse_query_params(cx)?).await)
 }
 
 /// Captures listed in the queue.
@@ -29,13 +26,15 @@ const QUEUE_LEN: usize = 30;
 /// Design records listed as recent activity.
 const ACTIVITY_LEN: usize = 8;
 
-async fn show(panel: Arc<Panel>, account: Account, filter: Filter) -> PageResult<Html<String>> {
-    let runs = project::visible_runs(&panel, &account).await?;
-    let projects = project::catalog(&panel, &account, &runs).await?;
+async fn show(cx: &Cx, filter: Filter) -> PageResult<Html<String>> {
+    let panel = panel(cx);
+    let account = account(cx);
+    let runs = project::visible_runs(cx).await?;
+    let projects = project::catalog(cx, &runs).await?;
     let project_count = projects.len();
     let mut activity = Vec::new();
     for (id, label) in &projects {
-        let records = records::design(&panel, &account, id).await?;
+        let records = records::design(cx, id).await?;
         let superseded = design_record::superseded(&records);
         activity.extend(
             records
@@ -77,7 +76,6 @@ async fn show(panel: Arc<Panel>, account: Account, filter: Filter) -> PageResult
                 &run.scenario,
             ))
         });
-    let cx = &Cx::default();
     let list = Child::new(view! { run_list(runs: &items, message: "No matching captures.") });
     let data = Dashboard {
         filter: &filter,

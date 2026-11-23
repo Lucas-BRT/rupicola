@@ -2,7 +2,7 @@
 
 use crate::app::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
-use crate::{Account, Arc, PageResult, Panel, StatusCode, auth, auth::Role, redirect};
+use crate::{PageResult, StatusCode, auth, auth::Role, redirect};
 use rupicola_core::problem_record;
 use serde::Deserialize;
 use topcoat::{
@@ -15,7 +15,7 @@ use topcoat::{
 async fn analyze(cx: &Cx, Form(form): Form<AnalyzeRunForm>) -> Result<Response> {
     respond(
         cx,
-        analyze_run_action(panel(cx), account(cx), project_param(cx).into(), form).await,
+        analyze_run_action(cx, project_param(cx).into(), form).await,
     )
 }
 
@@ -26,30 +26,27 @@ pub struct AnalyzeRunForm {
 }
 
 pub async fn analyze_run_action(
-    panel: Arc<Panel>,
-    account: Account,
+    cx: &Cx,
     project_id: String,
     form: AnalyzeRunForm,
 ) -> PageResult<Response> {
+    let (panel, account) = (panel(cx), account(cx));
     auth::check_csrf(&account, &form.csrf)?;
     if auth::role(&panel, &account, &project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    match analyze_run(&panel, &account, &project_id, &form.run_key).await {
+    match analyze_run(cx, &project_id, &form.run_key).await {
         Ok(()) | Err(StatusCode::NOT_FOUND) => {}
         Err(error) => return Err(error),
     }
     Ok(redirect(&format!("/projects/{project_id}/problems")))
 }
 
-pub(crate) async fn analyze_run(
-    panel: &Panel,
-    account: &Account,
-    project_id: &str,
-    run_key: &str,
-) -> PageResult<()> {
-    let existing = crate::records::problems(panel, account, project_id, &[], &[]).await?;
-    let manifest = crate::runs::find(panel, account, run_key)
+pub(crate) async fn analyze_run(cx: &Cx, project_id: &str, run_key: &str) -> PageResult<()> {
+    let (panel, account) = (panel(cx), account(cx));
+    let (panel, account) = (&panel, &account);
+    let existing = crate::records::problems(cx, project_id, &[], &[]).await?;
+    let manifest = crate::runs::find(cx, run_key)
         .await
         .map(|run| run.manifest)
         .ok()

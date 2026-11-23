@@ -2,11 +2,12 @@
 //! captures hold.
 
 use crate::{
-    Account, PageResult, Panel, Run, StatusCode, auth, auth::Role, media, runs, safe_name,
+    Account, PageResult, Panel, Run, StatusCode, auth, auth::Role, backend, media, runs, safe_name,
 };
 use rupicola_core::capture_manifest::Checkpoint;
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use topcoat::context::Cx;
 
 /// A file of a capture that a problem, fix or design record can cite.
 pub struct AssetOption {
@@ -52,24 +53,15 @@ impl Filter {
 }
 
 /// Every capture the account can see.
-pub async fn visible_runs(panel: &Panel, account: &Account) -> PageResult<Vec<Run>> {
-    runs::list(panel, account).await
+pub async fn visible_runs(cx: &Cx) -> PageResult<Vec<Run>> {
+    runs::list(cx).await
 }
 
 /// The projects the account can see, with their labels.
-pub async fn catalog(
-    panel: &Panel,
-    account: &Account,
-    runs: &[Run],
-) -> PageResult<BTreeMap<String, String>> {
+pub async fn catalog(cx: &Cx, runs: &[Run]) -> PageResult<BTreeMap<String, String>> {
     let mut projects = BTreeMap::new();
-    for project in panel
-        .api
-        .projects(&account.session)
-        .await
-        .map_err(|e| auth::api_error(&e))?
-    {
-        projects.insert(project.id, project.label);
+    for project in backend::projects(cx).await.as_ref().map_err(|e| *e)? {
+        projects.insert(project.id.clone(), project.label.clone());
     }
     for run in runs {
         if safe_name(&run.project_id) {
@@ -139,24 +131,23 @@ impl Context {
     /// # Errors
     ///
     /// 404 when the id is malformed or the account cannot see the project.
-    pub async fn load(panel: &Panel, account: &Account, id: &str) -> PageResult<Self> {
+    pub async fn load(cx: &Cx, id: &str) -> PageResult<Self> {
         if !safe_name(id) {
             return Err(StatusCode::NOT_FOUND);
         }
-        let role = auth::role(panel, account, id).await?;
-        let project = panel
-            .api
-            .projects(&account.session)
+        let role = auth::role_of(cx, id).await?;
+        let project = backend::projects(cx)
             .await
-            .map_err(|e| auth::api_error(&e))?
-            .into_iter()
+            .as_ref()
+            .map_err(|e| *e)?
+            .iter()
             .find(|project| project.id == id)
             .ok_or(StatusCode::NOT_FOUND)?;
-        let runs = runs::of_project(panel, account, &project).await?;
+        let runs = runs::of_project(cx, project).await?;
         Ok(Self {
             base: format!("/projects/{id}"),
-            id: project.id,
-            label: project.label,
+            id: project.id.clone(),
+            label: project.label.clone(),
             role,
             runs,
         })

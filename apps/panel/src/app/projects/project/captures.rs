@@ -3,7 +3,7 @@
 use crate::app::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
 use crate::{
-    Account, Arc, PageResult, Panel,
+    PageResult,
     project::{Context, Filter},
     records,
     views::{self, project::Tab},
@@ -18,28 +18,18 @@ use topcoat::{
 async fn page(cx: &Cx) -> Result<Response> {
     respond(
         cx,
-        show(
-            panel(cx),
-            account(cx),
-            project_param(cx).into(),
-            parse_query_params(cx)?,
-        )
-        .await,
+        show(cx, project_param(cx).into(), parse_query_params(cx)?).await,
     )
 }
 
 /// The captures tab, which `runs`, `images` and `videos` also open with another view.
-pub(super) async fn show(
-    panel: Arc<Panel>,
-    account: Account,
-    id: String,
-    filter: Filter,
-) -> PageResult<Html<String>> {
-    let project = Context::load(&panel, &account, &id).await?;
+pub(super) async fn show(cx: &Cx, id: String, filter: Filter) -> PageResult<Html<String>> {
+    let panel = panel(cx);
+    let account = account(cx);
+    let project = Context::load(cx, &id).await?;
     let related = project.related();
     let assets = project.assets();
-    let problems = records::problems(&panel, &account, &id, &assets, &[]).await?;
-    let cx = &Cx::default();
+    let problems = records::problems(cx, &id, &assets, &[]).await?;
     let body = views::project::render_captures(
         cx,
         &account,

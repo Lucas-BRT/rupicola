@@ -20,6 +20,7 @@ use turso::Connection;
 
 mod app;
 mod auth;
+mod backend;
 mod components;
 mod db;
 mod design_system;

@@ -3,13 +3,14 @@
 //! artifact standing where a media path used to.
 
 use super::{
-    Account, PageResult, Panel, auth, design_record, fix_record, media, problem_record,
+    Account, PageResult, Panel, auth, backend, design_record, fix_record, media, problem_record,
     project::AssetOption,
 };
 use rupicola_api::{Fix, Problem};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::task::JoinSet;
+use topcoat::context::{Cx, context};
 
 /// Kind shown for evidence the capture lists do not describe.
 const DEFAULT_EVIDENCE_KIND: &str = "Screenshot";
@@ -164,21 +165,15 @@ fn fix_of(fix: Fix) -> fix_record::FixRecord {
 /// # Errors
 ///
 /// The status of a failed call to the backend.
-pub async fn fixes(
-    panel: &Panel,
-    account: &Account,
-    project: &str,
-) -> PageResult<Vec<fix_record::FixRecord>> {
-    let summaries = panel
-        .api
-        .fixes(&account.session, project)
-        .await
-        .map_err(|e| auth::api_error(&e))?;
+pub async fn fixes(cx: &Cx, project: &str) -> PageResult<Vec<fix_record::FixRecord>> {
+    let summaries = backend::fixes(cx, project).await.as_ref().map_err(|e| *e)?;
+    let (panel, account) = (context::<Arc<Panel>>(cx), context::<Account>(cx));
     let mut reading = JoinSet::new();
-    for (position, summary) in summaries.into_iter().enumerate() {
+    for (position, summary) in summaries.iter().enumerate() {
         let api = Arc::clone(&panel.api);
         let session = account.session.clone();
-        reading.spawn(async move { (position, api.fix(&session, &summary.id).await) });
+        let id = summary.id.clone();
+        reading.spawn(async move { (position, api.fix(&session, &id).await) });
     }
     let mut found = Vec::new();
     while let Some(joined) = reading.join_next().await {
@@ -196,17 +191,16 @@ pub async fn fixes(
 ///
 /// The status of a failed call to the backend.
 pub async fn problems(
-    panel: &Panel,
-    account: &Account,
+    cx: &Cx,
     project: &str,
     assets: &[AssetOption],
     fixes: &[fix_record::FixRecord],
 ) -> PageResult<Vec<problem_record::Problem>> {
-    let summaries = panel
-        .api
-        .problems(&account.session, project)
+    let summaries = backend::problems(cx, project)
         .await
-        .map_err(|e| auth::api_error(&e))?;
+        .as_ref()
+        .map_err(|e| *e)?;
+    let (panel, account) = (context::<Arc<Panel>>(cx), context::<Account>(cx));
     let mut linked: BTreeMap<&String, &String> = BTreeMap::new();
     for fix in fixes {
         for problem in &fix.problem_ids {
@@ -214,10 +208,11 @@ pub async fn problems(
         }
     }
     let mut reading = JoinSet::new();
-    for (position, summary) in summaries.into_iter().enumerate() {
+    for (position, summary) in summaries.iter().enumerate() {
         let api = Arc::clone(&panel.api);
         let session = account.session.clone();
-        reading.spawn(async move { (position, api.problem(&session, &summary.id).await) });
+        let id = summary.id.clone();
+        reading.spawn(async move { (position, api.problem(&session, &id).await) });
     }
     let mut found = Vec::new();
     while let Some(joined) = reading.join_next().await {
@@ -303,17 +298,12 @@ pub async fn open_inferred(
 /// # Errors
 ///
 /// The status of a failed call to the backend.
-pub async fn design(
-    panel: &Panel,
-    account: &Account,
-    project: &str,
-) -> PageResult<Vec<design_record::Entry>> {
-    let entries = panel
-        .api
-        .design(&account.session, project)
+pub async fn design(cx: &Cx, project: &str) -> PageResult<Vec<design_record::Entry>> {
+    let entries = backend::design(cx, project)
         .await
-        .map_err(|e| auth::api_error(&e))?;
-    Ok(entries.into_iter().map(design_entry_of).collect())
+        .as_ref()
+        .map_err(|e| *e)?;
+    Ok(entries.iter().cloned().map(design_entry_of).collect())
 }
 
 fn design_entry_of(record: rupicola_api::DesignEntry) -> design_record::Entry {

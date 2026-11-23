@@ -9,7 +9,7 @@ mod version;
 use crate::app::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
 use crate::{
-    Account, Arc, PageResult, Panel, design_system,
+    PageResult, design_system,
     project::{Context, Filter},
     records,
     views::{self, project::Tab},
@@ -24,25 +24,16 @@ use topcoat::{
 async fn page(cx: &Cx) -> Result<Response> {
     respond(
         cx,
-        show(
-            panel(cx),
-            account(cx),
-            project_param(cx).into(),
-            parse_query_params(cx)?,
-        )
-        .await,
+        show(cx, project_param(cx).into(), parse_query_params(cx)?).await,
     )
 }
 
-async fn show(
-    panel: Arc<Panel>,
-    account: Account,
-    id: String,
-    filter: Filter,
-) -> PageResult<Html<String>> {
-    let project = Context::load(&panel, &account, &id).await?;
+async fn show(cx: &Cx, id: String, filter: Filter) -> PageResult<Html<String>> {
+    let panel = panel(cx);
+    let account = account(cx);
+    let project = Context::load(cx, &id).await?;
     let all_assets = project.assets();
-    let design = records::design(&panel, &account, &id).await?;
+    let design = records::design(cx, &id).await?;
     let superseded = rupicola_core::design_record::superseded(&design);
     let tab = match filter.view.as_deref() {
         Some("system") => "system",
@@ -50,7 +41,6 @@ async fn show(
         _ => "records",
     };
     let studio = design_system::load(&panel, &id, filter.version.as_deref()).await?;
-    let cx = &Cx::default();
     let data = views::project::design::Design {
         base: &project.base,
         role: project.role,

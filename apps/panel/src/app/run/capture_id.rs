@@ -2,7 +2,7 @@
 
 use crate::app::{account, panel, respond};
 use crate::{
-    Account, Arc, Deserialize, PageResult, Panel, Run, StatusCode, auth,
+    Account, Deserialize, PageResult, Panel, Run, StatusCode, auth,
     auth::Role,
     media, redirect, runs,
     views::{self, run::Capture as RunView},
@@ -31,34 +31,25 @@ struct Comparison {
 async fn page(cx: &Cx) -> Result<Response> {
     respond(
         cx,
-        show(
-            parse_query_params(cx)?,
-            account(cx),
-            panel(cx),
-            capture_id(cx).into(),
-        )
-        .await,
+        show(cx, parse_query_params(cx)?, capture_id(cx).into()).await,
     )
 }
 
-async fn show(
-    comparison: Comparison,
-    account: Account,
-    panel: Arc<Panel>,
-    id: String,
-) -> PageResult<Html<String>> {
-    let found = runs::find(&panel, &account, &id).await?;
+async fn show(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Html<String>> {
+    let (panel, account) = (panel(cx), account(cx));
+    let found = runs::find(cx, &id).await?;
     let key = found.key;
     let run = found.manifest;
-    let role = auth::role(&panel, &account, &run.project.id).await?;
-    let candidates: Vec<_> = runs::summaries(&panel, &account, &run.project.id)
+    let role = auth::role_of(cx, &run.project.id).await?;
+    let candidates: Vec<_> = runs::summaries(cx, &run.project.id)
         .await?
-        .into_iter()
+        .iter()
         .filter(|entry| {
             entry.scenario == run.scenario
                 && entry.status == CaptureStatus::Complete
                 && entry.id != key
         })
+        .cloned()
         .collect();
     let requested = comparison.before;
     let before = match requested
@@ -66,7 +57,7 @@ async fn show(
         .filter(|before| candidates.iter().any(|candidate| candidate.id == *before))
     {
         Some(before) => {
-            let before = runs::find(&panel, &account, before).await?.manifest;
+            let before = runs::find(cx, before).await?.manifest;
             let differs = before.environment != run.environment;
             Some((before.checkpoints, differs))
         }
@@ -107,10 +98,7 @@ async fn show(
 
 #[route(POST)]
 async fn inspect(cx: &Cx, Form(form): Form<Review>) -> Result<Response> {
-    respond(
-        cx,
-        review(panel(cx), account(cx), capture_id(cx).into(), form).await,
-    )
+    respond(cx, review(cx, capture_id(cx).into(), form).await)
 }
 
 #[derive(Deserialize)]
@@ -119,14 +107,10 @@ struct Review {
     note: String,
     evidence: Option<String>,
 }
-async fn review(
-    panel: Arc<Panel>,
-    account: Account,
-    id: String,
-    form: Review,
-) -> PageResult<Response> {
+async fn review(cx: &Cx, id: String, form: Review) -> PageResult<Response> {
+    let (panel, account) = (panel(cx), account(cx));
     auth::check_csrf(&account, &form.csrf)?;
-    let run = runs::find(&panel, &account, &id).await?;
+    let run = runs::find(cx, &id).await?;
     if auth::role(&panel, &account, &run.project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }

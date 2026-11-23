@@ -1,7 +1,7 @@
 //! `GET /projects/{project}/runs`: the captures tab with the runs view.
 
 use crate::app::projects::project::project as project_param;
-use crate::app::{account, panel, respond};
+use crate::app::respond;
 use topcoat::{
     Result,
     context::Cx,
@@ -14,6 +14,6 @@ async fn page(cx: &Cx) -> Result<Response> {
     filter.view.get_or_insert_with(|| "runs".into());
     respond(
         cx,
-        super::captures::show(panel(cx), account(cx), project_param(cx).into(), filter).await,
+        super::captures::show(cx, project_param(cx).into(), filter).await,
     )
 }

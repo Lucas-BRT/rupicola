@@ -24,10 +24,7 @@ use topcoat::{
 
 #[route(GET)]
 async fn list(cx: &Cx) -> Result<Response> {
-    respond(
-        cx,
-        show(panel(cx), account(cx), parse_query_params(cx)?).await,
-    )
+    respond(cx, show(cx, parse_query_params(cx)?).await)
 }
 
 #[route(POST)]
@@ -35,9 +32,11 @@ async fn create(cx: &Cx, Form(form): Form<CreateProject>) -> Result<Response> {
     respond(cx, create_project(panel(cx), account(cx), form).await)
 }
 
-async fn show(panel: Arc<Panel>, account: Account, filter: Filter) -> PageResult<Html<String>> {
-    let runs = visible_runs(&panel, &account).await?;
-    let projects = catalog(&panel, &account, &runs).await?;
+async fn show(cx: &Cx, filter: Filter) -> PageResult<Html<String>> {
+    let panel = panel(cx);
+    let account = account(cx);
+    let runs = visible_runs(cx).await?;
+    let projects = catalog(cx, &runs).await?;
     let search = filter.q.as_deref().unwrap_or("").trim().to_lowercase();
     let empty_catalog = projects.is_empty();
     let total_projects = projects.len();
@@ -49,18 +48,13 @@ async fn show(panel: Arc<Panel>, account: Account, filter: Filter) -> PageResult
         .collect();
     let mut summaries = BTreeMap::new();
     for (id, _) in &visible {
-        if let Some(entry) = records::design(&panel, &account, id)
-            .await?
-            .into_iter()
-            .next()
-        {
+        if let Some(entry) = records::design(cx, id).await?.into_iter().next() {
             summaries.insert(
                 (*id).clone(),
                 format!("{} · {}", entry.title, entry.status.label()),
             );
         }
     }
-    let cx = &Cx::default();
     let data = Projects {
         filter: &filter,
         search: &search,

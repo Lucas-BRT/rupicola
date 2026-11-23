@@ -2,14 +2,12 @@
 //! captures through the [`Api`] and shapes each into the [`Run`] the screens expect, with the
 //! id of every artifact standing where a file path used to.
 
-use super::{Account, PageResult, Panel, Run, StatusCode, auth};
+use super::{PageResult, Run, StatusCode, backend};
 use rupicola_api::{Artifact, Capture, CaptureStatus, Inspection, Project};
-use rupicola_client::Api;
 use rupicola_core::capture_manifest::{
     Checkpoint, Clip, Environment, Finding, Frame, Manifest, Project as ManifestProject,
 };
-use std::sync::Arc;
-use tokio::task::JoinSet;
+use topcoat::context::Cx;
 
 /// Newest captures read in full per project when listing; older ones are not shown.
 const RECENT_PER_PROJECT: usize = 50;
@@ -108,51 +106,38 @@ fn run_of(project: &Project, capture: &Capture) -> Run {
     }
 }
 
-/// The recent captures of every project `account` can see, newest first.
+/// The recent captures of every project the account can see, newest first.
 ///
 /// # Errors
 ///
 /// The status of a failed call to the backend.
-pub async fn list(panel: &Panel, account: &Account) -> PageResult<Vec<Run>> {
-    let projects = panel
-        .api
-        .projects(&account.session)
-        .await
-        .map_err(|e| auth::api_error(&e))?;
-    let mut reading = JoinSet::new();
-    for project in projects {
-        let api = Arc::clone(&panel.api);
-        let session = account.session.clone();
-        reading.spawn(async move { project_runs(api.as_ref(), &session, &project).await });
-    }
+pub async fn list(cx: &Cx) -> PageResult<Vec<Run>> {
+    let projects = backend::projects(cx).await.as_ref().map_err(|e| *e)?;
     let mut runs = Vec::new();
-    while let Some(joined) = reading.join_next().await {
-        runs.extend(joined.map_err(super::db_error)??);
+    for project in projects {
+        runs.extend(of_project(cx, project).await?);
     }
     runs.sort_by_key(|run| std::cmp::Reverse(run.created_at_ms));
     Ok(runs)
 }
 
-pub async fn of_project(
-    panel: &Panel,
-    account: &Account,
-    project: &Project,
-) -> PageResult<Vec<Run>> {
-    project_runs(panel.api.as_ref(), &account.session, project).await
-}
-
-async fn project_runs(api: &dyn Api, session: &str, project: &Project) -> PageResult<Vec<Run>> {
-    let summaries = api
-        .captures(session, &project.id)
+/// The recent captures of one project, newest first.
+///
+/// # Errors
+///
+/// The status of a failed call to the backend.
+pub async fn of_project(cx: &Cx, project: &Project) -> PageResult<Vec<Run>> {
+    let summaries = backend::captures(cx, &project.id)
         .await
-        .map_err(|e| auth::api_error(&e))?;
+        .as_ref()
+        .map_err(|e| *e)?;
     let mut runs = Vec::new();
-    for summary in summaries.into_iter().take(RECENT_PER_PROJECT) {
-        let capture = api
-            .capture(session, &summary.id)
+    for summary in summaries.iter().take(RECENT_PER_PROJECT) {
+        let capture = backend::capture(cx, &summary.id)
             .await
-            .map_err(|e| auth::api_error(&e))?;
-        runs.push(run_of(project, &capture));
+            .as_ref()
+            .map_err(|e| *e)?;
+        runs.push(run_of(project, capture));
     }
     Ok(runs)
 }
@@ -162,21 +147,16 @@ async fn project_runs(api: &dyn Api, session: &str, project: &Project) -> PageRe
 /// # Errors
 ///
 /// 404 when the account cannot see it.
-pub async fn find(panel: &Panel, account: &Account, id: &str) -> PageResult<Run> {
-    let capture = panel
-        .api
-        .capture(&account.session, id)
+pub async fn find(cx: &Cx, id: &str) -> PageResult<Run> {
+    let capture = backend::capture(cx, id).await.as_ref().map_err(|e| *e)?;
+    let project = backend::projects(cx)
         .await
-        .map_err(|e| auth::api_error(&e))?;
-    let project = panel
-        .api
-        .projects(&account.session)
-        .await
-        .map_err(|e| auth::api_error(&e))?
-        .into_iter()
+        .as_ref()
+        .map_err(|e| *e)?
+        .iter()
         .find(|project| project.id == capture.project_id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    Ok(run_of(&project, &capture))
+    Ok(run_of(project, capture))
 }
 
 /// The captures of one project, newest first, without their files.
@@ -184,16 +164,15 @@ pub async fn find(panel: &Panel, account: &Account, id: &str) -> PageResult<Run>
 /// # Errors
 ///
 /// The status of a failed call to the backend.
-pub async fn summaries(
-    panel: &Panel,
-    account: &Account,
+pub async fn summaries<'a>(
+    cx: &'a Cx,
     project: &str,
-) -> PageResult<Vec<rupicola_api::CaptureSummary>> {
-    panel
-        .api
-        .captures(&account.session, project)
+) -> PageResult<&'a [rupicola_api::CaptureSummary]> {
+    backend::captures(cx, project)
         .await
-        .map_err(|e| auth::api_error(&e))
+        .as_ref()
+        .map(Vec::as_slice)
+        .map_err(|e| *e)
 }
 
 #[cfg(test)]

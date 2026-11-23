@@ -13,7 +13,7 @@ mod videos;
 use crate::app::{account, panel, respond};
 use crate::components::display::run_list;
 use crate::{
-    Account, Arc, PageResult, Panel, auth, media,
+    PageResult, backend, media,
     project::{Context, Filter, pick_hero_checkpoint},
     records,
     views::{self, project::Tab, project::overview::Overview},
@@ -30,33 +30,33 @@ module_param!(pub project);
 
 #[route(GET)]
 async fn overview(cx: &Cx) -> Result<Response> {
-    respond(cx, show(panel(cx), account(cx), project(cx).into()).await)
+    respond(cx, show(cx, project(cx).into()).await)
 }
 
 /// Recent captures listed on the overview.
 const RECENT_CAPTURES: usize = 8;
 
-async fn show(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Html<String>> {
-    let project = Context::load(&panel, &account, &id).await?;
+async fn show(cx: &Cx, id: String) -> PageResult<Html<String>> {
+    let panel = panel(cx);
+    let account = account(cx);
+    let project = Context::load(cx, &id).await?;
     let related = project.related();
     let all_assets = project.assets();
-    let design = records::design(&panel, &account, &id).await?;
+    let design = records::design(cx, &id).await?;
     let superseded = design_record::superseded(&design);
     let current = design
         .iter()
         .filter(|entry| !superseded.contains(entry.id.as_str()))
         .count();
-    let fix_count = panel
-        .api
-        .fixes(&account.session, &id)
+    let fix_count = backend::fixes(cx, &id)
         .await
-        .map_err(|e| auth::api_error(&e))?
+        .as_ref()
+        .map_err(|e| *e)?
         .len();
-    let open_problems_count = panel
-        .api
-        .problems(&account.session, &id)
+    let open_problems_count = backend::problems(cx, &id)
         .await
-        .map_err(|e| auth::api_error(&e))?
+        .as_ref()
+        .map_err(|e| *e)?
         .iter()
         .filter(|problem| {
             matches!(
@@ -83,7 +83,6 @@ async fn show(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Htm
                 run.scenario.clone(),
             ))
         });
-    let cx = &Cx::default();
     let list = Child::new(view! {
         run_list(runs: &selected, message: "No matching captures. Send a capture with this project's ID.")
     });

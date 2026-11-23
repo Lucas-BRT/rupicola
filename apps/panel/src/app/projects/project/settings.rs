@@ -25,20 +25,17 @@ use topcoat::{
 
 #[route(GET)]
 async fn page(cx: &Cx) -> Result<Response> {
-    respond(
-        cx,
-        show(panel(cx), account(cx), project_param(cx).into()).await,
-    )
+    respond(cx, show(cx, project_param(cx).into()).await)
 }
 
-async fn show(panel: Arc<Panel>, account: Account, id: String) -> PageResult<Html<String>> {
-    let project = Context::load(&panel, &account, &id).await?;
+async fn show(cx: &Cx, id: String) -> PageResult<Html<String>> {
+    let (panel, account) = (panel(cx), account(cx));
+    let project = Context::load(cx, &id).await?;
     let (members, audit) = if project.role == Role::Owner {
         access_lists(&panel, &account, &id).await?
     } else {
         (Vec::new(), Vec::new())
     };
-    let cx = &Cx::default();
     let data = views::project::settings::Settings {
         base: &project.base,
         role: project.role,

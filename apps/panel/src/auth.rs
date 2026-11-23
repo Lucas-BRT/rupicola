@@ -181,18 +181,21 @@ impl From<rupicola_api::Role> for Role {
     }
 }
 
-/// What `account` may do in `project`; an administrator may do everything.
+/// What `account` may do in `project`, given the `projects` it can see; an administrator may do
+/// everything.
 ///
 /// # Errors
 ///
 /// 404 when the account is not a member, so a project's existence does not leak.
-pub async fn project_role(api: &dyn Api, account: &Account, project: &str) -> PageResult<Role> {
+pub fn role_in(
+    projects: &[rupicola_api::Project],
+    account: &Account,
+    project: &str,
+) -> PageResult<Role> {
     if account.owner {
         return Ok(Role::Owner);
     }
-    api.projects(&account.session)
-        .await
-        .map_err(|e| api_error(&e))?
+    projects
         .iter()
         .find(|candidate| candidate.id == project)
         .and_then(|candidate| candidate.role)
@@ -200,8 +203,40 @@ pub async fn project_role(api: &dyn Api, account: &Account, project: &str) -> Pa
         .ok_or(StatusCode::NOT_FOUND)
 }
 
+/// What `account` may do in `project`, asking the backend; for the actions, which run once
+/// per request. Pages use [`role_of`], which shares the answer.
+///
+/// # Errors
+///
+/// 404 when the account is not a member.
 pub async fn role(panel: &Panel, account: &Account, project: &str) -> PageResult<Role> {
-    project_role(panel.api.as_ref(), account, project).await
+    if account.owner {
+        return Ok(Role::Owner);
+    }
+    let projects = panel
+        .api
+        .projects(&account.session)
+        .await
+        .map_err(|e| api_error(&e))?;
+    role_in(&projects, account, project)
+}
+
+/// What the signed-in account may do in `project`, sharing the list of projects with the rest
+/// of the request.
+///
+/// # Errors
+///
+/// 404 when the account is not a member.
+pub async fn role_of(cx: &Cx, project: &str) -> PageResult<Role> {
+    let account = topcoat::context::context::<Account>(cx);
+    if account.owner {
+        return Ok(Role::Owner);
+    }
+    let projects = crate::backend::projects(cx)
+        .await
+        .as_ref()
+        .map_err(|e| *e)?;
+    role_in(projects, account, project)
 }
 
 async fn setup_required(panel: &Panel) -> PageResult<bool> {
@@ -507,27 +542,20 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn an_administrator_owns_every_project_without_asking_the_backend() {
-        let mut api = MockApi::new();
-        api.expect_projects().times(0);
-        assert_eq!(
-            project_role(&api, &account(true), PROJECT).await,
-            Ok(Role::Owner)
-        );
+    #[test]
+    fn an_administrator_owns_every_project_without_membership() {
+        assert_eq!(role_in(&[], &account(true), PROJECT), Ok(Role::Owner));
     }
 
-    #[tokio::test]
-    async fn a_member_has_the_role_the_backend_gives_and_a_stranger_finds_nothing() {
-        let mut api = MockApi::new();
-        api.expect_projects()
-            .returning(|_| Ok(vec![project(PROJECT, rupicola_api::Role::Reviewer)]));
+    #[test]
+    fn a_member_has_the_role_the_backend_gives_and_a_stranger_finds_nothing() {
+        let projects = [project(PROJECT, rupicola_api::Role::Reviewer)];
         assert_eq!(
-            project_role(&api, &account(false), PROJECT).await,
+            role_in(&projects, &account(false), PROJECT),
             Ok(Role::Reviewer)
         );
         assert_eq!(
-            project_role(&api, &account(false), OTHER_PROJECT).await,
+            role_in(&projects, &account(false), OTHER_PROJECT),
             Err(StatusCode::NOT_FOUND)
         );
     }

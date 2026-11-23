@@ -31,10 +31,12 @@ pub fn router(panel: Arc<Panel>) -> Router {
         .build()
 }
 
+/// The panel's shared state.
 pub(crate) fn panel(cx: &Cx) -> Arc<Panel> {
     context::<Arc<Panel>>(cx).clone()
 }
 
+/// The account the request is signed in as.
 pub(crate) fn account(cx: &Cx) -> Account {
     context::<Account>(cx).clone()
 }
