@@ -1,6 +1,8 @@
 # Scenarios, runners and fix comparisons
 
 Status: design, agreed in conversation; slices land one at a time on `feat/capture-runner`.
+Slices 1 and 2 are done. For the current state, decisions, gotchas and what to build next, read
+`capture-runner-handoff.md`.
 
 ## Why
 
