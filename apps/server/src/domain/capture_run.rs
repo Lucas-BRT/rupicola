@@ -4,7 +4,7 @@
 use super::{ApiError, capture::check_scenario};
 use rupicola_api::{CaptureAction, CaptureStep, RunCapture};
 use rupicola_capture::session::{
-    ColorScheme, Environment, Plan, Step, Target, WaitCondition, valid_id,
+    ColorScheme, Environment, NetworkPolicy, Plan, Step, Target, WaitCondition, valid_id,
 };
 use rupicola_protocol::UiAction;
 use std::{
@@ -408,7 +408,12 @@ pub fn to_plan(form: &RunCapture, allow_local: bool) -> Result<(Plan, ParsedTarg
     check_scenario(&form.scenario)?;
     let target = validate_url(&form.url, allow_local)?;
     let (steps, min_interval) = build_steps(&form.steps)?;
-    let environment = build_environment(form, min_interval)?;
+    let mut environment = build_environment(form, min_interval)?;
+    environment.network_policy = if allow_local {
+        NetworkPolicy::Unrestricted
+    } else {
+        NetworkPolicy::PublicOnly
+    };
 
     Ok((
         Plan {

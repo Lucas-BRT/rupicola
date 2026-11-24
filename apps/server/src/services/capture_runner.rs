@@ -15,7 +15,7 @@ use rupicola_api::{
     NewCheckpoint, NewClip, Role, RunCapture,
 };
 use rupicola_capture::asynchronous::{
-    CaptureBackend, CdpBackend, CdpDiscovery, WebBackend, WebDiscovery, run_plan,
+    CaptureBackend, CdpBackend, CdpDiscovery, WebBackend, WebDiscovery, probe_environment, run_plan,
 };
 use sha2::{Digest, Sha256};
 use std::{net::IpAddr, path::Path, sync::atomic::Ordering};
@@ -24,32 +24,28 @@ use tokio::io::AsyncReadExt as _;
 const DEFAULT_BROWSER_ENGINE: &str = "chromium";
 const MISSING_BACKEND_MSG: &str = "no headless web capture backend is available on this server \
     (configure RUPICOLA_PLAYWRIGHT_DIR with node, or install chromium)";
-const PLAYWRIGHT_INSTALL_HINT: &str =
-    "Install Node.js and Playwright, and set RUPICOLA_PLAYWRIGHT_DIR";
-const CDP_INSTALL_HINT: &str = "Install Chromium or Google Chrome on the host OS \
-    (e.g. apt install chromium / dnf install chromium / brew install --cask chromium)";
 
 /// Probes available `rupicola-capture` backends without installing anything.
 pub async fn capabilities() -> CaptureCapabilities {
-    let playwright = WebBackend::discover(DEFAULT_BROWSER_ENGINE).await.is_some();
-    let cdp = CdpBackend::discover().await.is_some();
+    let reports = probe_environment().await;
     CaptureCapabilities {
-        backends: vec![
-            CaptureBackendStatus {
-                id: "playwright".to_owned(),
-                label: "Playwright (Node.js)".to_owned(),
-                available: playwright,
-                detected: playwright.then(|| DEFAULT_BROWSER_ENGINE.to_owned()),
-                install_hint: (!playwright).then(|| PLAYWRIGHT_INSTALL_HINT.to_owned()),
-            },
-            CaptureBackendStatus {
-                id: "cdp".to_owned(),
-                label: "Chromium / Chrome (CDP)".to_owned(),
-                available: cdp,
-                detected: cdp.then(|| DEFAULT_BROWSER_ENGINE.to_owned()),
-                install_hint: (!cdp).then(|| CDP_INSTALL_HINT.to_owned()),
-            },
-        ],
+        backends: reports
+            .into_iter()
+            .map(|report| CaptureBackendStatus {
+                id: report.id,
+                label: report.label,
+                available: report.available,
+                detected: (!report.detected_binaries.is_empty()).then(|| {
+                    report
+                        .detected_binaries
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }),
+                install_hint: (!report.available).then_some(report.install_guidance),
+            })
+            .collect(),
     }
 }
 
