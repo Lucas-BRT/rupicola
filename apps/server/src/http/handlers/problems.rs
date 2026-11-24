@@ -33,6 +33,28 @@ pub async fn list(
     problems::list(&state, &principal, &project).await.map(Json)
 }
 
+/// `GET /v1/projects/{id}/problems/details`
+pub async fn list_details(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(project): Path<String>,
+) -> Result<Json<Vec<Problem>>, ApiError> {
+    problems::list_details(&state, &principal, &project)
+        .await
+        .map(Json)
+}
+
+/// `POST /v1/projects/{id}/captures/{capture}/analyze`
+pub async fn analyze_capture(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path((project, capture)): Path<(String, String)>,
+) -> Result<Json<Vec<Problem>>, ApiError> {
+    problems::analyze_capture(&state, &principal, &project, &capture)
+        .await
+        .map(Json)
+}
+
 /// `GET /v1/problems/{id}`
 pub async fn get(
     State(state): State<Shared>,
@@ -215,5 +237,86 @@ mod tests {
             StatusCode::UNPROCESSABLE_ENTITY,
             "{response}"
         );
+    }
+
+    const PROJECT_CAPTURE: &str = "capture-shot";
+
+    #[tokio::test]
+    async fn analyzing_a_capture_infers_problems_and_respects_suppressions() {
+        let (port, [ana, bruno, _]) = demo_with_artifacts().await;
+        // Findingless capture falls back to a NeedsReprocess visual-inspection problem.
+        let inferred: Vec<Problem> = json(
+            &call(
+                port,
+                "POST",
+                &format!("/v1/projects/demo/captures/{PROJECT_CAPTURE}/analyze"),
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(inferred.len(), 1);
+        assert_eq!(inferred[0].status, ProblemStatus::NeedsReprocess);
+        // Running analyze again deduplicates by diagnosis.
+        let repeated: Vec<Problem> = json(
+            &call(
+                port,
+                "POST",
+                &format!("/v1/projects/demo/captures/{PROJECT_CAPTURE}/analyze"),
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(repeated, Vec::<Problem>::new());
+
+        // Add findings and verify rule inference + suppression by intentional problem.
+        call(
+            port,
+            "POST",
+            &format!("/v1/captures/{PROJECT_CAPTURE}/findings"),
+            Some(&ana),
+            Some(&format!(
+                r#"{{"note":"[/settings @ 320x844 light] Contrast too low","evidence_artifact_id":"{PROJECT_ARTIFACT}"}}"#
+            )),
+        )
+        .await;
+        let analyzed: Vec<Problem> = json(
+            &call(
+                port,
+                "POST",
+                &format!("/v1/projects/demo/captures/{PROJECT_CAPTURE}/analyze"),
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(analyzed.len(), 1);
+        assert_eq!(analyzed[0].severity, Severity::Critical);
+        assert_eq!(analyzed[0].route, "/settings");
+
+        // Readers cannot analyze captures.
+        let denied = call(
+            port,
+            "POST",
+            &format!("/v1/projects/demo/captures/{PROJECT_CAPTURE}/analyze"),
+            Some(&bruno),
+            None,
+        )
+        .await;
+        assert_eq!(status(&denied), StatusCode::FORBIDDEN, "{denied}");
+
+        // Detailed list returns all problems with rules and evidence.
+        let detailed: Vec<Problem> = json(
+            &call(
+                port,
+                "GET",
+                "/v1/projects/demo/problems/details",
+                Some(&bruno),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(detailed.len(), 2);
     }
 }

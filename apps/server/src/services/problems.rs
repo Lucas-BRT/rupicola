@@ -3,16 +3,19 @@
 use crate::{
     domain::{
         Access, ApiError, Principal,
-        problem::{EVIDENCE_LABEL, validate, validate_comment, validate_patch},
+        problem::{
+            EVIDENCE_LABEL, infer_from_finding, is_suppressed, validate, validate_comment,
+            validate_patch,
+        },
         secret::now_ms,
     },
-    repositories::{audit, problems, selections},
+    repositories::{audit, captures, problems, selections},
     services::{access::access, selections::keep},
     state::AppState,
 };
 use rupicola_api::{
-    Comment, NewComment, NewProblem, NewSelection, Problem, ProblemPatch, ProblemSummary, Role,
-    SelectionItem, SelectionMark,
+    Comment, NewComment, NewProblem, NewSelection, Problem, ProblemPatch, ProblemStatus,
+    ProblemSummary, Role, SelectionItem, SelectionMark,
 };
 use std::collections::HashSet;
 
@@ -36,6 +39,16 @@ pub async fn create(
     principal: &Principal,
     project: &str,
     form: &NewProblem,
+) -> Result<Problem, ApiError> {
+    create_with_status(state, principal, project, form, ProblemStatus::Open).await
+}
+
+async fn create_with_status(
+    state: &AppState,
+    principal: &Principal,
+    project: &str,
+    form: &NewProblem,
+    status: ProblemStatus,
 ) -> Result<Problem, ApiError> {
     match access(state, principal, project).await? {
         Access::Device => {}
@@ -69,11 +82,12 @@ pub async fn create(
     let id = uuid::Uuid::now_v7().to_string();
     let now = now_ms();
     let mut tx = state.db.begin().await?;
-    problems::insert(
+    problems::insert_with_status(
         &mut tx,
         &id,
         project,
         form,
+        status,
         principal.handle.as_deref(),
         now,
     )
@@ -104,6 +118,86 @@ pub async fn list(
         .await?
         .require(Role::Reader)?;
     problems::list(&state.db, project).await
+}
+
+/// Lists every problem of `project` in full.
+pub async fn list_details(
+    state: &AppState,
+    principal: &Principal,
+    project: &str,
+) -> Result<Vec<Problem>, ApiError> {
+    access(state, principal, project)
+        .await?
+        .require(Role::Reader)?;
+    problems::list_details(&state.db, project).await
+}
+
+/// Analyzes a capture's review findings (or requests visual inspection of its first checkpoint
+/// when no finding exists) and opens deduplicated, unsuppressed problems in `project`.
+pub async fn analyze_capture(
+    state: &AppState,
+    principal: &Principal,
+    project: &str,
+    capture_id: &str,
+) -> Result<Vec<Problem>, ApiError> {
+    match access(state, principal, project).await? {
+        Access::Device => {}
+        person @ Access::Person(_) => person.require(Role::Reviewer)?,
+    }
+    let capture = captures::load(&state.db, capture_id).await?;
+    if capture.project_id != project || capture.deleted.is_some() {
+        return Err(ApiError::NotFound);
+    }
+    let mut existing = problems::list_details(&state.db, project).await?;
+    let mut created = Vec::new();
+    if capture.findings.is_empty() {
+        if let Some(first) = capture.checkpoints.first() {
+            let candidate = infer_from_finding(
+                &format!(
+                    "[{} @ {}×{} {}] Visual inspection requested on capture '{}'",
+                    first.id,
+                    capture.environment.width.unwrap_or(1440),
+                    capture.environment.height.unwrap_or(900),
+                    capture.environment.color_scheme.as_deref().unwrap_or(""),
+                    capture.scenario
+                ),
+                Some(&first.artifact.id),
+            );
+            if !existing
+                .iter()
+                .any(|problem| problem.diagnosis == candidate.diagnosis)
+            {
+                let problem = create_with_status(
+                    state,
+                    principal,
+                    project,
+                    &candidate,
+                    ProblemStatus::NeedsReprocess,
+                )
+                .await?;
+                created.push(problem);
+            }
+        }
+    } else {
+        for finding in &capture.findings {
+            let candidate =
+                infer_from_finding(&finding.note, finding.evidence_artifact_id.as_deref());
+            let rule_code = candidate.rules.first().map_or("", |r| r.code.as_str());
+            if is_suppressed(&existing, &candidate.route, rule_code, &candidate.title)
+                || existing
+                    .iter()
+                    .any(|problem| problem.diagnosis == candidate.diagnosis)
+            {
+                continue;
+            }
+            let problem =
+                create_with_status(state, principal, project, &candidate, ProblemStatus::Open)
+                    .await?;
+            existing.push(problem.clone());
+            created.push(problem);
+        }
+    }
+    Ok(created)
 }
 
 /// Loads one problem after checking the caller may read its project.

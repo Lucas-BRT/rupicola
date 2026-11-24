@@ -8,11 +8,12 @@ mod http;
 
 use async_trait::async_trait;
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Comment, Credential, Credentials, DesignEntry,
-    DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me, Member, NewCapture,
-    NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewProblem,
-    NewProject, NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
-    Redeem, Register, SessionToken, Setup, Step, SystemActionForm, SystemList, SystemVersion,
+    AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
+    DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
+    Member, NewCapture, NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite,
+    NewProblem, NewProject, NewReview, NewStep, PasswordChange, Problem, ProblemPatch,
+    ProblemSummary, Project, Redeem, Register, SessionToken, Setup, Step, SystemActionForm,
+    SystemList, SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -111,14 +112,33 @@ pub trait Api: Send + Sync {
     /// The captures of `project`, newest first.
     async fn captures(&self, token: &str, project: &str) -> Result<Vec<CaptureSummary>>;
 
+    /// Searches captures of `project` with optional query parameters (such as `include=details`).
+    async fn search_captures(
+        &self,
+        token: &str,
+        project: &str,
+        query: Option<String>,
+    ) -> Result<CapturePage>;
+
     /// One capture, with its checkpoints, clips and findings.
     async fn capture(&self, token: &str, id: &str) -> Result<Capture>;
 
     /// Records an observation on a capture, optionally pointing at one of its artifacts.
     async fn add_finding(&self, token: &str, capture: &str, form: &NewFinding) -> Result<Finding>;
 
+    /// Analyzes a capture's findings and opens deduplicated, unsuppressed problems on the server.
+    async fn analyze_capture(
+        &self,
+        token: &str,
+        project: &str,
+        capture: &str,
+    ) -> Result<Vec<Problem>>;
+
     /// The problems of `project`.
     async fn problems(&self, token: &str, project: &str) -> Result<Vec<ProblemSummary>>;
+
+    /// Every problem of `project` with its rules, evidence and comments.
+    async fn problems_detailed(&self, token: &str, project: &str) -> Result<Vec<Problem>>;
 
     /// One problem, with its evidence and comments.
     async fn problem(&self, token: &str, id: &str) -> Result<Problem>;
@@ -177,6 +197,9 @@ pub trait Api: Send + Sync {
 
     /// The fixes of `project`.
     async fn fixes(&self, token: &str, project: &str) -> Result<Vec<FixSummary>>;
+
+    /// Every fix of `project` with its comparisons, steps and reviews.
+    async fn fixes_detailed(&self, token: &str, project: &str) -> Result<Vec<Fix>>;
 
     /// One fix, with its steps and reviews.
     async fn fix(&self, token: &str, id: &str) -> Result<Fix>;

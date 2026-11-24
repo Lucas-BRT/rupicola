@@ -84,6 +84,10 @@ enum Call {
         #[serde(flatten)]
         comment: rupicola_api::NewComment,
     },
+    ProblemAnalyze {
+        project: String,
+        capture: String,
+    },
     DesignList {
         project: String,
     },
@@ -135,7 +139,9 @@ impl Call {
             Self::ArtifactRead { id, offset, length } => {
                 read_artifact(&state, &principal, &id, offset, length).await
             }
-            Self::ProblemList { project } => value(&problems::list(&state, &principal, &project).await?),
+            Self::ProblemList { project } => {
+                value(&problems::list(&state, &principal, &project).await?)
+            }
             Self::ProblemGet { id } => value(&problems::get(&state, &principal, &id).await?),
             Self::ProblemCreate { project, problem } => {
                 value(&problems::create(&state, &principal, &project, &problem).await?)
@@ -145,6 +151,9 @@ impl Call {
             }
             Self::ProblemComment { id, comment } => {
                 value(&problems::comment(&state, &principal, &id, &comment).await?)
+            }
+            Self::ProblemAnalyze { project, capture } => {
+                value(&problems::analyze_capture(&state, &principal, &project, &capture).await?)
             }
             Self::DesignList { project } => {
                 value(&design::list(&state, &principal, &project).await?)
@@ -313,6 +322,12 @@ const TOOLS: &[Tool] = &[
         description: "Add a comment to a problem",
         required: &["id", "text"],
         properties: || json!({"id": text(), "text": text()}),
+    },
+    Tool {
+        name: "problem_analyze",
+        description: "Infer and file deduplicated, unsuppressed problems from a capture's findings",
+        required: &["project", "capture"],
+        properties: || json!({"project": text(), "capture": text()}),
     },
     Tool {
         name: "design_list",

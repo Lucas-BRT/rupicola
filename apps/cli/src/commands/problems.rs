@@ -48,6 +48,12 @@ enum ProblemsAction {
         #[command(flatten)]
         client: Client,
     },
+    /// Infer and file problems from a capture's findings.
+    Analyze {
+        capture: String,
+        #[command(flatten)]
+        scope: Scoped,
+    },
 }
 
 impl ProblemsArgs {
@@ -130,6 +136,21 @@ impl ProblemsArgs {
                         .comment_problem(&remote.token, &id, &NewComment { text })
                         .await?;
                     client.show(&comment, |comment| println!("Commented {}", comment.id))
+                }
+                ProblemsAction::Analyze { capture, scope } => {
+                    let remote = scope.client().remote()?;
+                    let created = remote
+                        .api
+                        .analyze_capture(&remote.token, &scope.project()?, &capture)
+                        .await?;
+                    scope.client().show(&created, |problems| {
+                        rows(problems, "No new problems.", |problem| {
+                            format!(
+                                "{}\t{}\t{}\t{}",
+                                problem.id, problem.status, problem.severity, problem.title
+                            )
+                        });
+                    })
                 }
             }
         })?
