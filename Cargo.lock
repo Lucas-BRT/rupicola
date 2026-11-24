@@ -2240,7 +2240,6 @@ name = "rupicola"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "clap",
  "rpassword",
  "rupicola-api",
@@ -2266,7 +2265,7 @@ dependencies = [
 [[package]]
 name = "rupicola-capture"
 version = "0.3.0"
-source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?branch=feat%2Fcapture-session#bfa7a2ae50aab383ef55a8faf429176bbcfdac46"
+source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?rev=bfa7a2ae50aab383ef55a8faf429176bbcfdac46#bfa7a2ae50aab383ef55a8faf429176bbcfdac46"
 dependencies = [
  "async-trait",
  "maybe-async-cfg",
@@ -2328,7 +2327,7 @@ dependencies = [
 [[package]]
 name = "rupicola-protocol"
 version = "0.3.0"
-source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?branch=feat%2Fcapture-session#bfa7a2ae50aab383ef55a8faf429176bbcfdac46"
+source = "git+https://github.com/Lucas-BRT/rupicola-protocol.git?rev=bfa7a2ae50aab383ef55a8faf429176bbcfdac46#bfa7a2ae50aab383ef55a8faf429176bbcfdac46"
 dependencies = [
  "serde",
  "serde_json",

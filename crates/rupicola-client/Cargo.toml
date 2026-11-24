@@ -26,7 +26,6 @@ thiserror.workspace = true
 # Turns the `mock` feature on for this crate's own tests.
 rupicola-client = { path = ".", features = ["mock"] }
 axum.workspace = true
-sha2.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
 
 [lints]

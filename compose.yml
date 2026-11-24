@@ -129,8 +129,6 @@ services:
       - dokploy-network
 
 volumes:
-  # Kept until the data of the old panel is converted into the backend (see the conversion script).
-  rupicola-data:
   rupicola-backend-data:
 
 networks:

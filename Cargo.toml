@@ -25,8 +25,8 @@ repository = "https://github.com/Lucas-BRT/rupicola"
 rupicola-core = { path = "crates/rupicola-core" }
 rupicola-api = { path = "crates/rupicola-api" }
 rupicola-client = { path = "crates/rupicola-client" }
-rupicola-protocol = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", branch = "feat/capture-session" }
-rupicola-capture = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", branch = "feat/capture-session", features = ["async"] }
+rupicola-protocol = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", rev = "bfa7a2ae50aab383ef55a8faf429176bbcfdac46" }
+rupicola-capture = { git = "https://github.com/Lucas-BRT/rupicola-protocol.git", rev = "bfa7a2ae50aab383ef55a8faf429176bbcfdac46", features = ["async"] }
 anyhow = "=1.0.104"
 async-trait = "=0.1.92"
 argon2 = { version = "=0.5.3", features = ["std"] }

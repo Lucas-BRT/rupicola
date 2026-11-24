@@ -51,7 +51,10 @@ CMD ["./rupicola-site"]
 
 # ---- server runtime ----------------------------------------------------------------------------------------
 FROM debian:bookworm-20261104-slim AS server
-RUN useradd --system --no-create-home --uid 10001 rupicola
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --no-create-home --uid 10001 rupicola
 
 WORKDIR /app
 COPY --from=builder /app/target/website/rupicola-server ./rupicola-server
