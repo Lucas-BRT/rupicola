@@ -6,6 +6,8 @@ Use either **server-managed execution** (`capture_run` MCP tool, `rupicola captu
 
 When the backend host has Playwright/Node (`RUPICOLA_PLAYWRIGHT_DIR`) or Chromium and can reach the preview URL, invoke `capture_run` (MCP) or `rupicola captures run URL` (optionally `--steps-file steps.json`). Checkpoints and clips need distinct ASCII IDs (`letters`, `digits`, `-`, `_`). Keep each clip at `2..=60` samples spanning at most `10_000` ms (`interval_ms` `16..=5000`). If `steps` is omitted, the server takes a single `"home"` checkpoint.
 
+Step kinds: `click`, `hover`, `fill`, `press` and `ready` need a `selector` (CSS). `scroll_into_view` needs a `selector` and does not move the pointer. `scroll` (`dx`, `dy` pixels), `scroll_to` (`x`, `y` offset) and `scroll_to_end` take an optional `selector`: the page when absent, otherwise that element (`scroll` uses its closest ancestor that scrolls). `wait` pauses `ms` milliseconds, at most `10_000` each and `30_000` in total. `checkpoint` takes `full_page: true` to shoot the whole scrollable page instead of the viewport; the web backend declares that capability and others refuse the run, or skip the step with `allow_degraded`. The browser waits for scrolling to settle after each action, so a checkpoint right after a scroll shows the result and `wait` is only for animations that outlast it. The scroll kinds and `wait` also work as a clip `trigger`.
+
 Example `steps` JSON array for `capture_run`:
 
 ```json
@@ -20,7 +22,10 @@ Example `steps` JSON array for `capture_run`:
     "trigger": { "kind": "click", "selector": "#theme-options" }
   },
   { "kind": "ready", "selector": "#theme-panel" },
-  { "kind": "checkpoint", "id": "opened" }
+  { "kind": "checkpoint", "id": "opened" },
+  { "kind": "scroll_to_end" },
+  { "kind": "checkpoint", "id": "page-end" },
+  { "kind": "checkpoint", "id": "page-full", "full_page": true }
 ]
 ```
 
