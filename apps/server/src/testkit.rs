@@ -67,7 +67,9 @@ pub async fn start_custom(
         .await
         .unwrap();
     let port = listener.local_addr().unwrap().port();
-    let app = app(&settings, state.clone()).into_make_service_with_connect_info::<SocketAddr>();
+    let app = app(&settings, state.clone())
+        .unwrap()
+        .into_make_service_with_connect_info::<SocketAddr>();
     tokio::spawn(async move { axum::serve(listener, app).await });
     (port, state)
 }

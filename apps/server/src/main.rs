@@ -51,6 +51,8 @@ struct Args {
     security: http::security::Security,
     #[command(flatten)]
     uploads: config::UploadLimits,
+    #[command(flatten)]
+    capture: config::CaptureConfig,
     /// Whether any project may remove a capture that something cites; `never` overrides
     /// every project's policy.
     #[arg(long, env = "RUPICOLA_CITED_DELETION", value_enum, default_value_t)]
@@ -73,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| EnvFilter::new("info,tower_http=debug")),
         )
         .init();
+    args.security.validate()?;
     let setup_code = args.setup_code.as_deref().filter(|code| !code.is_empty());
     if setup_code.is_some_and(|code| code.len() < MIN_SETUP_CODE_LEN) {
         bail!("RUPICOLA_SETUP_CODE must contain at least {MIN_SETUP_CODE_LEN} characters");
@@ -92,6 +95,10 @@ async fn main() -> anyhow::Result<()> {
         args.cited_deletion == domain::removal::CitedDeletion::Allow,
         std::sync::atomic::Ordering::Relaxed,
     );
+    state.allow_local_captures.store(
+        args.capture.allow_local_captures,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     let listener = tokio::net::TcpListener::bind((args.bind, args.port))
         .await
         .with_context(|| format!("cannot listen on {}:{}", args.bind, args.port))?;
@@ -102,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
     );
     axum::serve(
         listener,
-        http::app(&args.security, state).into_make_service_with_connect_info::<SocketAddr>(),
+        http::app(&args.security, state)?.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown())
     .await
@@ -211,6 +218,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn healthz_succeeds_behind_proxy_without_forwarded_for() {
+        let port = start(http::security::Security {
+            behind_proxy: true,
+            ..settings()
+        })
+        .await;
+        let response = get(port, "/healthz", "").await;
+        assert_eq!(status(&response), StatusCode::OK, "{response}");
+    }
+
+    #[tokio::test]
     async fn clients_over_the_burst_are_rate_limited() {
         let port = start(http::security::Security {
             rate_burst: SMALL_BURST,
@@ -219,9 +237,9 @@ mod tests {
         })
         .await;
         for _ in 0..SMALL_BURST {
-            assert_eq!(status(&get(port, "/healthz", "").await), StatusCode::OK);
+            assert_eq!(status(&get(port, "/v1/setup", "").await), StatusCode::OK);
         }
-        let response = get(port, "/healthz", "").await;
+        let response = get(port, "/v1/setup", "").await;
 
         assert_eq!(
             status(&response),
@@ -244,17 +262,17 @@ mod tests {
         .await;
         let from = |address: &str| format!("X-Forwarded-For: 203.0.113.9, {address}\r\n");
 
-        let first = get(port, "/healthz", &from("198.51.100.1")).await;
+        let first = get(port, "/v1/setup", &from("198.51.100.1")).await;
         assert_eq!(status(&first), StatusCode::OK, "{first}");
         // A forged first entry does not buy a fresh budget.
         let forged = get(
             port,
-            "/healthz",
+            "/v1/setup",
             "X-Forwarded-For: 192.0.2.77, 198.51.100.1\r\n",
         )
         .await;
         assert_eq!(status(&forged), StatusCode::TOO_MANY_REQUESTS, "{forged}");
-        let other = get(port, "/healthz", &from("198.51.100.2")).await;
+        let other = get(port, "/v1/setup", &from("198.51.100.2")).await;
         assert_eq!(status(&other), StatusCode::OK, "{other}");
         assert!(header(&other, "strict-transport-security").is_some());
     }

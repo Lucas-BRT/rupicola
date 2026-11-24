@@ -88,8 +88,11 @@ pub struct Lockout(Mutex<HashMap<String, (u32, i64)>>);
 
 impl Lockout {
     pub async fn retry_after(&self, handle: &str) -> Option<u64> {
+        self.retry_after_at(handle, secret::now_ms()).await
+    }
+
+    async fn retry_after_at(&self, handle: &str, current: i64) -> Option<u64> {
         let mut entries = self.0.lock().await;
-        let current = secret::now_ms();
         entries.retain(|_, (_, since)| current - *since < LOCK_MS);
         entries
             .get(handle)
@@ -109,11 +112,15 @@ impl Lockout {
     }
 
     pub async fn fail(&self, handle: &str) {
+        self.fail_at(handle, secret::now_ms()).await;
+    }
+
+    async fn fail_at(&self, handle: &str, current: i64) {
         let mut entries = self.0.lock().await;
-        let entry = entries
-            .entry(handle.to_owned())
-            .or_insert((0, secret::now_ms()));
+        entries.retain(|_, (_, since)| current - *since < LOCK_MS);
+        let entry = entries.entry(handle.to_owned()).or_insert((0, current));
         entry.0 = entry.0.saturating_add(1);
+        entry.1 = current;
     }
 
     pub async fn clear(&self, handle: &str) {
@@ -137,5 +144,27 @@ mod tests {
         assert!(lockout.retry_after("bruno").await.is_none());
         lockout.clear("ana").await;
         assert!(lockout.retry_after("ana").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn seven_old_failures_then_eighth_locks_for_full_duration() {
+        let lockout = Lockout::default();
+        let start = 10_000_i64;
+        for _ in 0..MAX_FAILURES - 1 {
+            lockout.fail_at("ana", start).await;
+        }
+        let just_before_expiry = start + LOCK_MS - 1_000;
+        assert!(
+            lockout
+                .retry_after_at("ana", just_before_expiry)
+                .await
+                .is_none()
+        );
+        lockout.fail_at("ana", just_before_expiry).await;
+        let expected_secs = u64::try_from(LOCK_MS).unwrap() / MS_PER_SEC;
+        assert_eq!(
+            lockout.retry_after_at("ana", just_before_expiry).await,
+            Some(expected_secs)
+        );
     }
 }

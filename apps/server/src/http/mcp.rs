@@ -58,6 +58,7 @@ enum Call {
         #[serde(flatten)]
         capture: RunCapture,
     },
+    CaptureCapabilities {},
     CaptureReview {
         id: String,
         #[serde(flatten)]
@@ -143,6 +144,7 @@ impl Call {
             Self::CaptureRun { project, capture } => {
                 value(&capture_runner::run(&state, &principal, &project, capture).await?)
             }
+            Self::CaptureCapabilities {} => value(&capture_runner::capabilities().await),
             Self::CaptureReview { id, finding } => {
                 value(&captures::add_finding(&state, &principal, &id, finding).await?)
             }
@@ -189,20 +191,18 @@ impl Call {
 /// A slice of an artifact as base64, with the media type and total size, so an agent can
 /// page through files it cannot fetch over HTTP.
 async fn read_artifact(
-    state: &crate::state::AppState,
+    state: &Shared,
     principal: &Principal,
     id: &str,
     offset: u64,
     length: usize,
 ) -> Result<Value, ApiError> {
-    let blob = captures::artifact(state, principal, id).await?;
-    let (sha256, mime, bytes) = (blob.sha256, blob.mime, blob.bytes);
-    let data = state
-        .blobs
-        .read_range(&sha256, offset, length.min(MAX_READ_BYTES))?;
+    let (blob, data) =
+        captures::read_artifact_range(state, principal, id, offset, length.min(MAX_READ_BYTES))
+            .await?;
     Ok(json!({
-        "mime": mime,
-        "bytes": bytes,
+        "mime": blob.mime,
+        "bytes": blob.bytes,
         "offset": offset,
         "length": data.len(),
         "data": base64::engine::general_purpose::STANDARD.encode(data),
@@ -333,6 +333,12 @@ const TOOLS: &[Tool] = &[
                 }
             })
         },
+    },
+    Tool {
+        name: "capture_capabilities",
+        description: "Probe which server-side web capture backends are available and return OS install hints for missing ones",
+        required: &[],
+        properties: || json!({}),
     },
     Tool {
         name: "capture_review",
@@ -468,6 +474,10 @@ fn rpc_error(code: i64, message: &str) -> Value {
 fn tool_result(outcome: Result<Value, ApiError>) -> Value {
     let (text, is_error) = match outcome {
         Ok(body) => (body.to_string(), false),
+        Err(ApiError::Internal(err)) => {
+            tracing::error!(error = %err, "mcp internal error");
+            ("internal server error".to_owned(), true)
+        }
         Err(error) => (error.to_string(), true),
     };
     json!({"result": {"content": [{"type": "text", "text": text}], "isError": is_error}})

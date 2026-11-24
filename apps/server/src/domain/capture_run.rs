@@ -7,12 +7,17 @@ use rupicola_capture::session::{
     ColorScheme, Environment, Plan, Step, Target, WaitCondition, valid_id,
 };
 use rupicola_protocol::UiAction;
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+};
 
 const DEFAULT_WIDTH: u32 = 1440;
 const DEFAULT_HEIGHT: u32 = 900;
 const DEFAULT_SCALE: f64 = 1.0;
 const MAX_URL_CHARS: usize = 2048;
+const HTTP_DEFAULT_PORT: u16 = 80;
+const HTTPS_DEFAULT_PORT: u16 = 443;
 const MAX_TIMEOUT_MS: u32 = 30_000;
 const MAX_VIEWPORT_SIDE: u32 = 4096;
 const MIN_SCALE: f64 = 0.5;
@@ -22,9 +27,18 @@ const MAX_STEPS: usize = 64;
 const CLIP_SAMPLES: std::ops::RangeInclusive<usize> = 2..=60;
 const CLIP_INTERVAL_MS: std::ops::RangeInclusive<u32> = 1..=1000;
 const MAX_CLIP_SPAN_MS: usize = 10_000;
+const MAX_TOTAL_CLIP_MS: usize = 30_000;
 const DEFAULT_CHECKPOINT: &str = "home";
 const CSS_ENGINE: &str = "css=";
 const CHORD_SEPARATOR: char = '+';
+
+/// Validated capture target URL with its extracted host and port for DNS/SSRF checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParsedTarget {
+    pub url: String,
+    pub host: String,
+    pub port: u16,
+}
 
 fn selector_target(selector: &str) -> Result<String, ApiError> {
     let trimmed = selector.trim();
@@ -114,7 +128,8 @@ fn step_into_plan(step: &CaptureStep) -> Result<(Vec<Step>, Option<u32>), ApiErr
             samples,
             interval_ms,
         } => {
-            let span = u64::try_from(*samples).unwrap_or(u64::MAX) * u64::from(*interval_ms);
+            let span = u64::try_from(samples.saturating_sub(1)).unwrap_or(u64::MAX)
+                * u64::from(*interval_ms);
             let mut steps = vec![Step::StartRecording];
             steps.extend(action_steps(trigger)?);
             steps.push(Step::Wait {
@@ -126,7 +141,88 @@ fn step_into_plan(step: &CaptureStep) -> Result<(Vec<Step>, Option<u32>), ApiErr
     }
 }
 
-fn validate_url(raw: &str) -> Result<String, ApiError> {
+const CGNAT_PREFIX: u8 = 100;
+const CGNAT_MASK: u8 = 0b1100_0000;
+const CGNAT_BASE: u8 = 64;
+
+fn is_forbidden_v4(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    let is_cgnat = octets[0] == CGNAT_PREFIX && (octets[1] & CGNAT_MASK) == CGNAT_BASE;
+    ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || ip.is_multicast()
+        || is_cgnat
+}
+
+/// Whether `ip` is a loopback, private, link-local, unspecified, multicast, or metadata address.
+pub fn is_forbidden_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_forbidden_v4(v4),
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+                || v6.to_ipv4_mapped().is_some_and(is_forbidden_v4)
+        }
+    }
+}
+
+fn split_authority(authority: &str, default_port: u16) -> Result<(String, u16), ApiError> {
+    if authority.is_empty() {
+        return Err(ApiError::invalid("capture URL must include a host"));
+    }
+    if authority.contains('@') {
+        return Err(ApiError::invalid("capture URL must not contain userinfo"));
+    }
+    if authority.contains('\\') {
+        return Err(ApiError::invalid("capture URL host is invalid"));
+    }
+    if let Some(rest) = authority.strip_prefix('[') {
+        let Some(end) = rest.find(']') else {
+            return Err(ApiError::invalid("invalid IPv6 host in capture URL"));
+        };
+        let host = &rest[..end];
+        if host.parse::<Ipv6Addr>().is_err() {
+            return Err(ApiError::invalid("invalid IPv6 address in capture URL"));
+        }
+        let after = &rest[end + 1..];
+        let port = if after.is_empty() {
+            default_port
+        } else if let Some(port_str) = after.strip_prefix(':') {
+            parse_port(port_str)?
+        } else {
+            return Err(ApiError::invalid("invalid port in capture URL"));
+        };
+        return Ok((host.to_owned(), port));
+    }
+    if authority.contains('[') || authority.contains(']') {
+        return Err(ApiError::invalid("invalid host brackets in capture URL"));
+    }
+    if let Some((host, port_str)) = authority.split_once(':') {
+        if host.is_empty() || port_str.contains(':') {
+            return Err(ApiError::invalid("invalid host or port in capture URL"));
+        }
+        return Ok((host.to_owned(), parse_port(port_str)?));
+    }
+    Ok((authority.to_owned(), default_port))
+}
+
+fn parse_port(raw: &str) -> Result<u16, ApiError> {
+    let port: u16 = raw
+        .parse()
+        .map_err(|_| ApiError::invalid("capture URL port must be a valid TCP port"))?;
+    if port == 0 {
+        return Err(ApiError::invalid("capture URL port must be non-zero"));
+    }
+    Ok(port)
+}
+
+fn validate_url(raw: &str, allow_local: bool) -> Result<ParsedTarget, ApiError> {
     let url = raw.trim();
     if url.is_empty()
         || url.len() > MAX_URL_CHARS
@@ -135,15 +231,37 @@ fn validate_url(raw: &str) -> Result<String, ApiError> {
     {
         return Err(ApiError::invalid("capture URL must be a valid HTTP(S) URL"));
     }
-    let rest = url
-        .strip_prefix("http://")
-        .or_else(|| url.strip_prefix("https://"))
-        .ok_or_else(|| ApiError::invalid("capture URL must use http:// or https://"))?;
-    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if host.is_empty() {
-        return Err(ApiError::invalid("capture URL must include a host"));
+    let (rest, default_port) = if let Some(rest) = url.strip_prefix("http://") {
+        (rest, HTTP_DEFAULT_PORT)
+    } else if let Some(rest) = url.strip_prefix("https://") {
+        (rest, HTTPS_DEFAULT_PORT)
+    } else {
+        return Err(ApiError::invalid(
+            "capture URL must use http:// or https://",
+        ));
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let (host, port) = split_authority(authority, default_port)?;
+    if !allow_local {
+        let lower = host.to_ascii_lowercase();
+        if lower == "localhost" || lower.ends_with(".localhost") {
+            return Err(ApiError::invalid(
+                "capture target must not point to localhost",
+            ));
+        }
+        if let Ok(ip) = host.parse::<IpAddr>()
+            && is_forbidden_ip(ip)
+        {
+            return Err(ApiError::invalid(
+                "capture target must not point to a local, private, or metadata address",
+            ));
+        }
     }
-    Ok(url.to_owned())
+    Ok(ParsedTarget {
+        url: url.to_owned(),
+        host,
+        port,
+    })
 }
 
 fn parse_color_scheme(value: Option<&str>) -> Result<Option<ColorScheme>, ApiError> {
@@ -219,6 +337,7 @@ fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiErr
     let mut checkpoints_or_clips = 0usize;
     let mut plan_steps = Vec::new();
     let mut min_interval: Option<u32> = None;
+    let mut total_clip_ms = 0usize;
 
     for step in raw_steps {
         match step {
@@ -241,10 +360,12 @@ fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiErr
                         "invalid or duplicate clip id `{id}`"
                     )));
                 }
+                let clip_ms = samples
+                    .saturating_sub(1)
+                    .saturating_mul(usize::try_from(*interval_ms).unwrap_or(usize::MAX));
                 if !CLIP_SAMPLES.contains(samples)
                     || !CLIP_INTERVAL_MS.contains(interval_ms)
-                    || (*samples - 1) * usize::try_from(*interval_ms).unwrap_or(usize::MAX)
-                        > MAX_CLIP_SPAN_MS
+                    || clip_ms > MAX_CLIP_SPAN_MS
                 {
                     return Err(ApiError::invalid(format!(
                         "clip `{id}` needs {}..={} samples at {}..={} ms (max {MAX_CLIP_SPAN_MS} ms)",
@@ -252,6 +373,12 @@ fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiErr
                         CLIP_SAMPLES.end(),
                         CLIP_INTERVAL_MS.start(),
                         CLIP_INTERVAL_MS.end(),
+                    )));
+                }
+                total_clip_ms = total_clip_ms.saturating_add(clip_ms);
+                if total_clip_ms > MAX_TOTAL_CLIP_MS {
+                    return Err(ApiError::invalid(format!(
+                        "total clip duration exceeds {MAX_TOTAL_CLIP_MS} ms"
                     )));
                 }
                 checkpoints_or_clips += 1;
@@ -272,26 +399,29 @@ fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiErr
     Ok((plan_steps, min_interval))
 }
 
-/// Validates `form` and turns it into a declarative capture [`Plan`].
+/// Validates `form` and turns it into a declarative capture [`Plan`] and [`ParsedTarget`].
 ///
 /// # Errors
 ///
 /// [`ApiError::Invalid`] when the URL, scenario, viewport or steps are out of bounds.
-pub fn to_plan(form: &RunCapture) -> Result<Plan, ApiError> {
+pub fn to_plan(form: &RunCapture, allow_local: bool) -> Result<(Plan, ParsedTarget), ApiError> {
     check_scenario(&form.scenario)?;
-    let url = validate_url(&form.url)?;
+    let target = validate_url(&form.url, allow_local)?;
     let (steps, min_interval) = build_steps(&form.steps)?;
     let environment = build_environment(form, min_interval)?;
 
-    Ok(Plan {
-        target: Target {
-            command: url,
-            args: Vec::new(),
+    Ok((
+        Plan {
+            target: Target {
+                command: target.url.clone(),
+                args: Vec::new(),
+            },
+            environment,
+            steps,
+            allow_degraded: form.allow_degraded,
         },
-        environment,
-        steps,
-        allow_degraded: form.allow_degraded,
-    })
+        target,
+    ))
 }
 
 #[cfg(test)]
@@ -299,19 +429,24 @@ mod tests {
     use super::*;
     use rupicola_api::Environment as ApiEnvironment;
 
-    #[test]
-    fn default_run_builds_a_single_home_checkpoint_plan() {
-        let req = RunCapture {
+    fn req(url: &str) -> RunCapture {
+        RunCapture {
             scenario: "Home".to_owned(),
-            url: "http://127.0.0.1:4731/".to_owned(),
+            url: url.to_owned(),
             revision: None,
             environment: ApiEnvironment::default(),
             timeout_ms: None,
             steps: Vec::new(),
             allow_degraded: false,
-        };
-        let plan = to_plan(&req).unwrap();
-        assert_eq!(plan.target.command, "http://127.0.0.1:4731/");
+        }
+    }
+
+    #[test]
+    fn default_run_builds_a_single_home_checkpoint_plan() {
+        let (plan, target) = to_plan(&req("https://example.com/"), false).unwrap();
+        assert_eq!(plan.target.command, "https://example.com/");
+        assert_eq!(target.host, "example.com");
+        assert_eq!(target.port, HTTPS_DEFAULT_PORT);
         assert_eq!(plan.environment.viewport, [DEFAULT_WIDTH, DEFAULT_HEIGHT]);
         assert_eq!(
             plan.steps,
@@ -322,16 +457,64 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_http_urls_and_empty_targets() {
-        let req = RunCapture {
-            scenario: "Bad".to_owned(),
-            url: "file:///etc/passwd".to_owned(),
-            revision: None,
-            environment: ApiEnvironment::default(),
-            timeout_ms: None,
-            steps: Vec::new(),
-            allow_degraded: false,
+    fn rejects_non_http_urls_and_userinfo() {
+        assert!(matches!(
+            to_plan(&req("file:///etc/passwd"), false),
+            Err(ApiError::Invalid(_))
+        ));
+        assert!(matches!(
+            to_plan(&req("http://user:pass@example.com"), false),
+            Err(ApiError::Invalid(_))
+        ));
+        assert!(matches!(
+            to_plan(&req("http://user:pass@example.com"), true),
+            Err(ApiError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_ssrf_targets_unless_local_captures_allowed() {
+        assert!(matches!(
+            to_plan(&req("http://169.254.169.254/latest/meta-data/"), false),
+            Err(ApiError::Invalid(_))
+        ));
+        assert!(matches!(
+            to_plan(&req("http://127.0.0.1:4731/"), false),
+            Err(ApiError::Invalid(_))
+        ));
+        assert!(matches!(
+            to_plan(&req("http://[::ffff:127.0.0.1]/"), false),
+            Err(ApiError::Invalid(_))
+        ));
+        let (plan, _) = to_plan(&req("http://127.0.0.1:4731/"), true).unwrap();
+        assert_eq!(plan.target.command, "http://127.0.0.1:4731/");
+    }
+
+    #[test]
+    fn clip_delay_uses_samples_minus_one_and_caps_total_duration() {
+        let mut form = req("https://example.com/");
+        form.steps = vec![CaptureStep::Clip {
+            id: "hover".to_owned(),
+            trigger: CaptureAction::Hover {
+                selector: "button".to_owned(),
+            },
+            samples: 11,
+            interval_ms: 1000,
+        }];
+        let (plan, _) = to_plan(&form, false).unwrap();
+        assert!(plan.steps.contains(&Step::Wait {
+            condition: WaitCondition::Delay { ms: 10_000 }
+        }));
+
+        let clip = |id: &str| CaptureStep::Clip {
+            id: id.to_owned(),
+            trigger: CaptureAction::Hover {
+                selector: "button".to_owned(),
+            },
+            samples: 11,
+            interval_ms: 1000,
         };
-        assert!(matches!(to_plan(&req), Err(ApiError::Invalid(_))));
+        form.steps = vec![clip("a"), clip("b"), clip("c"), clip("d")];
+        assert!(matches!(to_plan(&form, false), Err(ApiError::Invalid(_))));
     }
 }

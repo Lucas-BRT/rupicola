@@ -29,6 +29,11 @@ const fn stored(created: bool) -> StatusCode {
     }
 }
 
+/// `GET /v1/capture-capabilities`
+pub async fn capabilities(_principal: Principal) -> Json<capture_runner::CaptureCapabilities> {
+    Json(capture_runner::capabilities().await)
+}
+
 /// `PUT /v1/blobs/{sha256}`
 pub async fn put_blob(
     State(state): State<Shared>,
@@ -697,7 +702,7 @@ mod tests {
             "{invalid}"
         );
 
-        let ran = call(
+        let local_blocked = call(
             port,
             "POST",
             "/v1/projects/demo/captures/run",
@@ -705,8 +710,25 @@ mod tests {
             Some(r#"{"scenario":"Home","url":"http://127.0.0.1:9/"}"#),
         )
         .await;
+        assert_eq!(
+            status(&local_blocked),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{local_blocked}"
+        );
+
+        let ran = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&ana),
+            Some(r#"{"scenario":"Home","url":"http://93.184.216.34:9/"}"#),
+        )
+        .await;
         assert_eq!(status(&ran), StatusCode::CREATED, "{ran}");
         let capture: Capture = json(&ran);
         assert_eq!(capture.scenario, "Home");
+
+        let caps = call(port, "GET", "/v1/capture-capabilities", Some(&ana), None).await;
+        assert_eq!(status(&caps), StatusCode::OK, "{caps}");
     }
 }

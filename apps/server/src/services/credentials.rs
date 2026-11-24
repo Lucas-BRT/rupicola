@@ -33,6 +33,7 @@ async fn issue(
     handle: Option<&str>,
     project: Option<&str>,
     label: String,
+    actor: Option<&str>,
 ) -> Result<IssuedCredential, ApiError> {
     let token = secret::token();
     let credential = Credential {
@@ -50,7 +51,13 @@ async fn issue(
         TokenKind::Device => format!("Registered device {}", credential.label),
         _ => format!("Created machine token {}", credential.label),
     };
-    audit::record(&mut *tx, project, handle.unwrap_or("system"), &event).await?;
+    audit::record(
+        &mut *tx,
+        project,
+        actor.or(handle).unwrap_or("system"),
+        &event,
+    )
+    .await?;
     tx.commit().await?;
     Ok(IssuedCredential { token, credential })
 }
@@ -63,7 +70,15 @@ pub async fn create_token(
 ) -> Result<IssuedCredential, ApiError> {
     let handle = principal.session_person()?;
     let label = clean_label(label)?;
-    issue(state, TokenKind::Machine, Some(handle), None, label).await
+    issue(
+        state,
+        TokenKind::Machine,
+        Some(handle),
+        None,
+        label,
+        Some(handle),
+    )
+    .await
 }
 
 /// The caller's sessions and machine tokens.
@@ -105,9 +120,17 @@ pub async fn create_device(
     label: &str,
 ) -> Result<IssuedCredential, ApiError> {
     require(state, principal, project, Role::Owner).await?;
-    principal.session_person()?;
+    let actor = principal.session_person()?;
     let label = clean_label(label)?;
-    issue(state, TokenKind::Device, None, Some(project), label).await
+    issue(
+        state,
+        TokenKind::Device,
+        None,
+        Some(project),
+        label,
+        Some(actor),
+    )
+    .await
 }
 
 pub async fn list_devices(

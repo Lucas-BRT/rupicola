@@ -29,6 +29,20 @@ pub async fn put_blob(state: Shared, sha256: String, data: Bytes) -> Result<bool
         .map_err(anyhow::Error::from)?
 }
 
+/// Stores a file under its digest and records it as belonging to `project`.
+pub async fn put_project_blob(
+    state: &Shared,
+    project: &str,
+    sha256: String,
+    data: Bytes,
+) -> Result<bool, ApiError> {
+    let bytes = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
+    let created = put_blob(state.clone(), sha256.clone(), data).await?;
+    let mut connection = state.db.acquire().await?;
+    blobs::record(&mut connection, project, &sha256, bytes).await?;
+    Ok(created)
+}
+
 /// Whether a file is stored under `sha256`.
 pub fn has_blob(state: &AppState, sha256: &str) -> Result<bool, ApiError> {
     Ok(state
@@ -182,4 +196,22 @@ pub async fn artifact(
         .await?
         .require(Role::Reader)?;
     Ok(blob)
+}
+
+/// Reads a byte range of an artifact on a blocking thread, for readers of its project.
+pub async fn read_artifact_range(
+    state: &Shared,
+    principal: &Principal,
+    id: &str,
+    offset: u64,
+    length: usize,
+) -> Result<(ArtifactBlob, Vec<u8>), ApiError> {
+    let blob = artifact(state, principal, id).await?;
+    let sha256 = blob.sha256.clone();
+    let shared = state.clone();
+    let data =
+        tokio::task::spawn_blocking(move || shared.blobs.read_range(&sha256, offset, length))
+            .await
+            .map_err(anyhow::Error::from)??;
+    Ok((blob, data))
 }
