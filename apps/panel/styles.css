@@ -1,0 +1,17 @@
+@import "tailwindcss" source(none);
+@import "./assets/panel.css";
+@source "./src/**/*.rs";
+
+@theme inline {
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--ink);
+  --color-muted-foreground: var(--muted);
+  --color-primary: var(--copper);
+  --color-primary-foreground: var(--on-copper);
+  --color-border: var(--line);
+  --color-ring: var(--copper);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--on-copper);
+}

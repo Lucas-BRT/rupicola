@@ -1,0 +1,31 @@
+[package]
+name = "rupicola-panel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+http.workspace = true
+clap = { workspace = true, features = ["env"] }
+serde.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
+topcoat = { workspace = true, features = ["view", "serve", "tailwind", "ui", "discover", "metadata"] }
+getrandom.workspace = true
+rupicola-api.workspace = true
+rupicola-client.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+rupicola-client = { workspace = true, features = ["mock"] }
+
+[build-dependencies]
+topcoat = { workspace = true, features = ["tailwind"] }
+
+[lints]
+workspace = true

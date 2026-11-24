@@ -1,8 +1,63 @@
 [workspace]
-members = [".", "panel", "site", "xtask"]
-default-members = [".", "xtask"]
+members = [
+    "crates/rupicola-core",
+    "crates/rupicola-api",
+    "crates/rupicola-client",
+    "apps/server",
+    "apps/cli",
+    "apps/panel",
+    "apps/site",
+    "tools/eval-runner",
+]
+default-members = ["crates/rupicola-core", "crates/rupicola-api", "crates/rupicola-client", "apps/server", "apps/cli", "tools/eval-runner"]
 exclude = ["evals", "examples"]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.99"
+authors = ["LucasBRT"]
+repository = "https://github.com/Lucas-BRT/rupicola"
+
+# Every version is pinned here once; members inherit with `workspace = true` and add their own features.
+[workspace.dependencies]
+rupicola-core = { path = "crates/rupicola-core" }
+rupicola-api = { path = "crates/rupicola-api" }
+rupicola-client = { path = "crates/rupicola-client" }
+anyhow = "=1.0.104"
+async-trait = "=0.1.92"
+argon2 = { version = "=0.5.3", features = ["std"] }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
+base64 = "=0.22.1"
+clap = { version = "=4.6.9", features = ["derive"] }
+getrandom = "=0.3.4"
+governor = { version = "=0.10.4", default-features = false }
+http = "=1.5.0"
+http-body-util = "=0.1.5"
+mockall = "=0.15.0"
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
+pulldown-cmark = "=0.13.6"
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls"] }
+rpassword = "=7.5.5"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+sha2 = "=0.10.9"
+sqlx = { version = "=0.9.1", default-features = false, features = ["macros", "migrate", "runtime-tokio", "sqlite-bundled"] }
+subtle = "=2.6.1"
+syn = { version = "=2.0.119", features = ["full", "visit"] }
+tempfile = "=3.27.0"
+thiserror = "=2.0.21"
+tokio = "=1.54.1"
+toml = "=0.9.12"
+topcoat = { version = "=0.12.1", default-features = false }
+tower = "=0.5.3"
+tower-http = { version = "=0.6.11", features = ["fs"] }
+tower_governor = { version = "=0.8.0", default-features = false, features = ["axum"] }
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "std"] }
+url = "=2.5.8"
+uuid = { version = "=1.29.3", features = ["v7"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -12,9 +67,6 @@ invalid_upcast_comparisons = "deny"
 maybe_infinite_iter = "deny"
 should_panic_without_expect = "deny"
 unsafe_derive_deserialize = "deny"
-
-[lints]
-workspace = true
 
 [profile.dev]
 debug = 0
@@ -32,29 +84,5 @@ strip = true
 inherits = "release"
 opt-level = "s"
 lto = "fat"
-codegen-units = 1
+codegen-units = 16
 strip = true
-
-[package]
-name = "rupicola"
-version = "0.1.1"
-edition = "2024"
-rust-version = "1.99"
-default-run = "rupicola"
-description = "Rust-native tools for AI-assisted web and desktop interface development"
-repository = "https://github.com/Lucas-BRT/rupicola"
-readme = "README.md"
-keywords = ["rust", "ui", "agent-skills", "desktop", "ai"]
-publish = false
-
-[dependencies]
-clap = { version = "=4.6.7", features = ["derive"] }
-serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.154"
-toml = "=0.9.12"
-syn = { version = "=2.0.119", features = ["full", "visit"] }
-proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
-pulldown-cmark = "=0.13.6"
-png = "=0.18.1"
-
-tempfile = "=3.27.0"

@@ -1,0 +1,104 @@
+//! Static, offline helpers for the Rupicola skill.
+//! No inspected project code is compiled or executed by these functions.
+pub mod check;
+pub mod discover;
+pub mod evals;
+pub mod scan;
+
+use anyhow::{Context, Result};
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+
+pub const FRAMEWORKS: &[&str] = &[
+    "libcosmic",
+    "gpui",
+    "iced",
+    "topcoat",
+    "leptos",
+    "yew",
+    "tauri",
+    "dioxus",
+    "egui",
+    "slint",
+    "gtk4",
+    "libadwaita",
+    "relm4",
+];
+pub const TOPICS: &[&str] = &[
+    "perception",
+    "layout",
+    "typography",
+    "color",
+    "iconography",
+    "navigation",
+    "input",
+    "feedback",
+    "motion",
+    "data",
+    "content",
+    "accessibility",
+    "localization",
+];
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Diagnostic {
+    pub path: PathBuf,
+    pub message: String,
+}
+
+/// Deterministic traversal, excluding symlinks (including directory cycles).
+/// An explicitly supplied symlink root is canonicalized; nested symlinks are skipped.
+///
+/// # Errors
+///
+/// Returns an error if file metadata or directory entries cannot be read.
+pub fn files(root: &Path, include_tests: bool) -> Result<Vec<PathBuf>> {
+    fn visit(path: &Path, tests: bool, out: &mut Vec<PathBuf>) -> Result<()> {
+        let meta =
+            std::fs::symlink_metadata(path).with_context(|| format!("{}", path.display()))?;
+        if meta.file_type().is_symlink() {
+            return Ok(());
+        }
+        if meta.is_file() {
+            out.push(path.to_path_buf());
+            return Ok(());
+        }
+        if !meta.is_dir() {
+            return Ok(());
+        }
+        let mut entries = std::fs::read_dir(path)
+            .with_context(|| format!("{}", path.display()))?
+            .collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with('.')
+                || matches!(
+                    name.as_ref(),
+                    "target" | "node_modules" | "vendor" | "dist" | "build" | "generated"
+                )
+            {
+                continue;
+            }
+            if !tests && matches!(name.as_ref(), "tests" | "fixtures" | "examples" | "benches") {
+                continue;
+            }
+            visit(&entry.path(), tests, out)?;
+        }
+        Ok(())
+    }
+    let root = root
+        .canonicalize()
+        .with_context(|| format!("{}", root.display()))?;
+    let mut out = Vec::new();
+    visit(&root, include_tests, &mut out)?;
+    Ok(out)
+}
+
+/// # Errors
+///
+/// Returns an error if the file cannot be read as UTF-8.
+pub fn read(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))
+}

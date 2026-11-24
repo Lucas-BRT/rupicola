@@ -15,5 +15,5 @@ When the user states a broad goal, new interface, or open-ended redesign rather 
    - **Visual & content rules:** aesthetic direction, `oklch()` neutral temperature, typography roles, radius/hairline system, and terse copy budgets.
    - **State & persistence:** URL query-param state vs server DB vs local storage; optimistic vs confirmed mutations; duplicate-submit guards.
    - **Data extremes & recovery:** behavior at `0`, `1`, and `100+` items, long strings, and network/validation failures.
-   - **Verification target:** headless Chromium, offscreen RAM (`RamCapture`), or compositor capture.
-3. **Persist decisions:** record the user's answers as `adopted` entries via `rupicola design add` so subsequent build/review loops honor them without re-asking.
+   - **Verification target:** headless Chromium, offscreen RAM (toolkit test renderer), or compositor capture.
+3. **Persist decisions:** record the user's answers as `adopted` entries via the `design_record` MCP tool so subsequent build/review loops honor them without re-asking.

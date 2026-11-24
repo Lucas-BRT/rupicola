@@ -93,10 +93,29 @@ jobs:
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
+          target: panel
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/rupicola-backend
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: server
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - id: meta-site
@@ -110,7 +129,7 @@ jobs:
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          file: Dockerfile.site
+          target: site
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta-site.outputs.tags }}
@@ -174,8 +193,8 @@ jobs:
           cp "target/$TARGET/release/$BINARY" dist/rupicola/
           cp README.md SKILL.md dist/rupicola/
           cp -R agents reference examples dist/rupicola/
-          mkdir -p dist/rupicola/panel dist/rupicola/evals
-          cp panel/README.md dist/rupicola/panel/
+          mkdir -p dist/rupicola/apps/panel dist/rupicola/evals
+          cp apps/panel/README.md dist/rupicola/apps/panel/
           cp evals/PREREG.md dist/rupicola/evals/
           "dist/rupicola/$BINARY" check dist/rupicola
           tar -czf "rupicola-$GITHUB_REF_NAME-$TARGET.tar.gz" -C dist rupicola

@@ -1,23 +1,62 @@
 # Local run: `docker compose -f compose.local.yml up --build` serves http://127.0.0.1:4731/.
 # Production / open-internet deployments use `compose.yml` behind Dokploy / Traefik with HTTPS.
 services:
-  web:
-    build: .
+  backend:
+    build:
+      context: .
+      target: server
     init: true
     restart: unless-stopped
+    ports:
+      - "${RUPICOLA_BIND_IP:-127.0.0.1}:${RUPICOLA_BACKEND_PORT:-4730}:4730"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "4730"
+      RUPICOLA_DB: "/data/backend.db"
+      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
+      # Upload limits; the defaults repeat the backend's own, since an empty number refuses to start.
+      # The panel's server settings override them, and a project's settings can only tighten them.
+      RUPICOLA_BLOB_LIMIT: "${RUPICOLA_BLOB_LIMIT:-536870912}"
+      RUPICOLA_IMAGE_LIMIT: "${RUPICOLA_IMAGE_LIMIT:-33554432}"
+      RUPICOLA_VIDEO_LIMIT: "${RUPICOLA_VIDEO_LIMIT:-536870912}"
+      RUPICOLA_MAX_ARTIFACTS: "${RUPICOLA_MAX_ARTIFACTS:-1024}"
+      RUPICOLA_UPLOAD_TIMEOUT: "${RUPICOLA_UPLOAD_TIMEOUT:-600}"
+      RUPICOLA_UPLOAD_IDLE: "${RUPICOLA_UPLOAD_IDLE:-30}"
+      RUPICOLA_REQUEST_TIMEOUT: "${RUPICOLA_REQUEST_TIMEOUT:-30}"
+      # `never` stops every project from removing a capture that something cites.
+      RUPICOLA_CITED_DELETION: "${RUPICOLA_CITED_DELETION:-allow}"
+    volumes:
+      - rupicola-backend-data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    healthcheck:
+      test: ["CMD", "./rupicola-server", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  web:
+    build:
+      context: .
+      target: panel
+    init: true
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
     ports:
       - "${RUPICOLA_BIND_IP:-127.0.0.1}:${RUPICOLA_PORT:-4731}:4731"
     environment:
       HOST: "0.0.0.0"
       PORT: "4731"
       XDG_DATA_HOME: "/data"
-      RUPICOLA_DB: "/data/panel.db"
-      RUPICOLA_CAPTURES: "/data/captures"
-      RUPICOLA_UPLOADS: "/data/uploads"
-      RUPICOLA_MCP_WRITE: "${RUPICOLA_MCP_WRITE:-0}"
-      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
-    volumes:
-      - rupicola-local-data:/data
+      RUPICOLA_SERVER_URL: "http://backend:4730"
     tmpfs:
       - /tmp:size=64m,mode=1777
     read_only: true
@@ -33,4 +72,4 @@ services:
       start_period: 10s
 
 volumes:
-  rupicola-local-data:
+  rupicola-backend-data:

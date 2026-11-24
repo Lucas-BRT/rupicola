@@ -1,17 +1,17 @@
-# Headless web capture
+# Capture bundles & web scenarios
 
-Use a v1 TOML scenario with an existing HTTP(S) preview for before and after runs. Each run launches its own headless Chromium context and writes a v1 manifest. Start the preview server with your project's normal command and use test accounts and fixture data.
+Use a v1 TOML scenario with an existing HTTP(S) preview for before and after runs driven by external or server-managed capture tooling, then publish the resulting v1 bundle (`manifest.json` + media files) to the Rupicola backend. Start the preview server with your project's normal command and use test accounts and fixture data.
 
-## Run a scenario
+## Scenario format & publishing
 
-Install Node.js and Playwright with its Chromium browser. From the project directory, where Playwright is installed:
+Run the capture with your Playwright/Chromium runner and publish the directory with the CLI:
 
 ```sh
-npx playwright install chromium
-rupicola capture settings.toml --out .rupicola/captures/settings-before --video
+# After external capture produces .rupicola/captures/settings-before/manifest.json:
+rupicola publish .rupicola/captures/settings-before --server-url https://rupicola.example.com
 ```
 
-Supply `--playwright-module /path/to/node_modules/playwright` when Playwright is installed elsewhere. Without `--video`, the run needs only Node.js and Playwright. MP4 previews additionally require an `ffmpeg` build with `libx264`. The output directory must be new. Exit code `0` means capture and requested artifact generation completed. A blocked run exits `1` and includes its blocker and any usable artifacts in the manifest. A scenario rejected before capture exits `1` with a validation message.
+A scenario with clips typically uses headless Chromium / Playwright steps (`click`, `hover`, `fill`, `press`, `ready`) and `ffmpeg` to produce frames, `analysis.json`, contact sheets, and optional MP4 previews. Checkpoints and clips need distinct IDs with ASCII letters, digits, hyphens or underscores. Keep each clip at 2–60 post-trigger samples spanning at most 10 seconds. Use another profile for dark theme, a different viewport or reduced motion.
 
 A settings preview with a button and a visible popup can use this scenario:
 
@@ -58,27 +58,16 @@ kind = "checkpoint"
 id = "opened"
 ```
 
-Actions use Playwright locator selectors and support `click`, `hover`, `fill` (with `value`), `press` (with `key`), and `ready` (wait for a visible element). Checkpoints and clips need distinct IDs with ASCII letters, digits, hyphens or underscores. A clip captures a baseline, performs its trigger, then samples the viewport. Keep each clip at 2–60 post-trigger samples spanning at most 10 seconds. Use another profile for dark theme, a different viewport or reduced motion.
-
-In a Git checkout, omit `--out` to write directly to the local panel directory.
-Rupicola detects the project from Git or uses an explicit `rupicola link`.
-The `[project]` section is optional in this mode. With `--out`, supply that
-section to choose the project recorded in the manifest.
+In a Git checkout, `rupicola publish DIR` detects the project from Git or uses an explicit `rupicola link`. The `[project]` section in `manifest.json` selects the project recorded in the bundle.
 
 ## Inspect a run
 
 Open the checkpoints and clip contact sheets. The clip's `analysis.json` records the pixel-change heuristic, sample indices, scheduled times and observed screenshot start times relative to the trigger. The baseline came before the trigger and uses a zero marker. When a preview exists, each retained frame includes a separate `video_ms` seek offset. Keep the timing difference in mind when judging apparent stalls, jumps or cuts. Screenshot sampling and the constant-frame-rate MP4 preview provide approximate motion evidence. They cannot establish compositor frame pacing.
 
-The run retains the baseline, midpoint and last PNG, plus frames near changes or flagged steps where available. The manifest points to those frames and the analysis, contact sheet and optional MP4. The run removes the other PNG samples after processing.
+The bundle retains the baseline, midpoint and last PNG, plus frames near changes or flagged steps where available, along with the analysis, contact sheet and optional MP4.
 
-Compare the same checkpoint across runs with `rupicola diff` or use the optional local panel. Record a concrete observation after inspecting the evidence:
+Compare the same checkpoint across runs in the panel (Before/After view). Record a concrete observation after inspecting the evidence, with the `capture_review` MCP tool or the panel's review form; `evidence_artifact_id` points at one of the capture's artifacts.
 
-```sh
-rupicola capture-review .rupicola/captures/settings-before/manifest.json \
-  --note 'Popup becomes visible but keyboard focus stays on the toolbar button.' \
-  --evidence checkpoints/opened.png
-```
-
-Capture status and inspection status are independent. The command appends a finding and marks inspection recorded. After an authorized fix, rerun the same scenario into a new directory with the updated revision, then inspect and record new observations. If an interrupted review leaves `.review.lock`, remove the empty lock directory only after confirming there is no review in progress.
+Capture status and inspection status are independent. A review appends a finding and marks inspection recorded. After an authorized fix, rerun the same scenario with the updated revision, then inspect and record new observations.
 
 The [Playwright Browser API](https://playwright.dev/docs/api/class-browser) documents the context settings used here.

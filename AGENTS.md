@@ -10,14 +10,15 @@ Operational rules for AI agents working in this repository. Never invent files, 
 - Git hooks (`.githooks/`):
   - `commit-msg`: enforces Conventional Commits (`feat|fix|chore|docs|refactor|test|ci|build|perf|style|revert`).
   - `pre-push`: runs formatting and workspace Clippy checks.
-- Production deploy (`rupicola.lucasbrt.dev`) triggers **only** on `v*` tags or manual `workflow_dispatch`. Pushes/PRs to `develop` and `main` run CI checks only.
+- Production deploy triggers **only** on `v*` tags or manual `workflow_dispatch`. Pushes/PRs to `develop` and `main` run CI checks only.
 
 ## Local Dev vs Cloud
 - Do not install or start local `systemd` services (`rupicola.service` / `ferris-atelier.service`).
-- Test panel changes locally via `./panel/dev.sh {reload|stop|reset|status}` (isolated in `.rupicola/dev-data/`, `127.0.0.1:4731`) or `docker compose -f compose.local.yml up --build`.
+- Test panel changes locally via `./apps/panel/dev.sh {reload|stop|reset|status}` (isolated in `.rupicola/dev-data/`, `127.0.0.1:4731`) or `docker compose -f compose.local.yml up --build`.
 - Never overwrite `~/.local/share/rupicola/auth-token` from dev scripts.
-- Remote MCP: `rupicola mcp-bridge --server-url https://rupicola.lucasbrt.dev/mcp` (reads `~/.local/share/rupicola/auth-token` before `RUPICOLA_MCP_TOKEN`).
-- Server MCP endpoints (`panel/src/mcp.rs`): `POST /mcp` (global `machine_tokens`) and `POST /mcp/{project}` (`devices` + `machine_tokens`).
+- Remote MCP: `rupicola mcp-bridge` (backend address from `--server-url`, `RUPICOLA_SERVER_URL` or the `server-url` file `rupicola login` writes next to the token) (reads `~/.local/share/rupicola/auth-token` before `RUPICOLA_MCP_TOKEN`). Run the CLI against a dev backend with `XDG_DATA_HOME` pointing at a scratch directory so `login` does not replace your token.
+- `rupicola capture` publishes the finished capture to the backend when `--server-url`, `RUPICOLA_SERVER_URL` or a stored `server-url` names one; without `--out` it captures into a scratch directory that is removed afterwards.
+- Server MCP endpoint (`apps/server/src/mcp.rs`): `POST /mcp`, authenticated with any bearer token the backend issues. The panel serves no MCP.
 
 ## Mandatory Verification Before Reporting Done
 Run and observe passing output after your final edit:

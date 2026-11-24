@@ -1,0 +1,19 @@
+[package]
+name = "rupicola-site"
+description = "Lightweight landing page and documentation server for Rupicola"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+clap.workspace = true
+http.workspace = true
+pulldown-cmark.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
+topcoat = { workspace = true, features = ["serve", "discover", "view"] }
+
+[lints]
+workspace = true

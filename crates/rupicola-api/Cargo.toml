@@ -1,0 +1,18 @@
+[package]
+name = "rupicola-api"
+description = "Request and response types shared by the Rupicola backend and its clients"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

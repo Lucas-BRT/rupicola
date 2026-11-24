@@ -1,29 +1,82 @@
 # Dokploy (Compose type) — open-internet hardened deployment behind Traefik.
 # Dokploy's Traefik reaches the container through `dokploy-network`, so no host port is published here:
 # in the application's "Domains" tab choose service `web`, container port 4731, and enable HTTPS.
-# Before initial startup, set RUPICOLA_PUBLIC_ORIGIN (e.g. https://atelier.yourdomain.com) and
-# RUPICOLA_SETUP_CODE (at least 32 characters of high-entropy secret) in the Dokploy environment.
+# Before initial startup, set RUPICOLA_PUBLIC_ORIGIN (e.g. https://atelier.yourdomain.com), RUPICOLA_DOMAIN
+# (its host) and RUPICOLA_SETUP_CODE (at least 32 characters of high-entropy secret, read by the backend)
+# in the Dokploy environment.
 # For local testing with a published port, use: `docker compose -f compose.local.yml up --build`.
+# The backend owns accounts, sessions, projects, captures and the media store, and serves the API
+# and MCP; the panel is a client of it. Both join `dokploy-network`, so the panel reaches the backend
+# as http://backend:4730. Traefik routes `/v1` and `/mcp` of the public domain to the backend and the
+# rest to the panel (the `site` router below keeps its own paths at a higher priority).
 services:
+  backend:
+    image: ${RUPICOLA_BACKEND_IMAGE:-lucasbrt/rupicola-backend:latest}
+    pull_policy: always
+    init: true
+    restart: unless-stopped
+    expose:
+      - "4730"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "4730"
+      RUPICOLA_DB: "/data/backend.db"
+      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
+      # Upload limits; the defaults repeat the backend's own, since an empty number refuses to start.
+      # The panel's server settings override them, and a project's settings can only tighten them.
+      RUPICOLA_BLOB_LIMIT: "${RUPICOLA_BLOB_LIMIT:-536870912}"
+      RUPICOLA_IMAGE_LIMIT: "${RUPICOLA_IMAGE_LIMIT:-33554432}"
+      RUPICOLA_VIDEO_LIMIT: "${RUPICOLA_VIDEO_LIMIT:-536870912}"
+      RUPICOLA_MAX_ARTIFACTS: "${RUPICOLA_MAX_ARTIFACTS:-1024}"
+      RUPICOLA_UPLOAD_TIMEOUT: "${RUPICOLA_UPLOAD_TIMEOUT:-600}"
+      RUPICOLA_UPLOAD_IDLE: "${RUPICOLA_UPLOAD_IDLE:-30}"
+      RUPICOLA_REQUEST_TIMEOUT: "${RUPICOLA_REQUEST_TIMEOUT:-30}"
+      # `never` stops every project from removing a capture that something cites.
+      RUPICOLA_CITED_DELETION: "${RUPICOLA_CITED_DELETION:-allow}"
+      RUPICOLA_BEHIND_PROXY: "true"
+    volumes:
+      - rupicola-backend-data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rupicola-backend.rule=Host(`${RUPICOLA_DOMAIN}`) && (PathPrefix(`/v1`) || Path(`/mcp`))"
+      - "traefik.http.routers.rupicola-backend.entrypoints=websecure"
+      - "traefik.http.routers.rupicola-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.rupicola-backend.priority=100"
+      - "traefik.http.services.rupicola-backend.loadbalancer.server.port=4730"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    mem_limit: 512m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "./rupicola-server", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - dokploy-network
+
   web:
     image: ${RUPICOLA_IMAGE:-lucasbrt/rupicola:latest}
     pull_policy: always
     init: true
     restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
     expose:
       - "4731"
     environment:
       HOST: "0.0.0.0"
       PORT: "4731"
       XDG_DATA_HOME: "/data"
-      RUPICOLA_DB: "/data/panel.db"
-      RUPICOLA_CAPTURES: "/data/captures"
-      RUPICOLA_UPLOADS: "/data/uploads"
-      RUPICOLA_MCP_WRITE: "${RUPICOLA_MCP_WRITE:-0}"
       RUPICOLA_PUBLIC_ORIGIN: "${RUPICOLA_PUBLIC_ORIGIN}"
-      RUPICOLA_SETUP_CODE: "${RUPICOLA_SETUP_CODE:-}"
-    volumes:
-      - rupicola-data:/data
+      RUPICOLA_SERVER_URL: "http://backend:4730"
     tmpfs:
       - /tmp:size=64m,mode=1777
     read_only: true
@@ -52,10 +105,10 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "4732"
-      RUPICOLA_PANEL_URL: "https://rupicola.lucasbrt.dev/dashboard"
+      RUPICOLA_PUBLIC_URL: "https://${RUPICOLA_DOMAIN:?set RUPICOLA_DOMAIN}"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.rupicola-site.rule=Host(`rupicola.lucasbrt.dev`) && (Path(`/`) || PathPrefix(`/install`) || PathPrefix(`/docs`) || Path(`/architecture`) || Path(`/site.css`) || Path(`/site.js`))"
+      - "traefik.http.routers.rupicola-site.rule=Host(`${RUPICOLA_DOMAIN}`) && (Path(`/`) || PathPrefix(`/install`) || PathPrefix(`/docs`) || Path(`/architecture`) || Path(`/site.css`) || Path(`/site.js`))"
       - "traefik.http.routers.rupicola-site.entrypoints=websecure"
       - "traefik.http.routers.rupicola-site.tls.certresolver=letsencrypt"
       - "traefik.http.routers.rupicola-site.priority=100"
@@ -77,7 +130,9 @@ services:
       - dokploy-network
 
 volumes:
+  # Kept until the data of the old panel is converted into the backend (see the conversion script).
   rupicola-data:
+  rupicola-backend-data:
 
 networks:
   dokploy-network:
