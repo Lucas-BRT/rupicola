@@ -6,7 +6,7 @@
 
 use crate::{
     domain::{ApiError, Principal},
-    services::{captures, uploads::Receiving},
+    services::{capture_runner, captures, uploads::Receiving},
     state::Shared,
 };
 use axum::{
@@ -17,7 +17,7 @@ use axum::{
     response::Response,
 };
 use rupicola_api::{
-    Capture, CaptureSummary, Finding, Missing, MissingQuery, NewCapture, NewFinding,
+    Capture, CaptureSummary, Finding, Missing, MissingQuery, NewCapture, NewFinding, RunCapture,
 };
 
 /// 201 for a file stored now, 200 for one already kept.
@@ -100,6 +100,18 @@ pub async fn create(
     Json(form): Json<NewCapture>,
 ) -> Result<(StatusCode, Json<Capture>), ApiError> {
     let capture = captures::create(&state, &principal, &project, form).await?;
+    Ok((StatusCode::CREATED, Json(capture)))
+}
+
+/// `POST /v1/projects/{id}/captures/run`: captures `form.url` using the server's external
+/// capture runner and stores the resulting capture (`complete` or `blocked`).
+pub async fn run(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(project): Path<String>,
+    Json(form): Json<RunCapture>,
+) -> Result<(StatusCode, Json<Capture>), ApiError> {
+    let capture = capture_runner::run(&state, &principal, &project, form).await?;
     Ok((StatusCode::CREATED, Json(capture)))
 }
 
@@ -646,5 +658,55 @@ mod tests {
         assert_eq!(status(&reader), StatusCode::FORBIDDEN, "{reader}");
         let outsider = stream(port, &carla, &digest(data), data, data.len()).await;
         assert_eq!(status(&outsider), StatusCode::NOT_FOUND, "{outsider}");
+    }
+
+    #[tokio::test]
+    async fn running_a_capture_validates_target_and_enforces_access() {
+        let (port, [ana, bruno, carla]) = demo().await;
+        let denied = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&bruno),
+            Some(r#"{"scenario":"Home","url":"http://127.0.0.1:4731/"}"#),
+        )
+        .await;
+        assert_eq!(status(&denied), StatusCode::FORBIDDEN, "{denied}");
+
+        let outsider = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&carla),
+            Some(r#"{"scenario":"Home","url":"http://127.0.0.1:4731/"}"#),
+        )
+        .await;
+        assert_eq!(status(&outsider), StatusCode::NOT_FOUND, "{outsider}");
+
+        let invalid = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&ana),
+            Some(r#"{"scenario":"Bad","url":"file:///etc/passwd"}"#),
+        )
+        .await;
+        assert_eq!(
+            status(&invalid),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{invalid}"
+        );
+
+        let ran = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&ana),
+            Some(r#"{"scenario":"Home","url":"http://127.0.0.1:9/"}"#),
+        )
+        .await;
+        assert_eq!(status(&ran), StatusCode::CREATED, "{ran}");
+        let capture: Capture = json(&ran);
+        assert_eq!(capture.scenario, "Home");
     }
 }

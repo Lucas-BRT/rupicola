@@ -282,6 +282,67 @@ pub struct NewCapture {
     pub clips: Vec<NewClip>,
 }
 
+/// Interactive step inside a server-run [`CaptureStep::Clip`] trigger.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CaptureAction {
+    Click { selector: String },
+    Hover { selector: String },
+    Fill { selector: String, value: String },
+    Press { selector: String, key: String },
+    Ready { selector: String },
+}
+
+/// One step executed by the server's external capture runner.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CaptureStep {
+    Click {
+        selector: String,
+    },
+    Hover {
+        selector: String,
+    },
+    Fill {
+        selector: String,
+        value: String,
+    },
+    Press {
+        selector: String,
+        key: String,
+    },
+    Ready {
+        selector: String,
+    },
+    Checkpoint {
+        id: String,
+    },
+    Clip {
+        id: String,
+        trigger: CaptureAction,
+        samples: usize,
+        interval_ms: u32,
+    },
+}
+
+/// `POST /v1/projects/{id}/captures/run`: asks the server to capture `url` using its
+/// external capture backend and store the resulting artifacts.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RunCapture {
+    pub scenario: String,
+    pub url: String,
+    #[serde(default)]
+    pub revision: Option<String>,
+    #[serde(default)]
+    pub environment: Environment,
+    #[serde(default)]
+    pub timeout_ms: Option<u32>,
+    #[serde(default)]
+    pub steps: Vec<CaptureStep>,
+    #[serde(default)]
+    pub allow_degraded: bool,
+}
+
 /// A stored media file; fetch its bytes from `GET /v1/artifacts/{id}`.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct Artifact {

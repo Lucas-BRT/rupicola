@@ -7,14 +7,14 @@ use super::{AssetOption, BadgeVariant, Cx, Problem, ProblemStatus, Role, Run, ba
 use crate::Account;
 use crate::components::{
     display::{counts, empty, metric, moment, section_head, stat},
-    form::csrf,
+    form::{csrf, field, select_field, stack_form},
 };
 use crate::project::Filter;
 use std::collections::BTreeSet;
 use topcoat::{
     Result,
     context::context,
-    view::{View, component},
+    view::{View, attributes, component},
 };
 
 /// The captures tab's content.
@@ -107,6 +107,9 @@ pub async fn captures_tab(
             stat(value: assets.len(), "Visual assets (shots & clips)")
             metric(href: format!("{base}/problems"), value: open_problems, featured: open_problems > 0, "Problems identified")
         )
+        if role != Role::Reader {
+            run_capture_form(base: base, token: &account.csrf)
+        }
         capture_toolbar(base: base, subview: subview, health: health, query: filter.q.as_deref().unwrap_or(""))
         if subview == "all" || subview == "runs" {
             <section class="surface captures-ledger">
@@ -268,6 +271,46 @@ async fn asset_card(
                 </div>
             </div>
         </article>
+    })
+}
+
+/// Form for triggering a server-side capture run.
+#[component]
+async fn run_capture_form(cx: &Cx, base: &str, token: &str) -> Result<impl View> {
+    Ok(view! {
+        <details class="surface panel-padding">
+            <summary>"Run capture"</summary>
+            stack_form(action: format!("{base}/captures/run"), token: token,
+                <div class="form-row-2">
+                    <div>
+                        field(id: "cap-scenario", name: "scenario", label: "Scenario",
+                            attrs: attributes! { placeholder="home" maxlength="120" })
+                    </div>
+                    <div>
+                        field(id: "cap-url", name: "url", label: "URL",
+                            attrs: attributes! { type="url" placeholder="http://127.0.0.1:3000" required="" })
+                    </div>
+                </div>
+                <div class="form-row-3">
+                    <div>
+                        field(id: "cap-width", name: "width", label: "Width",
+                            attrs: attributes! { type="number" min="1" placeholder="1440" })
+                    </div>
+                    <div>
+                        field(id: "cap-height", name: "height", label: "Height",
+                            attrs: attributes! { type="number" min="1" placeholder="900" })
+                    </div>
+                    <div>
+                        select_field(id: "cap-scheme", name: "color_scheme", label: "Color scheme",
+                            <option value="">"Default"</option>
+                            <option value="light">"Light"</option>
+                            <option value="dark">"Dark"</option>
+                        )
+                    </div>
+                </div>
+                <button type="submit" class="button primary">"Start run"</button>
+            )
+        </details>
     })
 }
 

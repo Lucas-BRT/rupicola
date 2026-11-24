@@ -12,8 +12,8 @@ use rupicola_api::{
     DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
     Member, NewCapture, NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite,
     NewProblem, NewProject, NewReview, NewStep, PasswordChange, Problem, ProblemPatch,
-    ProblemSummary, Project, Redeem, Register, SessionToken, Setup, Step, SystemActionForm,
-    SystemList, SystemVersion,
+    ProblemSummary, Project, Redeem, Register, RunCapture, SessionToken, Setup, Step,
+    SystemActionForm, SystemList, SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -226,6 +226,14 @@ pub trait Api: Send + Sync {
         token: &str,
         project: &str,
         capture: &NewCapture,
+    ) -> Result<Capture>;
+
+    /// Executes a web capture on the server and stores the resulting capture.
+    async fn run_capture(
+        &self,
+        token: &str,
+        project: &str,
+        capture: &RunCapture,
     ) -> Result<Capture>;
 
     /// Sends one MCP JSON-RPC message.

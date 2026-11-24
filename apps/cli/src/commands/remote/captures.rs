@@ -2,7 +2,7 @@
 
 use super::client::{Client, Scoped, rows};
 use crate::{Result, block_on};
-use rupicola_api::NewFinding;
+use rupicola_api::{Environment, NewFinding, RunCapture};
 use rupicola_client::Api;
 
 #[derive(clap::Args)]
@@ -31,6 +31,24 @@ enum CapturesAction {
         evidence: Option<String>,
         #[command(flatten)]
         client: Client,
+    },
+    /// Ask the server to capture a live HTTP(S) URL into the project.
+    Run {
+        url: String,
+        #[arg(long, default_value = "Web capture")]
+        scenario: String,
+        #[arg(long)]
+        revision: Option<String>,
+        #[arg(long)]
+        width: Option<u32>,
+        #[arg(long)]
+        height: Option<u32>,
+        #[arg(long)]
+        color_scheme: Option<String>,
+        #[arg(long)]
+        reduced_motion: bool,
+        #[command(flatten)]
+        scope: Scoped,
     },
 }
 
@@ -95,7 +113,51 @@ impl CapturesArgs {
                         .await?;
                     client.show(&finding, |finding| println!("Noted {}", finding.id))
                 }
+                CapturesAction::Run {
+                    url,
+                    scenario,
+                    revision,
+                    width,
+                    height,
+                    color_scheme,
+                    reduced_motion,
+                    scope,
+                } => {
+                    run_capture(
+                        scope,
+                        RunCapture {
+                            scenario,
+                            url,
+                            revision,
+                            environment: Environment {
+                                width,
+                                height,
+                                color_scheme,
+                                reduced_motion,
+                                ..Environment::default()
+                            },
+                            timeout_ms: None,
+                            steps: Vec::new(),
+                            allow_degraded: false,
+                        },
+                    )
+                    .await
+                }
             }
         })?
     }
+}
+
+async fn run_capture(scope: Scoped, request: RunCapture) -> Result<u8> {
+    let remote = scope.client().remote()?;
+    let capture = remote
+        .api
+        .run_capture(&remote.token, &scope.project()?, &request)
+        .await?;
+    scope.client().show(&capture, |capture| {
+        println!("{} {} ({})", capture.id, capture.scenario, capture.status);
+        if let Some(blocker) = &capture.blocker {
+            println!("blocked: {blocker}");
+        }
+    })
 }

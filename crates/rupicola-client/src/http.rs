@@ -6,7 +6,7 @@ use rupicola_api::{
     DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
     Member, NewCapture, NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite,
     NewProblem, NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch,
-    ProblemSummary, Project, Redeem, Register, SessionToken, Setup, SetupStatus, Step,
+    ProblemSummary, Project, Redeem, Register, RunCapture, SessionToken, Setup, SetupStatus, Step,
     SystemActionForm, SystemList, SystemVersion,
 };
 use serde::de::DeserializeOwned;
@@ -522,6 +522,23 @@ impl Api for HttpApi {
             self.request(
                 Method::POST,
                 &format!("/projects/{project}/captures"),
+                Some(token),
+            )
+            .json(capture),
+        )
+        .await
+    }
+
+    async fn run_capture(
+        &self,
+        token: &str,
+        project: &str,
+        capture: &RunCapture,
+    ) -> Result<Capture> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{project}/captures/run"),
                 Some(token),
             )
             .json(capture),

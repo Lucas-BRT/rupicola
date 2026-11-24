@@ -6,7 +6,7 @@
 
 use crate::{
     domain::{ApiError, Principal},
-    services::{captures, design, fixes, problems, projects},
+    services::{capture_runner, captures, design, fixes, problems, projects},
     state::Shared,
 };
 use axum::{
@@ -16,7 +16,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::Engine as _;
-use rupicola_api::{NewFinding, NewFix, NewProblem, NewProject, NewReview, NewStep, ProblemPatch};
+use rupicola_api::{
+    NewFinding, NewFix, NewProblem, NewProject, NewReview, NewStep, ProblemPatch, RunCapture,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -50,6 +52,11 @@ enum Call {
     },
     CaptureGet {
         id: String,
+    },
+    CaptureRun {
+        project: String,
+        #[serde(flatten)]
+        capture: RunCapture,
     },
     CaptureReview {
         id: String,
@@ -133,6 +140,9 @@ impl Call {
                 value(&captures::list(&state, &principal, &project).await?)
             }
             Self::CaptureGet { id } => value(&captures::get(&state, &principal, &id).await?),
+            Self::CaptureRun { project, capture } => {
+                value(&capture_runner::run(&state, &principal, &project, capture).await?)
+            }
             Self::CaptureReview { id, finding } => {
                 value(&captures::add_finding(&state, &principal, &id, finding).await?)
             }
@@ -270,6 +280,20 @@ const TOOLS: &[Tool] = &[
         description: "One capture with its checkpoints, clips and review notes",
         required: &["id"],
         properties: || json!({"id": text()}),
+    },
+    Tool {
+        name: "capture_run",
+        description: "Execute a headless web capture on the server and store its checkpoints and clips",
+        required: &["project", "scenario", "url"],
+        properties: || {
+            json!({"project": text(), "scenario": text(), "url": text(),
+            "revision": text(), "allow_degraded": {"type": "boolean"},
+            "environment": {"type": "object", "properties": {
+                "width": {"type": "integer"}, "height": {"type": "integer"},
+                "color_scheme": {"enum": ["light", "dark"]},
+                "reduced_motion": {"type": "boolean"}
+            }}})
+        },
     },
     Tool {
         name: "capture_review",
