@@ -564,7 +564,7 @@ const TOOLS: &[Tool] = &[
         description: "File a fix for one or more problems; they go in progress until the fix is approved",
         required: &["project", "title", "problems"],
         properties: || {
-            json!({"project": text(), "title": text(), "summary": text(),
+            json!({"project": text(), "title": text(), "summary": text(), "git_ref": text(),
         "problems": string_list(), "tactics": string_list(), "files": string_list(),
         "comparisons": comparisons(), "baseline": selections_schema(), "proof": selections_schema(),
         "steps": {"type": "array", "items": {"type": "object", "required": ["title"], "properties": step_properties()}}})

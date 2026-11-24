@@ -370,4 +370,309 @@ mod tests {
             "{refused}"
         );
     }
+
+    fn make_solid_png(rgba: [u8; 4]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, 2, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        let data: Vec<u8> = rgba.into_iter().cycle().take(16).collect();
+        writer.write_image_data(&data).unwrap();
+        drop(writer);
+        out
+    }
+
+    async fn upload_png_capture(port: u16, token: &str, revision: &str, rgba: [u8; 4]) -> String {
+        let bytes = make_solid_png(rgba);
+        let sha = stream_blob(port, token, "demo", &bytes).await;
+
+        let body = serde_json::json!({
+            "scenario": "home",
+            "revision": revision,
+            "status": "complete",
+            "checkpoints": [{"id": "full", "path": "checkpoints/full.png", "sha256": sha}],
+            "clips": []
+        })
+        .to_string();
+        let created = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures",
+            Some(token),
+            Some(&body),
+        )
+        .await;
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
+        json::<rupicola_api::Capture>(&created).id
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn fix_job_pairs_isolated_and_integrated_diffs_and_approval_triggers_recapture() {
+        let (port, [ana, _, _]) = demo_with_artifacts().await;
+        let runner = device(port, &ana).await;
+
+        let scen = call(
+            port,
+            "POST",
+            "/v1/projects/demo/scenarios",
+            Some(&ana),
+            Some(HOME),
+        )
+        .await;
+        assert_eq!(status(&scen), StatusCode::CREATED, "{scen}");
+
+        let prob = call(
+            port,
+            "POST",
+            "/v1/projects/demo/problems",
+            Some(&ana),
+            Some(r#"{"title":"Spacing off","severity":"major","origin":"agent-visual"}"#),
+        )
+        .await;
+        let prob_id = json::<rupicola_api::Problem>(&prob).id;
+
+        let fix_a: rupicola_api::Fix = json(
+            &call(
+                port,
+                "POST",
+                "/v1/projects/demo/fixes",
+                Some(&ana),
+                Some(&format!(
+                    r#"{{"title":"Fix A","git_ref":"fix/a","problems":["{prob_id}"]}}"#
+                )),
+            )
+            .await,
+        );
+        let fix_b: rupicola_api::Fix = json(
+            &call(
+                port,
+                "POST",
+                "/v1/projects/demo/fixes",
+                Some(&ana),
+                Some(&format!(
+                    r#"{{"title":"Fix B","git_ref":"fix/b","problems":["{prob_id}"]}}"#
+                )),
+            )
+            .await,
+        );
+
+        let initial_trees = serde_json::json!([
+            {"name": "base", "base": "develop", "merge": [], "fixes": []},
+            {"name": "fix", "base": "develop", "merge": ["fix/b"], "fixes": []},
+            {"name": "approved", "base": "develop", "merge": [], "fixes": []},
+            {"name": "approved-fix", "base": "develop", "merge": ["fix/b"], "fixes": []}
+        ]);
+        let job_b: Job = json(
+            &call(
+                port,
+                "POST",
+                "/v1/projects/demo/jobs",
+                Some(&ana),
+                Some(
+                    &serde_json::json!({
+                        "scenario": "home",
+                        "fix": fix_b.id,
+                        "trees": initial_trees
+                    })
+                    .to_string(),
+                ),
+            )
+            .await,
+        );
+        let claimed = call(
+            port,
+            "POST",
+            "/v1/projects/demo/jobs/claim",
+            Some(&runner),
+            None,
+        )
+        .await;
+        assert_eq!(status(&claimed), StatusCode::OK);
+
+        let c_base = upload_png_capture(port, &runner, "rev-base", [10, 10, 10, 255]).await;
+        let c_fix = upload_png_capture(port, &runner, "rev-fix", [200, 10, 10, 255]).await;
+        let c_app = upload_png_capture(port, &runner, "rev-base", [10, 10, 10, 255]).await;
+        let c_app_fix = upload_png_capture(port, &runner, "rev-app-fix", [200, 10, 10, 255]).await;
+
+        let done = call(
+            port,
+            "POST",
+            &format!("/v1/jobs/{}/complete", job_b.id),
+            Some(&runner),
+            Some(
+                &serde_json::json!({
+                    "captures": [
+                        {"capture": c_base, "tree": "base", "viewport": "1440x900", "theme": ""},
+                        {"capture": c_fix, "tree": "fix", "viewport": "1440x900", "theme": ""},
+                        {"capture": c_app, "tree": "approved", "viewport": "1440x900", "theme": ""},
+                        {"capture": c_app_fix, "tree": "approved-fix", "viewport": "1440x900", "theme": ""}
+                    ]
+                })
+                .to_string(),
+            ),
+        )
+        .await;
+        assert_eq!(status(&done), StatusCode::OK, "{done}");
+
+        let b_after: rupicola_api::Fix = json(
+            &call(
+                port,
+                "GET",
+                &format!("/v1/fixes/{}", fix_b.id),
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(b_after.comparisons.len(), 2);
+        assert_eq!(
+            b_after.comparisons[0].view,
+            rupicola_api::ComparisonView::Isolated
+        );
+        assert_eq!(b_after.comparisons[0].changed_ratio, Some(1.0));
+        assert!(b_after.comparisons[0].diff.is_some());
+        assert_eq!(b_after.selections.len(), 2);
+
+        // Approve Fix A -> Fix B's integrated comparison becomes stale and a recapture job is queued.
+        let approved_a = call(
+            port,
+            "POST",
+            &format!("/v1/fixes/{}/reviews", fix_a.id),
+            Some(&ana),
+            Some(r#"{"outcome":"approved","comment":"looks good"}"#),
+        )
+        .await;
+        assert_eq!(status(&approved_a), StatusCode::OK, "{approved_a}");
+
+        let b_stale: rupicola_api::Fix = json(
+            &call(
+                port,
+                "GET",
+                &format!("/v1/fixes/{}", fix_b.id),
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        let integrated = b_stale
+            .comparisons
+            .iter()
+            .find(|c| c.view == rupicola_api::ComparisonView::Integrated)
+            .unwrap();
+        assert!(integrated.stale);
+
+        let open_jobs: Vec<Job> = json(
+            &call(
+                port,
+                "GET",
+                "/v1/projects/demo/jobs?open=true",
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(open_jobs.len(), 1);
+        let recapture = &open_jobs[0];
+        assert_eq!(recapture.fix.as_deref(), Some(fix_b.id.as_str()));
+        assert_eq!(recapture.trees.len(), 2);
+        assert_eq!(recapture.trees[0].fixes, vec![fix_a.id.clone()]);
+
+        // Runner claims and completes the recapture job.
+        let claimed2 = call(
+            port,
+            "POST",
+            "/v1/projects/demo/jobs/claim",
+            Some(&runner),
+            None,
+        )
+        .await;
+        assert_eq!(status(&claimed2), StatusCode::OK);
+        let c_app2 = upload_png_capture(port, &runner, "rev-app2", [20, 20, 20, 255]).await;
+        let c_app_fix2 =
+            upload_png_capture(port, &runner, "rev-app-fix2", [210, 20, 20, 255]).await;
+        let done2 = call(
+            port,
+            "POST",
+            &format!("/v1/jobs/{}/complete", recapture.id),
+            Some(&runner),
+            Some(
+                &serde_json::json!({
+                    "captures": [
+                        {"capture": c_app2, "tree": "approved", "viewport": "1440x900", "theme": ""},
+                        {"capture": c_app_fix2, "tree": "approved-fix", "viewport": "1440x900", "theme": ""}
+                    ]
+                })
+                .to_string(),
+            ),
+        )
+        .await;
+        assert_eq!(status(&done2), StatusCode::OK, "{done2}");
+
+        let b_fresh: rupicola_api::Fix = json(
+            &call(
+                port,
+                "GET",
+                &format!("/v1/fixes/{}", fix_b.id),
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(b_fresh.comparisons.len(), 2);
+        let fresh_int = b_fresh
+            .comparisons
+            .iter()
+            .find(|c| c.view == rupicola_api::ComparisonView::Integrated)
+            .unwrap();
+        assert!(!fresh_int.stale);
+        assert_eq!(fresh_int.applied_fixes, vec![fix_a.id.clone()]);
+
+        // Turning off auto_recapture prevents new recapture jobs on approval.
+        let off = call(
+            port,
+            "PATCH",
+            "/v1/projects/demo/capture-settings",
+            Some(&ana),
+            Some(r#"{"auto_recapture":false}"#),
+        )
+        .await;
+        assert_eq!(status(&off), StatusCode::OK, "{off}");
+        assert!(!json::<rupicola_api::RecaptureSettings>(&off).auto_recapture);
+
+        let fix_c: rupicola_api::Fix = json(
+            &call(
+                port,
+                "POST",
+                "/v1/projects/demo/fixes",
+                Some(&ana),
+                Some(&format!(
+                    r#"{{"title":"Fix C","git_ref":"fix/c","problems":["{prob_id}"]}}"#
+                )),
+            )
+            .await,
+        );
+        let approved_c = call(
+            port,
+            "POST",
+            &format!("/v1/fixes/{}/reviews", fix_c.id),
+            Some(&ana),
+            Some(r#"{"outcome":"approved"}"#),
+        )
+        .await;
+        assert_eq!(status(&approved_c), StatusCode::OK, "{approved_c}");
+
+        let open_after: Vec<Job> = json(
+            &call(
+                port,
+                "GET",
+                "/v1/projects/demo/jobs?open=true",
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        assert_eq!(open_after.len(), 0);
+    }
 }

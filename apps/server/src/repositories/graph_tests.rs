@@ -214,7 +214,7 @@ async fn fix_comparisons_become_a_baseline_and_a_proof_selection() {
         &format!(
             "INSERT INTO projects VALUES ('{DEMO}', 'Demo', 0);
              {} {} {} {}
-             INSERT INTO fixes VALUES ('f1', '{DEMO}', 'Raise contrast', '', 'pending-review', NULL, 0, 0);
+             INSERT INTO fixes (id, project_id, title, summary, status, author, created_at, updated_at) VALUES ('f1', '{DEMO}', 'Raise contrast', '', 'pending-review', NULL, 0, 0);
              INSERT INTO fix_comparisons (id, fix_id, position, label, route, viewport, theme,
                before_artifact_id, after_artifact_id, diff_artifact_id)
              VALUES ('k1', 'f1', 0, 'home', '', '', '', 'a1', 'a2', 'a3');",
@@ -498,7 +498,7 @@ async fn problems_and_fixes_cite_selections_of_their_own_project_only() {
     );
     run(
         &db,
-        "INSERT INTO fixes VALUES ('f1', 'demo', 'Raise contrast', '', 'pending-review', NULL, 0, 0);
+        "INSERT INTO fixes VALUES ('f1', 'demo', 'Raise contrast', '', 'pending-review', NULL, 0, 0, NULL);
          INSERT INTO fix_selections VALUES ('demo', 'f1', 's1', 'solution-proof', 0);",
     )
     .await;

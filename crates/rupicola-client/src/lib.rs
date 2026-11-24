@@ -12,9 +12,10 @@ use rupicola_api::{
     DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Job,
     JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewCapture, NewComment,
     NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem, NewProject,
-    NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project, Redeem,
-    Register, RunCapture, Scenario, ScenarioSummary, ScenarioVersion, SessionToken, Setup, Step,
-    SystemActionForm, SystemList, SystemVersion,
+    NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
+    RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, RunCapture, Scenario,
+    ScenarioSummary, ScenarioVersion, SessionToken, Setup, Step, SystemActionForm, SystemList,
+    SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -232,6 +233,17 @@ pub trait Api: Send + Sync {
 
     /// Cancels a job that has not finished.
     async fn cancel_job(&self, token: &str, id: &str) -> Result<Job>;
+
+    /// Reads the project's capture settings (`auto_recapture`, `base_ref`).
+    async fn capture_settings(&self, token: &str, project: &str) -> Result<RecaptureSettings>;
+
+    /// Updates the project's capture settings (`auto_recapture`, `base_ref`).
+    async fn update_capture_settings(
+        &self,
+        token: &str,
+        project: &str,
+        patch: &RecaptureSettingsPatch,
+    ) -> Result<RecaptureSettings>;
 
     /// The latest version of each scenario of `project`.
     async fn scenarios(&self, token: &str, project: &str) -> Result<Vec<ScenarioSummary>>;

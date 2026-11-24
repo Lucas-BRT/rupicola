@@ -374,6 +374,7 @@ mod tests {
             project_id: "demo".to_owned(),
             title: "Close the gap".to_owned(),
             summary: String::new(),
+            git_ref: None,
             status: FixStatus::Approved,
             problems: vec![PROBLEM.to_owned()],
             tactics: vec![],

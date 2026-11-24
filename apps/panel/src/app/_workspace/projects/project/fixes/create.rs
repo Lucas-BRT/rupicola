@@ -106,6 +106,7 @@ pub async fn create_fix_action(
     let new = rupicola_api::NewFix {
         title: title.into(),
         summary: summary.into(),
+        git_ref: None,
         problems,
         tactics: list(&form.tactics),
         files: list(&form.files),

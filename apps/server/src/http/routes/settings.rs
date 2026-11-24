@@ -8,6 +8,10 @@ pub fn routes() -> Router<Shared> {
     Router::new()
         .route("/", routing::get(settings::server))
         .route(
+            "/capture",
+            routing::get(settings::capture_server).patch(settings::update_capture_server),
+        )
+        .route(
             "/{key}",
             routing::put(settings::set_server).delete(settings::reset_server),
         )

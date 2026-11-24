@@ -50,6 +50,10 @@ fn project() -> Router<Shared> {
         .route("/topics", routing::get(topics::tree).post(topics::create))
         .nest("/members", members())
         .nest("/settings", project_settings())
+        .route(
+            "/capture-settings",
+            routing::get(settings::capture_project).patch(settings::update_capture_project),
+        )
         .nest("/captures", project_captures())
         .nest("/design-systems", design_systems())
         .nest("/devices", devices())

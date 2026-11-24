@@ -4,19 +4,21 @@ use crate::{
     domain::{
         ApiError, Principal,
         fix::{AFTER_LABEL, BEFORE_LABEL, check_step, validate, validate_review},
+        job::compose_fix_trees,
         secret::now_ms,
     },
-    repositories::{audit, fixes, selections},
+    repositories::{audit, fixes, jobs, scenarios, selections},
     services::{
         access::{require, require_publisher, require_reader},
         captures::require_project_artifact,
         selections::keep,
+        settings,
     },
     state::AppState,
 };
 use rupicola_api::{
-    ComparisonView, Fix, FixSelectionLink, FixSelectionRole, FixSummary, NewFix, NewReview,
-    NewSelection, NewStep, ProblemStatus, Role, SelectionItem, SelectionMark, Step,
+    ComparisonView, Fix, FixSelectionLink, FixSelectionRole, FixStatus, FixSummary, NewFix,
+    NewReview, NewSelection, NewStep, ProblemStatus, Role, SelectionItem, SelectionMark, Step,
 };
 use sqlx::SqliteConnection;
 use std::collections::BTreeSet;
@@ -276,7 +278,65 @@ pub async fn review(
     )
     .await?;
     tx.commit().await?;
+    if form.outcome == FixStatus::Approved
+        && settings::auto_recapture_enabled(state, &project).await?
+    {
+        enqueue_integrated_recaptures(state, principal, &project, id, now).await?;
+    }
     fixes::load(&state.db, id).await
+}
+
+async fn enqueue_integrated_recaptures(
+    state: &AppState,
+    principal: &Principal,
+    project: &str,
+    approved_fix_id: &str,
+    now: i64,
+) -> Result<(), ApiError> {
+    let pending = fixes::pending_with_refs(&state.db, project, approved_fix_id).await?;
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let approved = fixes::approved_with_refs(&state.db, project).await?;
+    if approved.is_empty() {
+        return Ok(());
+    }
+    let base_ref = settings::project_base_ref(state, project).await?;
+    for (pending_id, pending_ref) in pending {
+        let Some((scenario_name, scenario_hash)) =
+            jobs::latest_scenario_for_fix(&state.db, &pending_id).await?
+        else {
+            continue;
+        };
+        let Some(version) =
+            scenarios::version(&state.db, project, &scenario_name, &scenario_hash).await?
+        else {
+            continue;
+        };
+        let trees = compose_fix_trees(&base_ref, &pending_ref, &approved, false);
+        if trees.is_empty() {
+            continue;
+        }
+        jobs::cancel_open_for_fix(&state.db, &pending_id, now).await?;
+        let cells = version.scenario.matrix.cells() * trees.len();
+        let job_id = uuid::Uuid::now_v7().to_string();
+        jobs::insert(
+            &state.db,
+            &jobs::NewRow {
+                id: &job_id,
+                project,
+                scenario: &scenario_name,
+                hash: &scenario_hash,
+                fix: Some(&pending_id),
+                trees: &trees,
+                cells_total: u32::try_from(cells).map_err(anyhow::Error::from)?,
+                created_by: principal.handle.as_deref(),
+                now,
+            },
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// Makes `id` cite `selection` of the same project as `link.role`.

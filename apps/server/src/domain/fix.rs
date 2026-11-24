@@ -19,6 +19,21 @@ pub const AFTER_LABEL: &str = "After";
 /// Longest revision name a comparison holds, in characters.
 const MAX_REVISION_CHARS: usize = 200;
 
+/// Validates an optional git ref (branch or commit) attached to a fix.
+pub fn check_git_ref(reference: &str) -> Result<(), ApiError> {
+    let trimmed = reference.trim();
+    let bad = trimmed.is_empty()
+        || trimmed.starts_with('-')
+        || trimmed.chars().count() > MAX_REVISION_CHARS
+        || trimmed.chars().any(|c| c.is_whitespace() || c.is_control());
+    if bad {
+        return Err(ApiError::invalid(format!(
+            "`{reference}` is not a valid git ref"
+        )));
+    }
+    Ok(())
+}
+
 /// Field bounds and view rules of a new comparison.
 fn check_comparison(comparison: &Comparison) -> Result<(), ApiError> {
     check_len(
@@ -72,6 +87,9 @@ pub fn check_step(step: &NewStep) -> Result<(), ApiError> {
 pub fn validate(form: &NewFix) -> Result<(), ApiError> {
     check_len("the title", form.title.trim(), MAX_TITLE_CHARS, true)?;
     check_len("the summary", &form.summary, MAX_TEXT_CHARS, false)?;
+    if let Some(git_ref) = &form.git_ref {
+        check_git_ref(git_ref)?;
+    }
     if form.problems.is_empty() {
         return Err(ApiError::invalid("a fix answers at least one problem"));
     }

@@ -14,6 +14,7 @@ pub mod fix;
 pub mod job;
 pub mod limits;
 pub mod lineage;
+pub mod pixel_diff;
 pub mod principal;
 pub mod problem;
 pub mod project;

@@ -246,6 +246,46 @@ pub async fn insert_artifact(
     Ok(())
 }
 
+/// Inserts a derived capture holding a comparison diff PNG artifact, returning the artifact ID.
+pub async fn insert_diff_artifact(
+    tx: &mut sqlx::SqliteConnection,
+    project: &str,
+    scenario: &str,
+    owner: &str,
+    sha256: &str,
+    bytes: u64,
+    now: i64,
+) -> Result<String, ApiError> {
+    let path = format!("diffs/{owner}.png");
+    let capture_id = uuid::Uuid::now_v7().to_string();
+    sqlx::query(
+        "INSERT INTO captures (id, project_id, kind, scenario, status, inspection, environment,
+           created_at)
+         VALUES (?1, ?2, 'derived', ?3, 'complete', 'reviewed', '{}', ?4)",
+    )
+    .bind(&capture_id)
+    .bind(project)
+    .bind(scenario)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?;
+
+    let artifact_id = uuid::Uuid::now_v7().to_string();
+    sqlx::query(
+        "INSERT INTO artifacts (id, capture_id, role, owner_id, position, path, sha256, bytes, mime)
+         VALUES (?1, ?2, 'checkpoint', ?3, 0, ?4, ?5, ?6, 'image/png')",
+    )
+    .bind(&artifact_id)
+    .bind(&capture_id)
+    .bind(owner)
+    .bind(&path)
+    .bind(sha256)
+    .bind(i64::try_from(bytes).map_err(anyhow::Error::from)?)
+    .execute(&mut *tx)
+    .await?;
+    Ok(artifact_id)
+}
+
 pub async fn insert_finding(
     db: impl SqliteExecutor<'_>,
     capture: &str,

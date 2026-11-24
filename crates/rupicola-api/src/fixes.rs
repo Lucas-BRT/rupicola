@@ -140,6 +140,9 @@ pub struct NewFix {
     pub title: String,
     #[serde(default)]
     pub summary: String,
+    /// Git ref (branch or commit) holding this fix's changes, for isolated/integrated runner jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_ref: Option<String>,
     /// Problems this fix answers; at least one, all of the same project.
     pub problems: Vec<String>,
     #[serde(default)]
@@ -181,6 +184,8 @@ pub struct Fix {
     pub project_id: String,
     pub title: String,
     pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_ref: Option<String>,
     pub status: FixStatus,
     pub problems: Vec<String>,
     pub tactics: Vec<String>,

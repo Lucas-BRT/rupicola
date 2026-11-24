@@ -40,6 +40,7 @@ struct FixRow {
     project_id: String,
     title: String,
     summary: String,
+    git_ref: Option<String>,
     status: String,
     author: Option<String>,
     created_at: i64,
@@ -208,13 +209,14 @@ pub async fn insert(
     now: i64,
 ) -> Result<(), ApiError> {
     sqlx::query(
-        "INSERT INTO fixes (id, project_id, title, summary, status, author, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 'pending-review', ?5, ?6, ?6)",
+        "INSERT INTO fixes (id, project_id, title, summary, git_ref, status, author, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'pending-review', ?6, ?7, ?7)",
     )
     .bind(id)
     .bind(project)
     .bind(form.title.trim())
     .bind(&form.summary)
+    .bind(form.git_ref.as_deref().map(str::trim))
     .bind(author)
     .bind(now)
     .execute(&mut *tx)
@@ -529,7 +531,7 @@ async fn batch_comparisons(
 /// Lists every fix of `project` in full, newest first, in bounded batch queries.
 pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Fix>, ApiError> {
     let fix_rows: Vec<KeyedFixRow> = sqlx::query_as(
-        "SELECT id, project_id, title, summary, status, author, created_at, updated_at
+        "SELECT id, project_id, title, summary, git_ref, status, author, created_at, updated_at
          FROM fixes WHERE project_id = ?1 ORDER BY updated_at DESC, id DESC LIMIT ?2",
     )
     .bind(project)
@@ -607,6 +609,7 @@ pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Fix>, Ap
             project_id: row.project_id,
             title: row.title,
             summary: row.summary,
+            git_ref: row.git_ref,
             status: row.status.parse().map_err(anyhow::Error::from)?,
             problems: problems_by_id.remove(&id).unwrap_or_default(),
             tactics: tactics_by_id.remove(&id).unwrap_or_default(),
@@ -670,7 +673,7 @@ pub async fn apply_review(
 /// Loads one fix with its problems, tactics, files, comparisons, selections, steps and reviews.
 pub async fn load(db: &SqlitePool, id: &str) -> Result<Fix, ApiError> {
     let row: FixRow = sqlx::query_as(
-        "SELECT project_id, title, summary, status, author, created_at, updated_at
+        "SELECT project_id, title, summary, git_ref, status, author, created_at, updated_at
          FROM fixes WHERE id = ?1",
     )
     .bind(id)
@@ -742,6 +745,7 @@ pub async fn load(db: &SqlitePool, id: &str) -> Result<Fix, ApiError> {
         project_id: row.project_id,
         title: row.title,
         summary: row.summary,
+        git_ref: row.git_ref,
         status: row.status.parse().map_err(anyhow::Error::from)?,
         problems,
         tactics,
@@ -757,4 +761,123 @@ pub async fn load(db: &SqlitePool, id: &str) -> Result<Fix, ApiError> {
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
+}
+
+/// Approved fixes of `project` that carry a `git_ref`, ordered deterministically for merging.
+pub async fn approved_with_refs(
+    db: &SqlitePool,
+    project: &str,
+) -> Result<Vec<(String, String)>, ApiError> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, git_ref FROM fixes
+         WHERE project_id = ?1 AND status = 'approved'
+           AND git_ref IS NOT NULL AND trim(git_ref) != ''
+         ORDER BY created_at, id",
+    )
+    .bind(project)
+    .fetch_all(db)
+    .await?;
+    Ok(rows)
+}
+
+/// Pending fixes of `project` with a `git_ref`, excluding `exclude_fix`.
+pub async fn pending_with_refs(
+    db: &SqlitePool,
+    project: &str,
+    exclude_fix: &str,
+) -> Result<Vec<(String, String)>, ApiError> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, git_ref FROM fixes
+         WHERE project_id = ?1 AND status = 'pending-review' AND id != ?2
+           AND git_ref IS NOT NULL AND trim(git_ref) != ''
+         ORDER BY created_at, id",
+    )
+    .bind(project)
+    .bind(exclude_fix)
+    .fetch_all(db)
+    .await?;
+    Ok(rows)
+}
+
+/// Replaces comparisons of `fix_id` for `views` with `comparisons`, preserving other views.
+pub async fn replace_comparisons_for_views(
+    tx: &mut SqliteConnection,
+    fix_id: &str,
+    views: &[rupicola_api::ComparisonView],
+    comparisons: &[Comparison],
+) -> Result<(), ApiError> {
+    if views.is_empty() {
+        return Ok(());
+    }
+    let mut qb = sqlx::QueryBuilder::new("DELETE FROM fix_comparisons WHERE fix_id = ");
+    qb.push_bind(fix_id);
+    qb.push(" AND view");
+    let view_strs: Vec<String> = views.iter().map(|v| v.as_str().to_owned()).collect();
+    super::push_in(&mut qb, &view_strs);
+    qb.build().execute(&mut *tx).await?;
+
+    let base_pos: i64 = sqlx::query_scalar(
+        "SELECT coalesce(max(position) + 1, 0) FROM fix_comparisons WHERE fix_id = ?1",
+    )
+    .bind(fix_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    for (offset, comparison) in comparisons.iter().enumerate() {
+        let pos = base_pos + i64::try_from(offset).map_err(anyhow::Error::from)?;
+        sqlx::query(
+            "INSERT INTO fix_comparisons (id, fix_id, position, label, route, viewport, theme,
+               before_artifact_id, after_artifact_id, diff_artifact_id, changed_ratio,
+               view, base_revision, revision, applied_fixes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        )
+        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(fix_id)
+        .bind(pos)
+        .bind(&comparison.label)
+        .bind(&comparison.route)
+        .bind(&comparison.viewport)
+        .bind(&comparison.theme)
+        .bind(&comparison.before)
+        .bind(&comparison.after)
+        .bind(&comparison.diff)
+        .bind(comparison.changed_ratio)
+        .bind(comparison.view.as_str())
+        .bind(&comparison.base_revision)
+        .bind(&comparison.revision)
+        .bind(serde_json::to_string(&comparison.applied_fixes).map_err(anyhow::Error::from)?)
+        .execute(&mut *tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Removes previous auto-generated `Before`/`After` citations on `fix_id` and cites `new_links`.
+pub async fn replace_auto_selections(
+    tx: &mut SqliteConnection,
+    project: &str,
+    fix_id: &str,
+    before_label: &str,
+    after_label: &str,
+    new_links: &[(FixSelectionRole, String)],
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "DELETE FROM fix_selections
+         WHERE fix_id = ?1 AND selection_id IN (
+             SELECT id FROM selections WHERE project_id = ?2 AND label IN (?3, ?4)
+         )",
+    )
+    .bind(fix_id)
+    .bind(project)
+    .bind(before_label)
+    .bind(after_label)
+    .execute(&mut *tx)
+    .await?;
+
+    let base_pos = next_selection_position(tx, fix_id).await?;
+    for (offset, (role, selection_id)) in new_links.iter().enumerate() {
+        let pos = base_pos + i64::try_from(offset).map_err(anyhow::Error::from)?;
+        cite(tx, project, fix_id, selection_id, *role, pos).await?;
+    }
+    Ok(())
 }

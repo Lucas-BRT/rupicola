@@ -1,0 +1,1 @@
+ALTER TABLE fixes ADD COLUMN git_ref TEXT;

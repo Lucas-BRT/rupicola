@@ -108,3 +108,24 @@ pub struct JobResult {
 pub struct JobFailure {
     pub error: String,
 }
+
+/// Default base Git ref used when composing comparison trees.
+pub const DEFAULT_BASE_REF: &str = "develop";
+/// Default automatic recapture setting after a fix is approved.
+pub const DEFAULT_AUTO_RECAPTURE: bool = true;
+
+/// Project or server capture settings controlling automatic recapture and base branch.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct RecaptureSettings {
+    pub auto_recapture: bool,
+    pub base_ref: String,
+}
+
+/// `PATCH /v1/projects/{id}/capture-settings` or `PATCH /v1/settings/capture`
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub struct RecaptureSettingsPatch {
+    #[serde(default)]
+    pub auto_recapture: Option<bool>,
+    #[serde(default)]
+    pub base_ref: Option<String>,
+}

@@ -10,7 +10,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use rupicola_api::{LimitSettings, LimitValue};
+use rupicola_api::{LimitSettings, LimitValue, RecaptureSettings, RecaptureSettingsPatch};
 
 /// `GET /v1/settings`
 pub async fn server(
@@ -73,6 +73,48 @@ pub async fn reset_project(
     Path((project, raw)): Path<(String, String)>,
 ) -> Result<Json<LimitSettings>, ApiError> {
     settings::reset_project(&state, &principal, &project, &raw)
+        .await
+        .map(Json)
+}
+
+/// `GET /v1/settings/capture`
+pub async fn capture_server(
+    State(state): State<Shared>,
+    principal: Principal,
+) -> Result<Json<RecaptureSettings>, ApiError> {
+    settings::capture_server(&state, &principal).await.map(Json)
+}
+
+/// `PATCH /v1/settings/capture`
+pub async fn update_capture_server(
+    State(state): State<Shared>,
+    principal: Principal,
+    Json(patch): Json<RecaptureSettingsPatch>,
+) -> Result<Json<RecaptureSettings>, ApiError> {
+    settings::update_capture_server(&state, &principal, &patch)
+        .await
+        .map(Json)
+}
+
+/// `GET /v1/projects/{id}/capture-settings`
+pub async fn capture_project(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(project): Path<String>,
+) -> Result<Json<RecaptureSettings>, ApiError> {
+    settings::capture_project(&state, &principal, &project)
+        .await
+        .map(Json)
+}
+
+/// `PATCH /v1/projects/{id}/capture-settings`
+pub async fn update_capture_project(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(project): Path<String>,
+    Json(patch): Json<RecaptureSettingsPatch>,
+) -> Result<Json<RecaptureSettings>, ApiError> {
+    settings::update_capture_project(&state, &principal, &project, &patch)
         .await
         .map(Json)
 }

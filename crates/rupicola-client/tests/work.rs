@@ -152,6 +152,7 @@ async fn work_calls_reach_their_routes() {
     let new_fix = NewFix {
         title: TITLE.to_owned(),
         summary: String::new(),
+        git_ref: None,
         problems: vec![PROBLEM.to_owned()],
         tactics: vec![],
         files: vec![],

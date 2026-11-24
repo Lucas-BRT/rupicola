@@ -312,6 +312,34 @@ pub async fn cancel(db: &SqlitePool, id: &str, now: i64) -> Result<bool, ApiErro
         > 0)
 }
 
+/// Returns `(scenario, hash)` of the most recent job created for `fix_id`, if any.
+pub async fn latest_scenario_for_fix(
+    db: &SqlitePool,
+    fix_id: &str,
+) -> Result<Option<(String, String)>, ApiError> {
+    let row: Option<(String, String)> = sqlx::query_as(
+        "SELECT scenario, hash FROM capture_jobs
+         WHERE fix_id = ?1 ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .bind(fix_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(row)
+}
+
+/// Cancels any open (`queued` or `running`) jobs for `fix_id`.
+pub async fn cancel_open_for_fix(db: &SqlitePool, fix_id: &str, now: i64) -> Result<u64, ApiError> {
+    Ok(sqlx::query(
+        "UPDATE capture_jobs SET status = 'cancelled', finished_at = ?2, lease_expires_at = NULL
+         WHERE fix_id = ?1 AND status IN ('queued', 'running')",
+    )
+    .bind(fix_id)
+    .bind(now)
+    .execute(db)
+    .await?
+    .rows_affected())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

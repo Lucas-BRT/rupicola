@@ -7,8 +7,9 @@ use rupicola_api::{
     JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewCapture, NewComment,
     NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem, NewProject,
     NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
-    Redeem, Register, RunCapture, Scenario, ScenarioSummary, ScenarioVersion, SessionToken, Setup,
-    SetupStatus, Step, SystemActionForm, SystemList, SystemVersion,
+    RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, RunCapture, Scenario,
+    ScenarioSummary, ScenarioVersion, SessionToken, Setup, SetupStatus, Step, SystemActionForm,
+    SystemList, SystemVersion,
 };
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -612,6 +613,32 @@ impl Api for HttpApi {
             &format!("/jobs/{}/cancel", encode_segment(id)),
             Some(token),
         ))
+        .await
+    }
+
+    async fn capture_settings(&self, token: &str, project: &str) -> Result<RecaptureSettings> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{}/capture-settings", encode_segment(project)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn update_capture_settings(
+        &self,
+        token: &str,
+        project: &str,
+        patch: &RecaptureSettingsPatch,
+    ) -> Result<RecaptureSettings> {
+        Self::read(
+            self.request(
+                Method::PATCH,
+                &format!("/projects/{}/capture-settings", encode_segment(project)),
+                Some(token),
+            )
+            .json(patch),
+        )
         .await
     }
 
