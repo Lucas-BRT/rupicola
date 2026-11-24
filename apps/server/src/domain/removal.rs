@@ -12,7 +12,7 @@ pub const DEFAULT_POLICY: DeletionPolicy = DeletionPolicy::Confirm;
 const MAX_REASON_CHARS: usize = 500;
 
 /// Whether the server lets any project remove a cited capture, from `RUPICOLA_CITED_DELETION`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CitedDeletion {
     /// Each project's policy decides.
     #[default]

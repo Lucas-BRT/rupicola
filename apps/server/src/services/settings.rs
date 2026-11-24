@@ -24,19 +24,21 @@ fn administrator(principal: &Principal) -> Result<&str, ApiError> {
 }
 
 async fn server_view(state: &AppState) -> Result<LimitSettings, ApiError> {
+    let stored = limits::stored(state, None).await?;
+    let effective = state.limits.server(&stored);
     Ok(LimitSettings {
-        set: limits::stored(state, None).await?.into_iter().collect(),
-        effective: limits::server(state).await?,
+        set: stored.into_iter().collect(),
+        effective,
     })
 }
 
 async fn project_view(state: &AppState, project: &str) -> Result<LimitSettings, ApiError> {
+    let stored = limits::stored(state, Some(project)).await?;
+    let server = limits::server(state).await?;
+    let effective = crate::domain::limits::effective(server, &stored);
     Ok(LimitSettings {
-        set: limits::stored(state, Some(project))
-            .await?
-            .into_iter()
-            .collect(),
-        effective: limits::effective(state, project).await?,
+        set: stored.into_iter().collect(),
+        effective,
     })
 }
 

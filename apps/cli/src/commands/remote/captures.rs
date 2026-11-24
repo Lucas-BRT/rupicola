@@ -2,8 +2,10 @@
 
 use super::client::{Client, Scoped, rows};
 use crate::{Result, block_on};
-use rupicola_api::NewFinding;
+use anyhow::Context;
+use rupicola_api::{CaptureStep, Environment, NewFinding, RunCapture};
 use rupicola_client::Api;
+use std::path::PathBuf;
 
 #[derive(clap::Args)]
 pub struct CapturesArgs {
@@ -31,6 +33,29 @@ enum CapturesAction {
         evidence: Option<String>,
         #[command(flatten)]
         client: Client,
+    },
+    /// Ask the server to capture a live HTTP(S) URL into the project.
+    Run {
+        url: String,
+        #[arg(long, default_value = "Web capture")]
+        scenario: String,
+        #[arg(long)]
+        revision: Option<String>,
+        #[arg(long)]
+        width: Option<u32>,
+        #[arg(long)]
+        height: Option<u32>,
+        #[arg(long)]
+        color_scheme: Option<String>,
+        #[arg(long)]
+        reduced_motion: bool,
+        #[arg(long)]
+        timeout_ms: Option<u32>,
+        /// JSON file holding an array of `CaptureStep` objects.
+        #[arg(long, value_name = "PATH")]
+        steps_file: Option<PathBuf>,
+        #[command(flatten)]
+        scope: Scoped,
     },
 }
 
@@ -95,7 +120,63 @@ impl CapturesArgs {
                         .await?;
                     client.show(&finding, |finding| println!("Noted {}", finding.id))
                 }
+                CapturesAction::Run {
+                    url,
+                    scenario,
+                    revision,
+                    width,
+                    height,
+                    color_scheme,
+                    reduced_motion,
+                    timeout_ms,
+                    steps_file,
+                    scope,
+                } => {
+                    let steps = read_steps(steps_file.as_deref())?;
+                    run_capture(
+                        scope,
+                        RunCapture {
+                            scenario,
+                            url,
+                            revision,
+                            environment: Environment {
+                                width,
+                                height,
+                                color_scheme,
+                                reduced_motion,
+                                ..Environment::default()
+                            },
+                            timeout_ms,
+                            steps,
+                            allow_degraded: false,
+                        },
+                    )
+                    .await
+                }
             }
         })?
     }
+}
+
+fn read_steps(path: Option<&std::path::Path>) -> Result<Vec<CaptureStep>> {
+    let Some(path) = path else {
+        return Ok(Vec::new());
+    };
+    let text = std::fs::read_to_string(path).with_context(|| format!("Read {}", path.display()))?;
+    serde_json::from_str(&text)
+        .with_context(|| format!("{} is not a JSON array of CaptureStep", path.display()))
+}
+
+async fn run_capture(scope: Scoped, request: RunCapture) -> Result<u8> {
+    let remote = scope.client().remote()?;
+    let capture = remote
+        .api
+        .run_capture(&remote.token, &scope.project()?, &request)
+        .await?;
+    scope.client().show(&capture, |capture| {
+        println!("{} {} ({})", capture.id, capture.scenario, capture.status);
+        if let Some(blocker) = &capture.blocker {
+            println!("blocked: {blocker}");
+        }
+    })
 }

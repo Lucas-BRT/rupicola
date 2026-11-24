@@ -52,28 +52,68 @@ pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
             <a href=(project_url)>(project_label)</a>
         )
         page_title(title: &run.scenario, class: "project-masthead",
-            link_button(href: format!("{project_url}/captures"), "Project captures")
+            <div class="filters">
+                <button class="button" type="button" data-rail-toggle="" aria-expanded="true">"Hide Inspector"</button>
+                link_button(href: format!("{project_url}/captures"), "All captures")
+            </div>
         )
-        summary(run: run, width: width, height: height)
-        if !candidates.is_empty() {
-            comparison_control(form_url: form_url, candidates: candidates, requested: requested.as_deref())
+        <div class="stage-shell" data-stage-shell="">
+            <section class="canvas-stage" data-stage-canvas="" aria-label="Visual capture canvas">
+                <div class="floating-hud" role="toolbar" aria-label="Stage viewport">
+                    <button class="button primary" type="button" data-stage-vp="100%">"Fit"</button>
+                    <button class="button" type="button" data-stage-vp="1440px">"1440px"</button>
+                    <button class="button" type="button" data-stage-vp="768px">"768px"</button>
+                    <button class="button" type="button" data-stage-vp="320px">"320px"</button>
+                </div>
+                <div class="stage-viewport-frame">
+                    if *environments_differ {
+                        <p class="notice">"The two runs used different capture settings. Check their environment before judging differences."</p>
+                    }
+                    if !run.checkpoints.is_empty() {
+                        screenshots(checkpoints: &run.checkpoints, before_images: before_images, comparing: *comparing)
+                    }
+                    if !run.clips.is_empty() {
+                        recordings(clips: &run.clips, width: width, height: height)
+                    }
+                    if run.checkpoints.is_empty() && run.clips.is_empty() {
+                        <section class="empty">
+                            <h2>"No media artifacts stored"</h2>
+                            <p class="muted">"Check the inspector blocker or trigger a new capture run."</p>
+                        </section>
+                    }
+                </div>
+            </section>
+            <aside class="canvas-rail" aria-label="Inspection and comparison controls">
+                summary(run: run, width: width, height: height)
+                if !candidates.is_empty() {
+                    comparison_control(form_url: form_url, candidates: candidates, requested: requested.as_deref())
+                }
+                if !run.findings.is_empty() {
+                    findings(items: &run.findings)
+                }
+                if *may_review {
+                    review_form(form_url: form_url, token: &account.csrf, checkpoints: &run.checkpoints)
+                }
+            </aside>
+        </div>
+        if !run.checkpoints.is_empty() || !run.clips.is_empty() {
+            <nav class="filmstrip" aria-label="Capture filmstrip">
+                for checkpoint in &run.checkpoints {
+                    <a class="film-thumb" href=(format!("#cp-{}", checkpoint.id)) data-film-pick="">
+                        <img src=(media::url(&checkpoint.artifact.id)) alt=(&checkpoint.id) loading="lazy">
+                        <strong class="mono">(&checkpoint.id)</strong>
+                    </a>
+                }
+                for clip in &run.clips {
+                    <a class="film-thumb" href=(format!("#clip-{}", clip.id)) data-film-pick="">
+                        if let Some(first) = clip.frames.first() {
+                            <img src=(media::url(&first.artifact.id)) alt=(&clip.id) loading="lazy">
+                        }
+                        <strong class="mono">"▶ " (&clip.id)</strong>
+                    </a>
+                }
+            </nav>
         }
-        if *environments_differ {
-            <p class="notice">"The two runs used different capture settings. Check their environment before judging differences."</p>
-        }
-        if !run.findings.is_empty() {
-            findings(items: &run.findings)
-        }
-        if !run.checkpoints.is_empty() {
-            screenshots(checkpoints: &run.checkpoints, before_images: before_images, comparing: *comparing)
-        }
-        if !run.clips.is_empty() {
-            recordings(clips: &run.clips, width: width, height: height)
-        }
-        if *may_review {
-            review_form(form_url: form_url, token: &account.csrf, checkpoints: &run.checkpoints)
-        }
-
     })
 }
 
@@ -154,7 +194,7 @@ async fn screenshots(
             <h2>"Screenshots"</h2>
             <div class=(if comparing { "compare" } else { "frames" })>
                 for item in checkpoints {
-                    <div class=(if before_images.contains_key(item.id.as_str()) { "checkpoint pair" } else { "checkpoint" })>
+                    <div id=(format!("cp-{}", item.id)) class=(if before_images.contains_key(item.id.as_str()) { "checkpoint pair" } else { "checkpoint" })>
                         if let Some(previous) = before_images.get(item.id.as_str()) {
                             <figure>
                                 <a href=(previous)>
@@ -197,7 +237,7 @@ async fn recordings(cx: &Cx, clips: &[Clip], width: &str, height: &str) -> Resul
 async fn clip_card(cx: &Cx, clip: &Clip, width: &str, height: &str) -> Result<impl View> {
     let url = media::url;
     Ok(view! {
-        <article>
+        <article id=(format!("clip-{}", clip.id))>
             <h3>(&clip.id)</h3>
             if let Some(video) = &clip.video {
                 <video controls="" playsinline="" preload="metadata" loading="lazy" src=(url(&video.id))

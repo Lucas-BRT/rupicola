@@ -1,6 +1,6 @@
 [package]
 name = "rupicola-client"
-description = "Client for the Rupicola backend API, with an in-memory fake for tests"
+description = "Client for the Rupicola backend API, with mock support for tests"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -26,7 +26,6 @@ thiserror.workspace = true
 # Turns the `mock` feature on for this crate's own tests.
 rupicola-client = { path = ".", features = ["mock"] }
 axum.workspace = true
-sha2.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
 
 [lints]

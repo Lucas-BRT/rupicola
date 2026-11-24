@@ -3,7 +3,7 @@
 
 use crate::{
     http::{app, security},
-    repositories as db, send, state,
+    repositories as db, state,
 };
 use axum::http::StatusCode;
 use rupicola_api::{
@@ -56,18 +56,17 @@ pub async fn start_custom(
         crate::storage::blobs::Blobs::memory(),
         setup_code,
         open_setup,
-        crate::domain::limits::LimitDefaults::new(
-            settings.blob_limit,
-            settings.body_limit,
-            &crate::config::UploadLimits::default(),
-        ),
+        crate::config::UploadLimits::default()
+            .to_defaults(settings.blob_limit, settings.body_limit),
     )
     .unwrap();
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();
     let port = listener.local_addr().unwrap().port();
-    let app = app(&settings, state.clone()).into_make_service_with_connect_info::<SocketAddr>();
+    let app = app(&settings, state.clone())
+        .unwrap()
+        .into_make_service_with_connect_info::<SocketAddr>();
     tokio::spawn(async move { axum::serve(listener, app).await });
     (port, state)
 }
@@ -110,14 +109,14 @@ pub async fn stream_blob(port: u16, token: &str, project: &str, data: &[u8]) -> 
     sha
 }
 
+/// Seconds past the server's own request timeout that a raw request keeps waiting, so a
+/// slow handler is answered by the server's 408 rather than cut off by the client.
+const RAW_READ_MARGIN_SECS: u64 = 5;
 /// Seconds a raw request waits for its answer.
-const RAW_READ_TIMEOUT_SECS: u64 = 10;
+const RAW_READ_TIMEOUT_SECS: u64 = security::DEFAULT_REQUEST_TIMEOUT_SECS + RAW_READ_MARGIN_SECS;
 
 pub async fn request(port: u16, raw: String) -> String {
-    tokio::task::spawn_blocking(move || send(port, &raw))
-        .await
-        .unwrap()
-        .unwrap()
+    request_bytes(port, raw, Vec::new()).await
 }
 
 pub async fn get(port: u16, path: &str, extra_headers: &str) -> String {

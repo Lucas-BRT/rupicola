@@ -57,12 +57,18 @@ pub async fn visible_runs(cx: &Cx) -> PageResult<Vec<Run>> {
     runs::list(cx).await
 }
 
-/// The projects the account can see, with their labels.
-pub async fn catalog(cx: &Cx, runs: &[Run]) -> PageResult<BTreeMap<String, String>> {
+/// The projects the account can see, with their labels, without loading captures.
+pub async fn project_catalog(cx: &Cx) -> PageResult<BTreeMap<String, String>> {
     let mut projects = BTreeMap::new();
     for project in backend::projects(cx).await.as_ref().map_err(|e| *e)? {
         projects.insert(project.id.clone(), project.label.clone());
     }
+    Ok(projects)
+}
+
+/// The projects the account can see, with their labels.
+pub async fn catalog(cx: &Cx, runs: &[Run]) -> PageResult<BTreeMap<String, String>> {
+    let mut projects = project_catalog(cx).await?;
     for run in runs {
         if safe_name(&run.project_id) {
             projects
@@ -114,10 +120,44 @@ pub fn assets(related: &[&Run], id: &str) -> Vec<AssetOption> {
     all_assets
 }
 
+/// Lightweight project metadata without loading its captures.
+pub struct ProjectMeta {
+    pub id: String,
+    pub label: String,
+    pub base: String,
+    pub role: Role,
+}
+
+impl ProjectMeta {
+    /// Loads project metadata and the caller's role without fetching captures.
+    ///
+    /// # Errors
+    ///
+    /// 404 when the id is malformed or the account cannot see the project.
+    pub async fn load(cx: &Cx, id: &str) -> PageResult<Self> {
+        if !safe_name(id) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let role = auth::role_of(cx, id).await?;
+        let project = backend::projects(cx)
+            .await
+            .as_ref()
+            .map_err(|e| *e)?
+            .iter()
+            .find(|project| project.id == id)
+            .ok_or(StatusCode::NOT_FOUND)?;
+        Ok(Self {
+            base: format!("/projects/{id}"),
+            id: project.id.clone(),
+            label: project.label.clone(),
+            role,
+        })
+    }
+}
+
 /// A project as its pages see it.
 pub struct Context {
     pub id: String,
-    pub label: String,
     /// The project's own URL; its tabs hang below it.
     pub base: String,
     pub role: Role,
@@ -147,7 +187,6 @@ impl Context {
         Ok(Self {
             base: format!("/projects/{id}"),
             id: project.id.clone(),
-            label: project.label.clone(),
             role,
             runs,
         })

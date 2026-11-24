@@ -1,5 +1,6 @@
-use std::{error::Error, net::Ipv4Addr, sync::Arc};
+use std::{net::Ipv4Addr, sync::Arc};
 
+use anyhow::{Context as _, Result, bail};
 use clap::Parser;
 use http::{StatusCode, header};
 use rupicola_api::Capture;
@@ -29,8 +30,11 @@ mod systems;
 mod views;
 use auth::Account;
 
-type BoxError = Box<dyn Error + Send + Sync>;
-type PageResult<T> = Result<T, StatusCode>;
+type PageResult<T> = std::result::Result<T, StatusCode>;
+
+const DEFAULT_PORT: u16 = 4731;
+const HEALTHCHECK_TIMEOUT_SECS: u64 = 3;
+const HEALTHCHECK_BUF_BYTES: usize = 64;
 
 #[derive(Parser)]
 #[command(about = "Browse local Rupicola visual evidence")]
@@ -72,36 +76,39 @@ struct Run {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), BoxError> {
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
     let args = Args::parse();
     let configured_port = args
         .port
         .or_else(|| std::env::var("PORT").ok().and_then(|p| p.parse().ok()))
-        .unwrap_or(4731);
+        .unwrap_or(DEFAULT_PORT);
 
     if args.healthcheck {
         use std::io::{Read, Write};
         let mut stream = std::net::TcpStream::connect_timeout(
             &std::net::SocketAddr::from((Ipv4Addr::LOCALHOST, configured_port)),
-            std::time::Duration::from_secs(3),
+            std::time::Duration::from_secs(HEALTHCHECK_TIMEOUT_SECS),
         )?;
-        stream.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(
+            HEALTHCHECK_TIMEOUT_SECS,
+        )))?;
         write!(
             stream,
             "GET /healthz HTTP/1.1\r\nHost: 127.0.0.1:{configured_port}\r\nConnection: close\r\n\r\n"
         )?;
-        let mut buf = [0u8; 64];
+        let mut buf = [0u8; HEALTHCHECK_BUF_BYTES];
         let n = stream.read(&mut buf)?;
         let head = String::from_utf8_lossy(&buf[..n]);
         if head.starts_with("HTTP/1.1 200") || head.starts_with("HTTP/1.1 303") {
             return Ok(());
         }
-        return Err("healthcheck failed".into());
+        bail!("healthcheck failed");
     }
 
     let server_url = args
         .server_url
-        .ok_or("the panel needs the backend: pass --server-url or set RUPICOLA_SERVER_URL")?;
+        .context("the panel needs the backend: pass --server-url or set RUPICOLA_SERVER_URL")?;
     let api: Arc<dyn Api> = Arc::new(HttpApi::new(&server_url)?);
     let bind_ip = args
         .bind
@@ -125,9 +132,7 @@ async fn main() -> Result<(), BoxError> {
             || parsed.query().is_some()
             || parsed.fragment().is_some()
         {
-            return Err(
-                "--public-origin must be an HTTPS origin without a path or credentials".into(),
-            );
+            bail!("--public-origin must be an HTTPS origin without a path or credentials");
         }
         parsed.origin().ascii_serialization()
     } else {
@@ -135,7 +140,7 @@ async fn main() -> Result<(), BoxError> {
     };
     let host = origin
         .split_once("://")
-        .ok_or("invalid origin")?
+        .context("invalid origin")?
         .1
         .to_owned();
     let panel = Arc::new(Panel {
@@ -146,8 +151,10 @@ async fn main() -> Result<(), BoxError> {
         api,
     });
     let app = app::router(panel);
-    println!("Listening on {bind_ip}:{port} · {origin}");
-    topcoat::serve(listener, app).await?;
+    tracing::info!(%bind_ip, port, %origin, "listening");
+    topcoat::serve(listener, app)
+        .await
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
     Ok(())
 }
 
@@ -156,18 +163,20 @@ fn redirect(url: &str) -> Response {
         .status(StatusCode::SEE_OTHER)
         .header(header::LOCATION, url)
         .body(Body::empty())
-        .expect("valid application redirect")
+        .unwrap_or_else(|err| {
+            tracing::error!(%err, "invalid redirect location");
+            status(StatusCode::INTERNAL_SERVER_ERROR)
+        })
 }
 
 fn status(code: StatusCode) -> Response {
-    Response::builder()
-        .status(code)
-        .body(Body::empty())
-        .unwrap()
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = code;
+    response
 }
 
-fn db_error(error: impl std::fmt::Display) -> StatusCode {
-    eprintln!("panel: {error}");
+fn render_error(error: impl std::fmt::Display) -> StatusCode {
+    tracing::error!(%error, "panel render failed");
     StatusCode::INTERNAL_SERVER_ERROR
 }
 

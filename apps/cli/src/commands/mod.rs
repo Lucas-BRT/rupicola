@@ -45,7 +45,7 @@ pub enum Command {
     Scan(ScanArgs),
     /// Validate the skill catalog, direct links and source records.
     Check(CheckArgs),
-    /// Link the current checkout to a project in the local panel.
+    /// Link the current checkout to a Rupicola project.
     Link { project: String },
     /// Serve project evidence using the optional rupicola-panel executable.
     Serve(ServeArgs),

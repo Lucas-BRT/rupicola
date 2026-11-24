@@ -2,7 +2,7 @@
 
 use crate::app::_workspace::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
-use crate::{PageResult, StatusCode, auth, auth::Role, redirect};
+use crate::{PageResult, StatusCode, auth, redirect, safe_name};
 use serde::Deserialize;
 use topcoat::{
     Result,
@@ -31,19 +31,13 @@ pub async fn analyze_run_action(
 ) -> PageResult<Response> {
     let (panel, account) = (panel(cx), account(cx));
     auth::check_csrf(&account, &form.csrf)?;
-    if auth::role(&panel, &account, &project_id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
+    if !safe_name(&project_id) {
+        return Err(StatusCode::NOT_FOUND);
     }
-    match panel
+    panel
         .api
         .analyze_capture(&account.session, &project_id, &form.run_key)
         .await
-    {
-        Ok(_) => {}
-        Err(error) => match auth::api_error(&error) {
-            StatusCode::NOT_FOUND => {}
-            status => return Err(status),
-        },
-    }
+        .map_err(|e| auth::api_error(&e))?;
     Ok(redirect(&format!("/projects/{project_id}/problems")))
 }

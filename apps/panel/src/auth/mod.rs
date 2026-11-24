@@ -8,9 +8,10 @@ mod session;
 
 pub use csrf::{check_csrf, equal, same_origin};
 pub use errors::api_error;
+pub use rupicola_api::Role;
 pub use session::{
     Credentials, Csrf, authenticate, change_password, login, login_page, logout, register,
-    register_page, role, role_of, sign_out_others, unauthenticated,
+    register_page, role_of, sign_out_others, unauthenticated,
 };
 
 /// A signed-in person, as the panel sees them for one request.
@@ -22,23 +23,6 @@ pub struct Account {
     /// The backend's session token.
     pub session: String,
     pub csrf: String,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Role {
-    Owner,
-    Reviewer,
-    Reader,
-}
-
-impl From<rupicola_api::Role> for Role {
-    fn from(role: rupicola_api::Role) -> Self {
-        match role {
-            rupicola_api::Role::Owner => Self::Owner,
-            rupicola_api::Role::Reviewer => Self::Reviewer,
-            rupicola_api::Role::Reader => Self::Reader,
-        }
-    }
 }
 
 #[cfg(test)]

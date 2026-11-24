@@ -17,19 +17,60 @@ for (const marker of document.querySelectorAll("[data-seek]")) {
 
 const preferences = ["dark", "light", "system"];
 const themeChoice = document.querySelector("[data-theme-choice]");
+const themeToggleBtn = document.querySelector("[data-theme-toggle]");
+const syncThemeToggle = (mode) => {
+  if (!themeToggleBtn) return;
+  themeToggleBtn.textContent = mode === "light" ? "Dark" : "Light";
+};
 try {
-  const saved = localStorage.getItem("rupicola-theme");
+  const saved = localStorage.getItem("rupicola-theme") || "dark";
   if (preferences.includes(saved)) {
     document.documentElement.dataset.theme = saved;
     if (themeChoice) themeChoice.value = saved;
+    syncThemeToggle(saved);
   }
   themeChoice?.addEventListener("change", () => {
     if (!preferences.includes(themeChoice.value)) return;
     document.documentElement.dataset.theme = themeChoice.value;
     localStorage.setItem("rupicola-theme", themeChoice.value);
+    syncThemeToggle(themeChoice.value);
+  });
+  themeToggleBtn?.addEventListener("click", () => {
+    const curr = document.documentElement.dataset.theme || "dark";
+    const next = curr === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("rupicola-theme", next);
+    if (themeChoice) themeChoice.value = next;
+    syncThemeToggle(next);
   });
 } catch {
   if (themeChoice) themeChoice.disabled = true;
+}
+
+// Visual Stage Canvas: viewport HUD, collapsible inspector rail, and filmstrip jump
+const stageCanvas = document.querySelector("[data-stage-canvas]");
+const stageShell = document.querySelector("[data-stage-shell]");
+const railToggleBtn = document.querySelector("[data-rail-toggle]");
+for (const vpBtn of document.querySelectorAll("[data-stage-vp]")) {
+  vpBtn.addEventListener("click", () => {
+    const vp = vpBtn.dataset.stageVp || "100%";
+    stageCanvas?.style.setProperty("--stage-max", vp);
+    for (const b of document.querySelectorAll("[data-stage-vp]")) {
+      b.classList.toggle("primary", b === vpBtn);
+    }
+  });
+}
+railToggleBtn?.addEventListener("click", () => {
+  const hidden = stageShell?.classList.toggle("is-rail-hidden");
+  railToggleBtn.textContent = hidden ? "Show Inspector" : "Hide Inspector";
+  railToggleBtn.setAttribute("aria-expanded", hidden ? "false" : "true");
+});
+for (const thumb of document.querySelectorAll("[data-film-pick]")) {
+  thumb.addEventListener("click", () => {
+    for (const t of document.querySelectorAll("[data-film-pick]")) {
+      t.classList.toggle("is-active", t === thumb);
+    }
+  });
 }
 
 document.querySelector("[data-form-error]")?.focus();

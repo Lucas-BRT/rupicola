@@ -15,6 +15,10 @@ use subtle::ConstantTimeEq;
 
 /// Lockout key shared by setup attempts, which have no account yet.
 const SETUP_LOCKOUT_KEY: &str = "__setup__";
+/// Minimum interval between `last_used_at` updates, so read requests do not serialize SQLite writes.
+const TOKEN_TOUCH_INTERVAL_MS: i64 = 60_000;
+/// Maximum handle length tracked in the in-memory lockout map.
+const MAX_HANDLE_LEN: usize = 128;
 
 /// The owner of the live token whose secret is `secret`, and a note that it was used.
 pub async fn principal(state: &AppState, secret: &str) -> Result<Principal, ApiError> {
@@ -22,7 +26,8 @@ pub async fn principal(state: &AppState, secret: &str) -> Result<Principal, ApiE
         return Err(ApiError::Unauthorized);
     }
     let digest = secret::digest(secret);
-    let bearer = tokens::bearer(&state.db, &digest, now_ms())
+    let now = now_ms();
+    let bearer = tokens::bearer(&state.db, &digest, now)
         .await?
         .ok_or(ApiError::Unauthorized)?;
     let kind = match bearer.kind.as_str() {
@@ -31,7 +36,12 @@ pub async fn principal(state: &AppState, secret: &str) -> Result<Principal, ApiE
         "device" => TokenKind::Device,
         _ => return Err(ApiError::Unauthorized),
     };
-    tokens::touch(&state.db, &digest, now_ms()).await?;
+    let should_touch = bearer
+        .last_used_at
+        .is_none_or(|last| now - last >= TOKEN_TOUCH_INTERVAL_MS);
+    if should_touch {
+        tokens::touch(&state.db, &digest, now).await?;
+    }
     Ok(Principal {
         kind,
         handle: bearer.handle,
@@ -43,6 +53,10 @@ pub async fn principal(state: &AppState, secret: &str) -> Result<Principal, ApiE
 
 pub async fn sign_in(state: &AppState, form: Credentials) -> Result<SessionToken, ApiError> {
     let handle = normal_handle(&form.handle);
+    if handle.len() > MAX_HANDLE_LEN {
+        let _ = state.passwords.verify(None, form.password).await?;
+        return Err(ApiError::Unauthorized);
+    }
     state.lockout.check(&handle).await?;
     let stored = if valid_handle(&handle) && form.password.len() <= *PASSWORD_LEN.end() {
         accounts::password_hash(&state.db, &handle).await?

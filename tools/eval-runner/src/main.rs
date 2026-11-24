@@ -5,19 +5,11 @@ mod run;
 mod stats;
 mod trigger;
 use clap::{Args, Parser, Subcommand};
-use harness::{
-    R, analyze_trajectory, copy_dir, install_skill, matrix, order, run_id, setup_config, sh,
-};
+use harness::{matrix, order, run_id};
 use run::{RunOptions, run};
-use rupicola_core::evals::{Task, load};
-use serde_json::{Value, json};
-use stats::{analyze, parse_conds, trigger_analyze};
-use std::collections::BTreeMap;
-use std::fmt::Write as _;
-use std::fs::{self, File};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use stats::{analyze, trigger_analyze};
+use std::path::PathBuf;
+use std::time::Duration;
 use trigger::trigger_run;
 
 /// Evaluation run budgets: dollars and seconds per full run and per trigger run,
@@ -31,27 +23,26 @@ const DEFAULT_RESAMPLES: usize = 10_000;
 /// Tasks per condition drawn by default when planning.
 const DEFAULT_K: usize = 4;
 /// Exit code `sh` reports for a command that could not start.
-const EXIT_SPAWN_FAILED: i32 = 127;
+pub(crate) const EXIT_SPAWN_FAILED: i32 = 127;
 /// Polling intervals while waiting on child processes.
-const SH_POLL: Duration = Duration::from_millis(200);
-const AGENT_POLL: Duration = Duration::from_millis(500);
-const RUN_POLL: Duration = Duration::from_millis(300);
-/// Time limits: copying a repository, a git command, and a task verifier.
-const COPY_TIMEOUT: Duration = Duration::from_secs(60);
-const GIT_TIMEOUT: Duration = Duration::from_secs(30);
-const VERIFIER_TIMEOUT: Duration = Duration::from_secs(600);
+pub(crate) const SH_POLL: Duration = Duration::from_millis(200);
+pub(crate) const AGENT_POLL: Duration = Duration::from_millis(500);
+pub(crate) const RUN_POLL: Duration = Duration::from_millis(300);
+/// Time limits: a git command and a task verifier.
+pub(crate) const GIT_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const VERIFIER_TIMEOUT: Duration = Duration::from_secs(600);
 /// Characters of command output kept in a result.
-const OUTPUT_TAIL_CHARS: usize = 2000;
+pub(crate) const OUTPUT_TAIL_CHARS: usize = 2000;
 /// F1 is the harmonic mean: 2PR / (P + R).
-const F1_WEIGHT: f64 = 2.0;
+pub(crate) const F1_WEIGHT: f64 = 2.0;
 /// A sign test is two-sided, so its one-sided tail doubles.
-const TWO_SIDED: f64 = 2.0;
+pub(crate) const TWO_SIDED: f64 = 2.0;
 /// The 95% bootstrap interval drops 1/40 of the sorted resamples at each end.
-const CONFIDENCE_TAIL_DIVISOR: usize = 40;
+pub(crate) const CONFIDENCE_TAIL_DIVISOR: usize = 40;
 /// Xorshift64 shift triple (13, 7, 17), a full-period choice.
-const XORSHIFT_A: u32 = 13;
-const XORSHIFT_B: u32 = 7;
-const XORSHIFT_C: u32 = 17;
+pub(crate) const XORSHIFT_A: u32 = 13;
+pub(crate) const XORSHIFT_B: u32 = 7;
+pub(crate) const XORSHIFT_C: u32 = 17;
 
 #[derive(Parser)]
 struct Cli {
@@ -218,8 +209,8 @@ fn main() {
             csv,
         } => analyze(&out, &base, &cand, resamples, csv),
     };
-    if let Err(message) = result {
-        eprintln!("{message}");
+    if let Err(err) = result {
+        eprintln!("{err:#}");
         std::process::exit(1);
     }
 }

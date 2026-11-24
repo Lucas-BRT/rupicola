@@ -11,7 +11,7 @@ use super::{
 use crate::views::auth::sign_in_sheet;
 use crate::{
     Arc, Cx, Deserialize, Html, IntoResponse, PageResult, Panel, Response, StatusCode, ViewExt,
-    db_error, redirect, status, view,
+    redirect, render_error, status, view,
 };
 use http::{HeaderMap, Method, header};
 use rupicola_api::{Credentials as SignIn, Me, PasswordChange, Register, Setup, TokenKind};
@@ -89,26 +89,7 @@ pub fn role_in(
         .iter()
         .find(|candidate| candidate.id == project)
         .and_then(|candidate| candidate.role)
-        .map(Role::from)
         .ok_or(StatusCode::NOT_FOUND)
-}
-
-/// What `account` may do in `project`, asking the backend; for the actions, which run once
-/// per request. Pages use [`role_of`], which shares the answer.
-///
-/// # Errors
-///
-/// 404 when the account is not a member.
-pub async fn role(panel: &Panel, account: &Account, project: &str) -> PageResult<Role> {
-    if account.owner {
-        return Ok(Role::Owner);
-    }
-    let projects = panel
-        .api
-        .projects(&account.session)
-        .await
-        .map_err(|e| api_error(&e))?;
-    role_in(&projects, account, project)
 }
 
 /// What the signed-in account may do in `project`, sharing the list of projects with the rest
@@ -186,8 +167,8 @@ pub async fn login(
             )
             .await
         }
-        Err(ClientError::RateLimited { .. }) => {
-            render(
+        Err(ClientError::RateLimited { retry_after }) => {
+            let mut response = render(
                 &panel,
                 false,
                 false,
@@ -195,7 +176,13 @@ pub async fn login(
                 Some(LOGIN_LIMITED),
                 StatusCode::TOO_MANY_REQUESTS,
             )
-            .await
+            .await?;
+            if let Some(secs) = retry_after
+                && let Ok(val) = secs.to_string().parse()
+            {
+                response.headers_mut().insert(header::RETRY_AFTER, val);
+            }
+            Ok(response)
         }
         Err(error) => Err(api_error(&error)),
     }
@@ -229,17 +216,25 @@ pub async fn register(
             })
             .await
     };
-    let (message, status) = match result {
+    let (message, status, retry_after_secs) = match result {
         Ok(session) => return Ok(start_session(&panel, &session)),
-        Err(ClientError::Invalid(message)) => (message, StatusCode::UNPROCESSABLE_ENTITY),
-        Err(ClientError::Forbidden) => (BAD_SETUP_CODE.to_owned(), StatusCode::FORBIDDEN),
-        Err(ClientError::Conflict(_)) => (SETUP_REFUSED.to_owned(), StatusCode::CONFLICT),
-        Err(ClientError::RateLimited { .. }) => {
-            (REGISTER_LIMITED.to_owned(), StatusCode::TOO_MANY_REQUESTS)
-        }
+        Err(ClientError::Invalid(message)) => (message, StatusCode::UNPROCESSABLE_ENTITY, None),
+        Err(ClientError::Forbidden) => (BAD_SETUP_CODE.to_owned(), StatusCode::FORBIDDEN, None),
+        Err(ClientError::Conflict(_)) => (SETUP_REFUSED.to_owned(), StatusCode::CONFLICT, None),
+        Err(ClientError::RateLimited { retry_after }) => (
+            REGISTER_LIMITED.to_owned(),
+            StatusCode::TOO_MANY_REQUESTS,
+            retry_after,
+        ),
         Err(error) => return Err(api_error(&error)),
     };
-    render(&panel, true, initial, &handle, Some(&message), status).await
+    let mut response = render(&panel, true, initial, &handle, Some(&message), status).await?;
+    if let Some(secs) = retry_after_secs
+        && let Ok(val) = secs.to_string().parse()
+    {
+        response.headers_mut().insert(header::RETRY_AFTER, val);
+    }
+    Ok(response)
 }
 
 /// Keeps the backend's session token in a cookie and goes to the dashboard.
@@ -264,7 +259,9 @@ pub struct Csrf {
 pub async fn logout(panel: Arc<Panel>, account: Account, form: Csrf) -> PageResult<Response> {
     super::check_csrf(&account, &form.csrf)?;
     // A session the backend already ended is the outcome asked for.
-    let _ = panel.api.sign_out(&account.session).await;
+    if let Err(err) = panel.api.sign_out(&account.session).await {
+        tracing::warn!(%err, "backend sign-out failed during logout");
+    }
     let mut response = redirect("/login");
     response.headers_mut().insert(
         header::SET_COOKIE,
@@ -316,10 +313,10 @@ async fn render(
     }
     .single()
     .await
-    .map_err(db_error)?;
+    .map_err(render_error)?;
     let mut response = Html(content.render(cx))
         .into_response(cx)
-        .map_err(db_error)?;
+        .map_err(render_error)?;
     *response.status_mut() = status;
     response
         .headers_mut()

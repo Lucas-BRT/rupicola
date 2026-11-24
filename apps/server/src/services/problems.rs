@@ -2,7 +2,8 @@
 
 use crate::{
     domain::{
-        Access, ApiError, Principal,
+        ApiError, Principal,
+        capture_run::{DEFAULT_HEIGHT, DEFAULT_WIDTH},
         problem::{
             EVIDENCE_LABEL, infer_from_finding, is_suppressed, validate, validate_comment,
             validate_patch,
@@ -10,13 +11,17 @@ use crate::{
         secret::now_ms,
     },
     repositories::{audit, captures, problems, selections},
-    services::{access::access, selections::keep},
+    services::{
+        access::{require, require_publisher, require_reader},
+        selections::keep,
+    },
     state::AppState,
 };
 use rupicola_api::{
     Comment, NewComment, NewProblem, NewSelection, Problem, ProblemPatch, ProblemStatus,
     ProblemSummary, Role, SelectionItem, SelectionMark,
 };
+use sqlx::SqliteConnection;
 use std::collections::HashSet;
 
 /// Project of a problem, checked against the caller's access.
@@ -29,7 +34,11 @@ async fn problem_access(
     let project = problems::project_of(&state.db, problem)
         .await?
         .ok_or(ApiError::NotFound)?;
-    access(state, principal, &project).await?.require(role)?;
+    if role == Role::Reader {
+        require_reader(state, principal, &project).await?;
+    } else {
+        require(state, principal, &project, role).await?;
+    }
     Ok(project)
 }
 
@@ -40,25 +49,25 @@ pub async fn create(
     project: &str,
     form: &NewProblem,
 ) -> Result<Problem, ApiError> {
-    create_with_status(state, principal, project, form, ProblemStatus::Open).await
+    require_publisher(state, principal, project, Role::Reviewer).await?;
+    let mut tx = state.db.begin().await?;
+    let id = insert_problem_in_tx(&mut tx, principal, project, form, ProblemStatus::Open).await?;
+    tx.commit().await?;
+    problems::load(&state.db, &id).await
 }
 
-async fn create_with_status(
-    state: &AppState,
+async fn insert_problem_in_tx(
+    tx: &mut SqliteConnection,
     principal: &Principal,
     project: &str,
     form: &NewProblem,
     status: ProblemStatus,
-) -> Result<Problem, ApiError> {
-    match access(state, principal, project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reviewer)?,
-    }
+) -> Result<String, ApiError> {
     validate(form)?;
     let mut seen = HashSet::new();
     let mut anchors = Vec::new();
     for artifact in form.evidence.iter().filter(|a| seen.insert(a.as_str())) {
-        let capture = problems::resolve_evidence_capture(&state.db, project, artifact)
+        let capture = problems::resolve_evidence_capture(&mut *tx, project, artifact)
             .await?
             .ok_or(ApiError::invalid(
                 "the evidence must be files of this project's captures",
@@ -81,9 +90,8 @@ async fn create_with_status(
     proofs.extend(form.selections.iter().cloned());
     let id = uuid::Uuid::now_v7().to_string();
     let now = now_ms();
-    let mut tx = state.db.begin().await?;
     problems::insert_with_status(
-        &mut tx,
+        tx,
         &id,
         project,
         form,
@@ -93,19 +101,17 @@ async fn create_with_status(
     )
     .await?;
     for (position, proof) in proofs.iter().enumerate() {
-        let selection = keep(&mut tx, project, principal.handle.as_deref(), proof).await?;
-        problems::cite(&mut tx, project, &id, &selection, position).await?;
+        let selection = keep(tx, project, principal.handle.as_deref(), proof).await?;
+        problems::cite(tx, project, &id, &selection, position).await?;
     }
-    let actor = principal.handle.as_deref().unwrap_or("device");
     audit::record(
         &mut *tx,
         Some(project),
-        actor,
+        principal.actor(),
         &format!("Filed problem {}", form.title.trim()),
     )
     .await?;
-    tx.commit().await?;
-    problems::load(&state.db, &id).await
+    Ok(id)
 }
 
 /// Lists every problem summary of `project`.
@@ -114,9 +120,7 @@ pub async fn list(
     principal: &Principal,
     project: &str,
 ) -> Result<Vec<ProblemSummary>, ApiError> {
-    access(state, principal, project)
-        .await?
-        .require(Role::Reader)?;
+    require_reader(state, principal, project).await?;
     problems::list(&state.db, project).await
 }
 
@@ -126,9 +130,7 @@ pub async fn list_details(
     principal: &Principal,
     project: &str,
 ) -> Result<Vec<Problem>, ApiError> {
-    access(state, principal, project)
-        .await?
-        .require(Role::Reader)?;
+    require_reader(state, principal, project).await?;
     problems::list_details(&state.db, project).await
 }
 
@@ -140,24 +142,22 @@ pub async fn analyze_capture(
     project: &str,
     capture_id: &str,
 ) -> Result<Vec<Problem>, ApiError> {
-    match access(state, principal, project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reviewer)?,
-    }
+    require_publisher(state, principal, project, Role::Reviewer).await?;
     let capture = captures::load(&state.db, capture_id).await?;
     if capture.project_id != project || capture.deleted.is_some() {
         return Err(ApiError::NotFound);
     }
-    let mut existing = problems::list_details(&state.db, project).await?;
-    let mut created = Vec::new();
+    let existing = problems::list_details(&state.db, project).await?;
+    let mut tx = state.db.begin().await?;
+    let mut created_ids = Vec::new();
     if capture.findings.is_empty() {
         if let Some(first) = capture.checkpoints.first() {
             let candidate = infer_from_finding(
                 &format!(
                     "[{} @ {}×{} {}] Visual inspection requested on capture '{}'",
                     first.id,
-                    capture.environment.width.unwrap_or(1440),
-                    capture.environment.height.unwrap_or(900),
+                    capture.environment.width.unwrap_or(DEFAULT_WIDTH),
+                    capture.environment.height.unwrap_or(DEFAULT_HEIGHT),
                     capture.environment.color_scheme.as_deref().unwrap_or(""),
                     capture.scenario
                 ),
@@ -167,35 +167,41 @@ pub async fn analyze_capture(
                 .iter()
                 .any(|problem| problem.diagnosis == candidate.diagnosis)
             {
-                let problem = create_with_status(
-                    state,
+                let id = insert_problem_in_tx(
+                    &mut tx,
                     principal,
                     project,
                     &candidate,
                     ProblemStatus::NeedsReprocess,
                 )
                 .await?;
-                created.push(problem);
+                created_ids.push(id);
             }
         }
     } else {
+        let mut seen_diagnoses: HashSet<String> = existing
+            .iter()
+            .map(|problem| problem.diagnosis.clone())
+            .collect();
         for finding in &capture.findings {
             let candidate =
                 infer_from_finding(&finding.note, finding.evidence_artifact_id.as_deref());
             let rule_code = candidate.rules.first().map_or("", |r| r.code.as_str());
             if is_suppressed(&existing, &candidate.route, rule_code, &candidate.title)
-                || existing
-                    .iter()
-                    .any(|problem| problem.diagnosis == candidate.diagnosis)
+                || !seen_diagnoses.insert(candidate.diagnosis.clone())
             {
                 continue;
             }
-            let problem =
-                create_with_status(state, principal, project, &candidate, ProblemStatus::Open)
+            let id =
+                insert_problem_in_tx(&mut tx, principal, project, &candidate, ProblemStatus::Open)
                     .await?;
-            existing.push(problem.clone());
-            created.push(problem);
+            created_ids.push(id);
         }
+    }
+    tx.commit().await?;
+    let mut created = Vec::with_capacity(created_ids.len());
+    for id in created_ids {
+        created.push(problems::load(&state.db, &id).await?);
     }
     Ok(created)
 }
@@ -217,11 +223,10 @@ pub async fn update(
     validate_patch(patch)?;
     let mut tx = state.db.begin().await?;
     problems::update(&mut tx, id, patch, now_ms()).await?;
-    let actor = principal.handle.as_deref().unwrap_or("device");
     audit::record(
         &mut *tx,
         Some(&project),
-        actor,
+        principal.actor(),
         &format!("Triaged problem {id}"),
     )
     .await?;

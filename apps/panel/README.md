@@ -2,7 +2,7 @@
 
 Review screenshots, recordings and analysis by project. Topcoat serves the
 routes and renders the pages. Tailwind compiles the panel stylesheet at build
-time, and the button, badge and card components come from Topcoat UI 0.11.
+time, and the button, badge and card components come from Topcoat UI 0.12.
 The backend owns accounts, captures, problems, fixes, design records and design
 systems in SQLite and its media store; the panel is stateless.
 
@@ -27,7 +27,7 @@ stylesheet is embedded in the binary.
 
 ## Source layout
 
-Routes follow the module tree (topcoat module routing): `src/app/projects/project/problems.rs`
+Routes follow the module tree (topcoat module routing): `src/app/_workspace/projects/project/problems.rs`
 serves `/projects/{project}/problems`, and its child modules are that tab's actions. A route
 module loads what its page shows and calls a view. Markup lives only in `src/views/`, which
 takes loaded data and calls no backend. `auth/`, `project.rs`, `records.rs`, `runs.rs` and

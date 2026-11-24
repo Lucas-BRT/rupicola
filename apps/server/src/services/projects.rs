@@ -102,7 +102,7 @@ pub async fn members(
     id: &str,
 ) -> Result<Vec<Member>, ApiError> {
     require(state, principal, id, Role::Reader).await?;
-    Ok(projects::members(&state.db, id).await?)
+    projects::members(&state.db, id).await
 }
 
 /// Owners add a person or change their role.

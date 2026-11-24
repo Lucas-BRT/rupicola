@@ -1,46 +1,63 @@
-use super::{
-    COPY_TIMEOUT, Command, Duration, EXIT_SPAWN_FAILED, Instant, Matrix, OUTPUT_TAIL_CHARS, Path,
-    PathBuf, SH_POLL, Stdio, Task, Value, fs, json, load,
-};
+use crate::{EXIT_SPAWN_FAILED, Matrix, OUTPUT_TAIL_CHARS, SH_POLL};
+use anyhow::{Context as _, Result, bail};
+use rupicola_core::evals::{Task, load};
+use serde_json::{Value, json};
+use std::fs;
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
-pub(crate) struct Cleanup(Option<PathBuf>);
-impl Drop for Cleanup {
-    fn drop(&mut self) {
-        if let Some(dir) = &self.0 {
-            let _ = fs::remove_dir_all(dir);
-        }
-    }
-}
+#[cfg(unix)]
+const CONFIG_DIR_MODE: u32 = 0o700;
+#[cfg(unix)]
+const CREDENTIALS_FILE_MODE: u32 = 0o600;
+const TAR_EXCLUDES: &[&str] = &[
+    "--exclude=evals",
+    "--exclude=tools/eval-runner",
+    "--exclude=target",
+    "--exclude=.git",
+];
 
 /// A clean configuration directory holding only the credential keeps user-level skills,
 /// hooks, plugins and MCP servers out of every condition.
-pub(crate) fn setup_config(no_isolate: bool) -> R<(Option<PathBuf>, Cleanup)> {
-    let config = (!no_isolate).then(|| std::env::temp_dir().join("rupicola-eval-config"));
-    let cleanup = Cleanup(config.clone());
-    if let Some(dir) = &config {
-        let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-        let creds = Path::new(&home).join(".claude/.credentials.json");
-        let _ = fs::remove_dir_all(dir);
-        fs::create_dir_all(dir).map_err(|error| error.to_string())?;
-        fs::copy(&creds, dir.join(".credentials.json")).map_err(|x| {
-            format!(
-                "cannot copy {} (use --no-isolate to skip isolation): {x}",
-                creds.display()
-            )
-        })?;
+pub(crate) fn setup_config(no_isolate: bool) -> Result<Option<tempfile::TempDir>> {
+    if no_isolate {
+        return Ok(None);
     }
-    Ok((config, cleanup))
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    let creds = Path::new(&home).join(".claude/.credentials.json");
+    let dir = tempfile::Builder::new()
+        .prefix("rupicola-eval-config-")
+        .tempdir()
+        .context("create isolated eval config tempdir")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(CONFIG_DIR_MODE))
+            .context("set isolated eval config directory permissions")?;
+    }
+    let dst = dir.path().join(".credentials.json");
+    fs::copy(&creds, &dst).with_context(|| {
+        format!(
+            "cannot copy {} (use --no-isolate to skip isolation)",
+            creds.display()
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(&dst, fs::Permissions::from_mode(CREDENTIALS_FILE_MODE))
+            .context("set isolated credentials file permissions")?;
+    }
+    Ok(Some(dir))
 }
-
-pub(crate) type R<T> = Result<T, String>;
 
 /// A condition: its name and the git revision of the skill it installs (`none`
 /// for no skill).
 pub(crate) type Condition = (String, String);
 
-pub(crate) fn matrix(m: &Matrix) -> R<(Vec<Task>, Vec<Condition>)> {
-    let tasks: Vec<Task> = load(&m.root)
-        .map_err(|e| format!("{e:#}"))?
+pub(crate) fn matrix(m: &Matrix) -> Result<(Vec<Task>, Vec<Condition>)> {
+    let tasks: Vec<Task> = load(&m.root)?
         .into_iter()
         .filter(|t| t.split == m.split && (m.tasks.is_empty() || m.tasks.contains(&t.id)))
         .collect();
@@ -50,9 +67,9 @@ pub(crate) fn matrix(m: &Matrix) -> R<(Vec<Task>, Vec<Condition>)> {
         .map(|c| {
             c.split_once('=')
                 .map(|(a, b)| (a.to_owned(), b.to_owned()))
-                .ok_or(format!("bad --cond {c}; use name=none or name=<rev>"))
+                .with_context(|| format!("bad --cond {c}; use name=none or name=<rev>"))
         })
-        .collect::<R<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()?;
     Ok((tasks, conds))
 }
 pub(crate) fn run_id(task: &str, cond: &str, rep: usize) -> String {
@@ -75,17 +92,15 @@ pub(crate) fn order(
     v
 }
 
-pub(crate) fn copy_dir(from: &Path, to: &Path) -> R<()> {
-    fs::create_dir_all(to).map_err(|error| error.to_string())?;
-    for entry in fs::read_dir(from)
-        .map_err(|error| error.to_string())?
-        .flatten()
-    {
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
         let (src, dst) = (entry.path(), to.join(entry.file_name()));
         if src.is_dir() {
             copy_dir(&src, &dst)?;
         } else {
-            fs::copy(&src, &dst).map_err(|error| error.to_string())?;
+            fs::copy(&src, &dst)?;
         }
     }
     Ok(())
@@ -129,37 +144,93 @@ pub(crate) fn sh(dir: &Path, cmd: &str, timeout: Duration) -> (i32, String) {
     }
 }
 
+fn extract_tar_stream(stdin: Stdio, dest: &Path, rev: &str) -> Result<()> {
+    let extract = Command::new("tar")
+        .arg("-x")
+        .args(TAR_EXCLUDES)
+        .arg("-C")
+        .arg(dest)
+        .stdin(stdin)
+        .output()
+        .context("run tar extract")?;
+    if !extract.status.success() {
+        bail!(
+            "cannot extract skill at {rev}: {}",
+            String::from_utf8_lossy(&extract.stderr)
+        );
+    }
+    Ok(())
+}
+
 /// Extracts a skill version into `dest`.
-pub(crate) fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
-    fs::create_dir_all(dest).map_err(|error| error.to_string())?;
-    let skip = "--exclude=evals --exclude=tools/eval-runner --exclude=target --exclude=.git";
+pub(crate) fn install_skill(root: &Path, rev: &str, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest)?;
     // `worktree` takes the current files, tracked or not, so uncommitted edits can be measured.
     let (rev, desc_file) = match rev.split_once('+') {
         Some((r, f)) => (r, Some(f)),
         None => (rev, None),
     };
-    let source = if rev == "worktree" {
-        format!(
-            "git -C '{}' ls-files -co --exclude-standard -z | tar --null -T - -c",
-            root.display()
-        )
+    if rev == "worktree" {
+        let mut git = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["ls-files", "-co", "--exclude-standard", "-z"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("spawn git ls-files")?;
+        let git_stdout = git.stdout.take().context("git ls-files stdout")?;
+        let mut tar_create = Command::new("tar")
+            .current_dir(root)
+            .args(["--null", "-T", "-", "-c"])
+            .stdin(Stdio::from(git_stdout))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("spawn tar create")?;
+        let tar_stdout = tar_create.stdout.take().context("tar create stdout")?;
+        let extract_res = extract_tar_stream(Stdio::from(tar_stdout), dest, rev);
+        let git_out = git.wait_with_output().context("wait git ls-files")?;
+        let tar_out = tar_create.wait_with_output().context("wait tar create")?;
+        if !git_out.status.success() {
+            bail!(
+                "cannot list worktree files: {}",
+                String::from_utf8_lossy(&git_out.stderr)
+            );
+        }
+        if !tar_out.status.success() {
+            bail!(
+                "cannot archive worktree files: {}",
+                String::from_utf8_lossy(&tar_out.stderr)
+            );
+        }
+        extract_res?;
     } else {
-        format!("git -C '{}' archive {rev}", root.display())
-    };
-    let cmd = format!(
-        "cd '{}' && {source} | tar -x {skip} -C '{}'",
-        root.display(),
-        dest.display()
-    );
-    let (code, out) = sh(root, &cmd, COPY_TIMEOUT);
-    if code != 0 {
-        return Err(format!("cannot extract skill at {rev}: {out}"));
+        let mut git = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("archive")
+            .arg(rev)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("spawn git archive")?;
+        let git_stdout = git.stdout.take().context("git archive stdout")?;
+        let extract_res = extract_tar_stream(Stdio::from(git_stdout), dest, rev);
+        let git_out = git.wait_with_output().context("wait git archive")?;
+        if !git_out.status.success() {
+            bail!(
+                "cannot archive skill at {rev}: {}",
+                String::from_utf8_lossy(&git_out.stderr)
+            );
+        }
+        extract_res?;
     }
     // `<rev>+<file>` swaps the description for the file's text, to compare wordings.
     if let Some(file) = desc_file {
-        let text = fs::read_to_string(root.join(file)).map_err(|x| format!("{file}: {x}"))?;
+        let text = fs::read_to_string(root.join(file)).with_context(|| file.to_owned())?;
         let skill = dest.join("SKILL.md");
-        let body = fs::read_to_string(&skill).map_err(|error| error.to_string())?;
+        let body = fs::read_to_string(&skill)?;
         let replaced: Vec<String> = body
             .lines()
             .map(|l| {
@@ -170,7 +241,7 @@ pub(crate) fn install_skill(root: &Path, rev: &str, dest: &Path) -> R<()> {
                 }
             })
             .collect();
-        fs::write(&skill, replaced.join("\n")).map_err(|error| error.to_string())?;
+        fs::write(&skill, replaced.join("\n"))?;
     }
     Ok(())
 }

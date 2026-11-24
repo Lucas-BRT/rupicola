@@ -5,7 +5,7 @@ mod project;
 use crate::app::{_workspace::title, account, fail, panel, respond};
 use crate::{
     Account, Arc, Deserialize, PageResult, Panel, StatusCode, auth,
-    project::{Filter, catalog, visible_runs},
+    project::{Filter, project_catalog},
     records, redirect, safe_name,
     views::projects::{ProjectName, Projects, projects_page},
 };
@@ -32,8 +32,7 @@ async fn create(cx: &Cx, Form(form): Form<CreateProject>) -> Result<Response> {
 }
 
 async fn load(cx: &Cx, filter: &Filter) -> PageResult<Projects> {
-    let runs = visible_runs(cx).await?;
-    let projects = catalog(cx, &runs).await?;
+    let projects = project_catalog(cx).await?;
     let query = filter.q.clone().unwrap_or_default();
     let search = query.trim().to_lowercase();
     let empty_catalog = projects.is_empty();

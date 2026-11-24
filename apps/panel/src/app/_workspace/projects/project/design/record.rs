@@ -2,9 +2,7 @@
 
 use crate::app::_workspace::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
-use crate::{
-    Account, Arc, Deserialize, PageResult, Panel, StatusCode, auth, auth::Role, redirect, safe_name,
-};
+use crate::{Account, Arc, Deserialize, PageResult, Panel, StatusCode, auth, redirect, safe_name};
 use topcoat::{
     Result,
     context::Cx,
@@ -42,9 +40,6 @@ async fn submit(
     auth::check_csrf(&account, &form.csrf)?;
     if !safe_name(&id) {
         return Err(StatusCode::NOT_FOUND);
-    }
-    if auth::role(&panel, &account, &id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
     }
     save_design(&panel, &account, &id, form).await?;
     Ok(redirect(&format!("/projects/{id}/design")))

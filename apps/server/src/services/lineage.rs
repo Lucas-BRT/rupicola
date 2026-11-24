@@ -3,7 +3,7 @@
 
 use crate::{
     domain::{
-        Access, ApiError, Principal,
+        ApiError, Principal,
         lineage::{check_edit, check_known, cycle, depth, diff},
         secret::now_ms,
     },
@@ -12,7 +12,7 @@ use crate::{
         lineage::{self, Event},
         records,
     },
-    services::access::{access, require_publisher},
+    services::access::{require, require_publisher, require_reader},
     state::AppState,
 };
 use rupicola_api::{CaptureDiff, Lineage, LineageGraph, ParentsEdit, Role, record::ParentRef};
@@ -28,10 +28,10 @@ async fn project_of(
     let project = lineage::live_project(&state.db, capture)
         .await?
         .ok_or(ApiError::NotFound)?;
-    match access(state, principal, &project).await? {
-        Access::Device if role == Role::Reader => {}
-        Access::Device => return Err(ApiError::Forbidden),
-        person @ Access::Person(_) => person.require(role)?,
+    if role == Role::Reader {
+        require_reader(state, principal, &project).await?;
+    } else {
+        require(state, principal, &project, role).await?;
     }
     Ok(project)
 }
@@ -116,8 +116,9 @@ pub async fn edit(
     let actor = principal.person()?;
     let reason = check_edit(capture, form)?;
     let ids: Vec<&str> = form.parents.iter().map(|p| p.id.as_str()).collect();
-    check_known(&ids, &records::live(&state.db, &project, &ids).await?)?;
-    let before: Vec<ParentRef> = lineage::parents(&state.db, capture)
+    let mut tx = state.db.begin().await?;
+    check_known(&ids, &records::live(&mut *tx, &project, &ids).await?)?;
+    let before: Vec<ParentRef> = lineage::parents(&mut *tx, capture)
         .await?
         .into_iter()
         .map(|edge| ParentRef {
@@ -125,7 +126,6 @@ pub async fn edit(
             kind: edge.kind,
         })
         .collect();
-    let mut tx = state.db.begin().await?;
     if !lineage::advance(&mut *tx, capture, form.generation).await? {
         return Err(ApiError::Conflict(
             "the lineage changed since it was read; read it again",

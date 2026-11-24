@@ -63,9 +63,13 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
           shared-key: rupicola
-      - run: cargo test --locked
-      - if: runner.os == 'Linux'
-        run: cargo test --locked -p rupicola-panel
+      - name: Allow Chromium's sandbox (unprivileged user namespaces)
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: nextest
+      - run: cargo nextest run --locked --workspace
 
   docker:
     name: Build and push Docker image
@@ -101,14 +105,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - id: meta-backend
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/rupicola-backend
           tags: |
             type=raw,value=latest
             type=sha,prefix=sha-
             type=semver,pattern={{version}}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           target: server
@@ -182,7 +186,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
           shared-key: rupicola
-      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: cargo build --release --locked -p rupicola --target ${{ matrix.target }}
       - name: Package CLI and skill
         shell: bash
         env:

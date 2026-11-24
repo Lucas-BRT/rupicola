@@ -3,7 +3,7 @@
 use crate::{
     domain::{ApiError, Principal, design::validate, secret::now_ms},
     repositories::{audit, design},
-    services::access::{require, require_publisher},
+    services::access::{require_publisher, require_reader},
     state::AppState,
 };
 use rupicola_api::{DesignEntry, NewDesignEntry, Role};
@@ -14,7 +14,7 @@ pub async fn list(
     principal: &Principal,
     project: &str,
 ) -> Result<Vec<DesignEntry>, ApiError> {
-    require(state, principal, project, Role::Reader).await?;
+    require_reader(state, principal, project).await?;
     design::list(&state.db, project).await
 }
 

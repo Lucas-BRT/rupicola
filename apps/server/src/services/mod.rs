@@ -4,6 +4,7 @@
 
 pub mod access;
 pub mod auth;
+pub mod capture_runner;
 pub mod captures;
 pub mod credentials;
 pub mod design;

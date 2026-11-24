@@ -12,8 +12,19 @@ use topcoat::{
 const SITE_CSS: &str = include_str!("../../assets/site.css");
 const SITE_JS: &str = include_str!("../../assets/site.js");
 const INSTALL_SH: &str = include_str!("../../assets/install.sh");
+const BIRD_JPG: &[u8] = include_bytes!("../../assets/rupicola-bird.jpg");
 /// Text in `install.sh` replaced by the site's public URL when the script is served.
 const PUBLIC_URL_PLACEHOLDER: &str = "@PUBLIC_URL@";
+
+#[route(GET "/rupicola-bird.jpg")]
+async fn bird_image(cx: &Cx) -> TopcoatResult<Response> {
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "image/jpeg")
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .body(Body::from(BIRD_JPG))
+        .expect("valid image response"))
+}
 
 #[route(GET "/site.css")]
 async fn css(cx: &Cx) -> TopcoatResult<Response> {

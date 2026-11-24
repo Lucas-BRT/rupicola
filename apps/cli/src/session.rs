@@ -22,8 +22,6 @@ const TOKEN_FILE: &str = "auth-token";
 const SERVER_FILE: &str = "server-url";
 /// Path of the MCP endpoint, which clients may be configured with instead of the base URL.
 const MCP_SUFFIX: &str = "/mcp";
-/// Length of an auth token: 32 random bytes written as hex.
-const TOKEN_HEX_LEN: usize = 64;
 /// Permissions of the token file: the owner only.
 #[cfg(unix)]
 const PRIVATE_MODE: u32 = 0o600;
@@ -219,10 +217,10 @@ impl Store {
 
     fn validate(raw: &str) -> Result<String> {
         let token = raw.trim();
-        if token.len() == TOKEN_HEX_LEN && token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        if !token.is_empty() && token.bytes().all(|b| b.is_ascii_graphic()) {
             Ok(token.to_owned())
         } else {
-            bail!("Rupicola auth token must be {TOKEN_HEX_LEN} hexadecimal characters");
+            bail!("Rupicola auth token must be non-empty printable ASCII without whitespace");
         }
     }
 
@@ -238,6 +236,12 @@ impl Store {
         let mut file = options
             .open(path)
             .with_context(|| format!("Write {}", path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(PRIVATE_MODE))
+                .with_context(|| format!("Set permissions on {}", path.display()))?;
+        }
         file.write_all(line.as_bytes())
             .and_then(|()| file.write_all(b"\n"))
             .with_context(|| format!("Write {}", path.display()))
@@ -276,8 +280,15 @@ mod tests {
     #[test]
     fn the_token_file_is_private() {
         use std::os::unix::fs::PermissionsExt;
+        const PERMISSIVE_MODE: u32 = 0o644;
         let (_dir, store) = store();
         store.save_token(TOKEN).unwrap();
+        fs::set_permissions(
+            store.token_path(),
+            fs::Permissions::from_mode(PERMISSIVE_MODE),
+        )
+        .unwrap();
+        store.save_token("opaque-token-v2").unwrap();
         let mode = fs::metadata(store.token_path())
             .unwrap()
             .permissions()
@@ -288,7 +299,9 @@ mod tests {
     #[test]
     fn a_malformed_token_is_refused() {
         let (_dir, store) = store();
-        assert!(store.save_token("not-hex").is_err());
+        for bad in ["", "   ", "has space", "has\nnewline", "has\x00null"] {
+            assert!(store.save_token(bad).is_err());
+        }
         assert!(!store.token_path().exists());
     }
 

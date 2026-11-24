@@ -1,24 +1,33 @@
 //! SQLite queries for capture citations, tombstones and project deletion policies.
 
-use crate::domain::{
-    ApiError,
-    removal::{DEFAULT_POLICY, POLICY_KEY},
+use crate::{
+    domain::{
+        ApiError,
+        removal::{DEFAULT_POLICY, POLICY_KEY},
+    },
+    repositories::corrupt,
 };
 use rupicola_api::{Citation, CitationKind, DeletionPolicy};
-use sqlx::{SqliteConnection, SqlitePool};
+use sqlx::{SqliteConnection, SqliteExecutor, SqlitePool};
 
 /// The project's policy as it stands, before the server's ceiling.
-pub async fn project_policy(db: &SqlitePool, project: &str) -> Result<DeletionPolicy, ApiError> {
+pub async fn project_policy(
+    db: impl SqliteExecutor<'_>,
+    project: &str,
+) -> Result<DeletionPolicy, ApiError> {
     let stored: Option<String> =
         sqlx::query_scalar("SELECT value FROM project_settings WHERE project_id = ?1 AND key = ?2")
             .bind(project)
             .bind(POLICY_KEY)
             .fetch_optional(db)
             .await?;
-    Ok(stored
-        .and_then(|value| serde_json::from_str::<String>(&value).ok())
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(DEFAULT_POLICY))
+    match stored {
+        None => Ok(DEFAULT_POLICY),
+        Some(raw) => {
+            let value: String = serde_json::from_str(&raw).map_err(corrupt)?;
+            value.parse().map_err(corrupt)
+        }
+    }
 }
 
 /// Persists the project's cited-deletion policy inside `tx`.
@@ -48,7 +57,7 @@ pub async fn set_project_policy(
 
 /// The project of a live capture, if it exists and has not been removed.
 pub async fn live_capture_project(
-    db: &SqlitePool,
+    db: impl SqliteExecutor<'_>,
     capture: &str,
 ) -> Result<Option<String>, ApiError> {
     let project =
@@ -60,7 +69,10 @@ pub async fn live_capture_project(
 }
 
 /// Everything that cites `capture`, each once, in a stable order.
-pub async fn cited_by(db: &SqlitePool, capture: &str) -> Result<Vec<Citation>, ApiError> {
+pub async fn cited_by(
+    db: impl SqliteExecutor<'_>,
+    capture: &str,
+) -> Result<Vec<Citation>, ApiError> {
     let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
         "WITH files AS (SELECT id FROM artifacts WHERE capture_id = ?1),
               chosen AS (SELECT DISTINCT selection_id FROM selection_items WHERE capture_id = ?1)

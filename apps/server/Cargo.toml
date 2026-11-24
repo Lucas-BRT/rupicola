@@ -18,6 +18,8 @@ clap = { workspace = true, features = ["env"] }
 governor.workspace = true
 http-body-util.workspace = true
 rupicola-api.workspace = true
+rupicola-capture.workspace = true
+rupicola-protocol.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true

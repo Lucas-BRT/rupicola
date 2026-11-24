@@ -11,31 +11,33 @@ use crate::{
         captures::{self, ArtifactBlob},
     },
     services::{
-        access::{access, require, require_publisher},
+        access::{require_publisher, require_reader},
         limits,
     },
     state::{AppState, Shared},
 };
-use axum::body::Bytes;
 use rupicola_api::{
     Capture, CaptureSummary, Finding, Missing, MissingQuery, NewCapture, NewFinding, Role,
 };
 
-/// Stores a file under its digest, for any signed-in caller; blobs nobody references are
-/// pruned later. Returns whether it was new.
-pub async fn put_blob(state: Shared, sha256: String, data: Bytes) -> Result<bool, ApiError> {
+async fn put_blob(state: Shared, sha256: String, data: Vec<u8>) -> Result<bool, ApiError> {
     tokio::task::spawn_blocking(move || state.blobs.put(&sha256, &data))
         .await
         .map_err(anyhow::Error::from)?
 }
 
-/// Whether a file is stored under `sha256`.
-pub fn has_blob(state: &AppState, sha256: &str) -> Result<bool, ApiError> {
-    Ok(state
-        .blobs
-        .size(sha256)
-        .map_err(anyhow::Error::from)?
-        .is_some())
+/// Stores a file under its digest and records it as belonging to `project`.
+pub async fn put_project_blob(
+    state: &Shared,
+    project: &str,
+    sha256: String,
+    data: Vec<u8>,
+) -> Result<bool, ApiError> {
+    let bytes = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
+    let created = put_blob(state.clone(), sha256.clone(), data).await?;
+    let mut connection = state.db.acquire().await?;
+    blobs::record(&mut connection, project, &sha256, bytes).await?;
+    Ok(created)
 }
 
 /// Which of these files the project does not have yet, so a client uploads only those,
@@ -56,7 +58,7 @@ pub async fn missing(
 
 /// Devices and reviewers publish a capture whose files are already stored.
 pub async fn create(
-    state: &AppState,
+    state: &Shared,
     principal: &Principal,
     project: &str,
     form: NewCapture,
@@ -66,17 +68,31 @@ pub async fn create(
     let limits = limits::effective(state, project).await?;
     let max_artifacts = usize::try_from(limits.max_artifacts_per_capture).unwrap_or(usize::MAX);
     let planned = plan(&form, max_artifacts)?;
-    let mut sizes = Vec::with_capacity(planned.len());
-    for item in &planned {
-        let size = state
-            .blobs
-            .size(&item.file.sha256)
-            .map_err(anyhow::Error::from)?
-            .ok_or(ApiError::invalid(
-                "upload every file with PUT /v1/blobs/{sha256} first",
-            ))?;
-        sizes.push(size);
+    let hashes: Vec<String> = planned
+        .iter()
+        .map(|item| item.file.sha256.clone())
+        .collect();
+    if !blobs::missing(&state.db, project, &hashes)
+        .await?
+        .is_empty()
+    {
+        return Err(ApiError::invalid("upload every file to this project first"));
     }
+    let shared = state.clone();
+    let sizes = tokio::task::spawn_blocking(move || {
+        hashes
+            .into_iter()
+            .map(|sha256| {
+                shared
+                    .blobs
+                    .size(&sha256)
+                    .map_err(anyhow::Error::from)?
+                    .ok_or_else(|| ApiError::invalid("upload every file to this project first"))
+            })
+            .collect::<Result<Vec<u64>, ApiError>>()
+    })
+    .await
+    .map_err(anyhow::Error::from)??;
     let id = uuid::Uuid::now_v7().to_string();
     let mut tx = state.db.begin().await?;
     captures::insert(&mut *tx, &id, project, &form, now_ms()).await?;
@@ -102,8 +118,8 @@ pub async fn list(
     principal: &Principal,
     project: &str,
 ) -> Result<Vec<CaptureSummary>, ApiError> {
-    require(state, principal, project, Role::Reader).await?;
-    Ok(captures::of_project(&state.db, project).await?)
+    require_reader(state, principal, project).await?;
+    captures::of_project(&state.db, project).await
 }
 
 /// Checks the caller's access to the project of `capture`.
@@ -116,7 +132,7 @@ pub async fn require_capture(
     let project = captures::project_of(&state.db, capture)
         .await?
         .ok_or(ApiError::NotFound)?;
-    require(state, principal, &project, role).await
+    require_publisher(state, principal, &project, role).await
 }
 
 /// Fails unless `artifact` is a file of one of `project`'s captures.
@@ -178,8 +194,24 @@ pub async fn artifact(
     let blob = captures::artifact_blob(&state.db, id)
         .await?
         .ok_or(ApiError::NotFound)?;
-    access(state, principal, &blob.project_id)
-        .await?
-        .require(Role::Reader)?;
+    require_reader(state, principal, &blob.project_id).await?;
     Ok(blob)
+}
+
+/// Reads a byte range of an artifact on a blocking thread, for readers of its project.
+pub async fn read_artifact_range(
+    state: &Shared,
+    principal: &Principal,
+    id: &str,
+    offset: u64,
+    length: usize,
+) -> Result<(ArtifactBlob, Vec<u8>), ApiError> {
+    let blob = artifact(state, principal, id).await?;
+    let sha256 = blob.sha256.clone();
+    let shared = state.clone();
+    let data =
+        tokio::task::spawn_blocking(move || shared.blobs.read_range(&sha256, offset, length))
+            .await
+            .map_err(anyhow::Error::from)??;
+    Ok((blob, data))
 }

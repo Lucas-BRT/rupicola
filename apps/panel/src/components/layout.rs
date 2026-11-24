@@ -63,6 +63,7 @@ pub async fn document(
                                 <a href="/settings" if active == Nav::Settings { aria-current="page" }>"Settings"</a>
                             </nav>
                             <div class="topbar-account">
+                                <button class="button" type="button" data-theme-toggle="" aria-label="Toggle color theme">"Light"</button>
                                 <a href="/settings">(&account.handle)</a>
                                 <form method="post" action="/logout">
                                     <input type="hidden" name="csrf" value=(&account.csrf)>

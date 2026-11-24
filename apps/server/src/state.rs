@@ -8,6 +8,10 @@ use crate::{
 use anyhow::Context;
 use sqlx::SqlitePool;
 use std::{path::Path, sync::Arc};
+use tokio::sync::Semaphore;
+
+/// Maximum number of concurrent server-side captures allowed at once.
+pub const MAX_CONCURRENT_CAPTURES: usize = 2;
 
 pub type Shared = Arc<AppState>;
 
@@ -25,6 +29,10 @@ pub struct AppState {
     pub limits: LimitDefaults,
     /// Whether the server lets any project remove a cited capture.
     pub cited_deletion: std::sync::atomic::AtomicBool,
+    /// Limits concurrent server-executed captures.
+    pub capture_semaphore: Arc<Semaphore>,
+    /// Whether server-executed captures may target loopback, private, or link-local addresses.
+    pub allow_local_captures: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -78,6 +86,8 @@ impl AppState {
             open_setup,
             limits,
             cited_deletion: std::sync::atomic::AtomicBool::new(true),
+            capture_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_CAPTURES)),
+            allow_local_captures: std::sync::atomic::AtomicBool::new(false),
         }))
     }
 }

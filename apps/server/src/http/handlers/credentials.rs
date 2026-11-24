@@ -383,7 +383,16 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status(&read), StatusCode::FORBIDDEN, "{read}");
+        assert_eq!(status(&read), StatusCode::OK, "{read}");
+        let owner_only = call(
+            port,
+            "GET",
+            "/v1/projects/demo/devices",
+            Some(&device),
+            None,
+        )
+        .await;
+        assert_eq!(status(&owner_only), StatusCode::FORBIDDEN, "{owner_only}");
         let elsewhere = call(
             port,
             "POST",

@@ -12,7 +12,6 @@ pub(super) const FORM_COOKIE: &str = "rp_form";
 pub(super) const FORM_AGE: i64 = 1800;
 /// Mixed into a session token to derive the CSRF token of its forms.
 const CSRF_SEED: &str = "rupicola-csrf:";
-const TOKEN_HEX_LEN: usize = 64;
 
 pub(super) fn token() -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -52,8 +51,7 @@ pub(super) fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
         .flat_map(|value| value.split(';'))
         .filter_map(|value| value.trim().split_once('='))
         .find(|(key, _)| *key == name)?;
-    (value.len() == TOKEN_HEX_LEN && value.bytes().all(|b| b.is_ascii_hexdigit()))
-        .then(|| value.to_owned())
+    (!value.is_empty() && value.bytes().all(|b| b.is_ascii_graphic())).then(|| value.to_owned())
 }
 
 pub(super) fn cookie_header(panel: &Panel, name: &str, value: &str, age: i64) -> HeaderValue {

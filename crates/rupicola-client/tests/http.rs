@@ -8,9 +8,9 @@ use axum::{
 };
 use rupicola_api::{
     AuditEvent, Capture, CaptureStatus, CaptureSummary, Credential, Credentials, Environment,
-    ErrorBody, Finding, Inspection, Invite, IssuedCredential, IssuedInvite, Me, Member, NewCapture,
-    NewCredential, NewFinding, NewInvite, NewProject, PasswordChange, Project, Redeem, Role,
-    SessionToken, SetupStatus, TokenKind,
+    ErrorBody, Finding, Inspection, Invite, IssuedCredential, IssuedInvite, Limits, Me, Member,
+    Missing, MissingQuery, NewCapture, NewCredential, NewFinding, NewInvite, NewProject,
+    PasswordChange, Project, Redeem, Role, SessionToken, SetupStatus, TokenKind,
 };
 use rupicola_client::{Api, ClientError, HttpApi, McpReply};
 use sha2::{Digest, Sha256};
@@ -294,17 +294,33 @@ fn access_routes() -> Router {
 fn upload_routes(uploads: Arc<AtomicUsize>) -> Router {
     Router::new()
         .route(
-            "/v1/blobs/{sha256}",
+            "/v1/projects/{id}/blobs/missing",
+            post(|Json(query): Json<MissingQuery>| async move {
+                let missing = query
+                    .sha256
+                    .into_iter()
+                    .filter(|sha| sha != &self::sha256(KNOWN_BLOB))
+                    .collect();
+                Json(Missing {
+                    missing,
+                    limits: Limits {
+                        max_blob_bytes: 1024,
+                        max_image_bytes: 1024,
+                        max_video_bytes: 1024,
+                        max_artifacts_per_capture: 16,
+                        max_body_bytes: 1024,
+                        max_missing_batch: 16,
+                        upload_timeout_secs: 60,
+                        upload_idle_secs: 10,
+                    },
+                })
+            }),
+        )
+        .route(
+            "/v1/projects/{id}/blobs/{sha256}",
             put(|State(uploads): State<Arc<AtomicUsize>>| async move {
                 uploads.fetch_add(1, Ordering::SeqCst);
                 StatusCode::CREATED
-            })
-            .head(|Path(sha256): Path<String>| async move {
-                if sha256 == self::sha256(KNOWN_BLOB) {
-                    StatusCode::OK
-                } else {
-                    StatusCode::NOT_FOUND
-                }
             }),
         )
         .route(
@@ -434,15 +450,21 @@ async fn an_unreachable_backend_is_reported_as_unavailable() {
 #[tokio::test]
 async fn a_blob_the_backend_has_is_not_uploaded_again() {
     let (api, uploads) = serve().await;
-    assert_eq!(
-        api.put_blob(TOKEN, KNOWN_BLOB).await.unwrap(),
-        sha256(KNOWN_BLOB)
-    );
+    let missing = api
+        .missing_blobs(
+            TOKEN,
+            PROJECT,
+            &MissingQuery {
+                sha256: vec![sha256(KNOWN_BLOB), sha256(NEW_BLOB)],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.missing, vec![sha256(NEW_BLOB)]);
     assert_eq!(uploads.load(Ordering::SeqCst), 0);
-    assert_eq!(
-        api.put_blob(TOKEN, NEW_BLOB).await.unwrap(),
-        sha256(NEW_BLOB)
-    );
+    api.upload_project_blob(TOKEN, PROJECT, &sha256(NEW_BLOB), NEW_BLOB.to_vec())
+        .await
+        .unwrap();
     assert_eq!(uploads.load(Ordering::SeqCst), 1);
 }
 

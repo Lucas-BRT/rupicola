@@ -31,15 +31,16 @@ pub fn routes() -> Router<Shared> {
 
 /// The routes that take a password or a one-time code, which get a much smaller budget
 /// than ordinary API use.
-pub fn sign_in(settings: &security::Security) -> Router<Shared> {
-    Router::new()
+///
+/// # Errors
+///
+/// Returns an error if the rate-limit configuration is invalid.
+pub fn sign_in(settings: &security::Security) -> anyhow::Result<Router<Shared>> {
+    let limiter = security::rate_limit(SIGN_IN_BURST, SIGN_IN_REFILL_MS, settings.behind_proxy)?;
+    Ok(Router::new()
         .route("/sessions", routing::post(auth::sign_in))
         .route("/setup", routing::post(auth::setup))
         .route("/register", routing::post(credentials::register))
         .route("/invites/redeem", routing::post(credentials::redeem))
-        .route_layer(security::rate_limit(
-            SIGN_IN_BURST,
-            SIGN_IN_REFILL_MS,
-            settings.behind_proxy,
-        ))
+        .route_layer(limiter))
 }

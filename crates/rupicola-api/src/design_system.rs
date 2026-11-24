@@ -5,19 +5,11 @@ use serde::{Deserialize, Serialize};
 
 text_enum! {
     /// The typeface family headings use.
+    #[derive(Default)]
     HeadingStyle {
+        #[default]
         Editorial => "editorial",
         Product => "product",
-    }
-}
-
-#[allow(
-    clippy::derivable_impls,
-    reason = "text_enum! fixes the derives, so Default is written out"
-)]
-impl Default for HeadingStyle {
-    fn default() -> Self {
-        Self::Editorial
     }
 }
 
@@ -158,7 +150,7 @@ impl Default for Document {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct SystemNote {
     pub actor: String,
-    /// Seconds since the Unix epoch.
+    /// Unix milliseconds.
     pub time: i64,
     pub target: String,
     pub action: String,

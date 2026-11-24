@@ -8,7 +8,7 @@ use crate::{
         secret::now_ms,
     },
     repositories::{audit, removal},
-    services::access::access,
+    services::access::{access, require_reader},
     state::AppState,
 };
 use rupicola_api::{CaptureRemoval, Citations, PolicyView, Role};
@@ -60,8 +60,9 @@ pub async fn remove(
     let (project, seen) = live_capture(state, principal, capture).await?;
     let actor = principal.person()?.to_owned();
     let reason = check_reason(&form.reason)?;
-    let citations = removal::cited_by(&state.db, capture).await?;
-    let policy = removal::project_policy(&state.db, &project).await?;
+    let mut tx = state.db.begin().await?;
+    let citations = removal::cited_by(&mut *tx, capture).await?;
+    let policy = removal::project_policy(&mut *tx, &project).await?;
     let server_allows = state.cited_deletion.load(Ordering::Relaxed);
     if !is_allowed(server_allows, seen, &citations, policy) {
         return Err(ApiError::Forbidden);
@@ -74,7 +75,6 @@ pub async fn remove(
         ));
     }
     let now = now_ms();
-    let mut tx = state.db.begin().await?;
     removal::tombstone(&mut tx, capture, &actor, reason, now).await?;
     removal::reopen_uncited_problems(&mut tx, capture, now).await?;
     let detail =
@@ -97,9 +97,7 @@ pub async fn policy(
     principal: &Principal,
     project: &str,
 ) -> Result<PolicyView, ApiError> {
-    access(state, principal, project)
-        .await?
-        .require(Role::Reader)?;
+    require_reader(state, principal, project).await?;
     Ok(PolicyView {
         policy: removal::project_policy(&state.db, project).await?,
         server_allows: state.cited_deletion.load(Ordering::Relaxed),

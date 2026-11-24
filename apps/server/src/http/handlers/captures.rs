@@ -1,23 +1,20 @@
-//! `/projects/{id}/captures`, `/captures/{id}`, `/artifacts/{id}` and the blob uploads.
-//!
-//! Uploading the old way is two steps: each file goes to `PUT /v1/blobs/{sha256}`
-//! (skipped when `HEAD` says it is already stored), then `POST /v1/projects/{id}/captures`
-//! describes the capture by referencing those digests.
+//! `/projects/{id}/captures`, `/captures/{id}`, `/artifacts/{id}` and project blob uploads.
 
 use crate::{
     domain::{ApiError, Principal},
-    services::{captures, uploads::Receiving},
+    services::{capture_runner, captures, uploads::Receiving},
     state::Shared,
 };
 use axum::{
     Json,
-    body::{Body, Bytes},
+    body::Body,
     extract::{Path, Request, State},
     http::StatusCode,
     response::Response,
 };
 use rupicola_api::{
-    Capture, CaptureSummary, Finding, Missing, MissingQuery, NewCapture, NewFinding,
+    Capture, CaptureCapabilities, CaptureSummary, Finding, Missing, MissingQuery, NewCapture,
+    NewFinding, RunCapture,
 };
 
 /// 201 for a file stored now, 200 for one already kept.
@@ -29,27 +26,9 @@ const fn stored(created: bool) -> StatusCode {
     }
 }
 
-/// `PUT /v1/blobs/{sha256}`
-pub async fn put_blob(
-    State(state): State<Shared>,
-    _principal: Principal,
-    Path(sha256): Path<String>,
-    data: Bytes,
-) -> Result<StatusCode, ApiError> {
-    captures::put_blob(state, sha256, data).await.map(stored)
-}
-
-/// `HEAD /v1/blobs/{sha256}`: 200 when stored, so clients skip the upload.
-pub async fn head_blob(
-    State(state): State<Shared>,
-    _principal: Principal,
-    Path(sha256): Path<String>,
-) -> Result<StatusCode, ApiError> {
-    if captures::has_blob(&state, &sha256)? {
-        Ok(StatusCode::OK)
-    } else {
-        Err(ApiError::NotFound)
-    }
+/// `GET /v1/capture-capabilities`
+pub async fn capabilities(_principal: Principal) -> Json<CaptureCapabilities> {
+    Json(capture_runner::capabilities().await)
 }
 
 /// `PUT /v1/projects/{id}/blobs/{sha256}`: the file arrives as a stream, cut when it takes
@@ -103,6 +82,18 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(capture)))
 }
 
+/// `POST /v1/projects/{id}/captures/run`: captures `form.url` using the server's external
+/// capture runner and stores the resulting capture (`complete` or `blocked`).
+pub async fn run(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(project): Path<String>,
+    Json(form): Json<RunCapture>,
+) -> Result<(StatusCode, Json<Capture>), ApiError> {
+    let capture = capture_runner::run(&state, &principal, &project, form).await?;
+    Ok((StatusCode::CREATED, Json(capture)))
+}
+
 /// `GET /v1/projects/{id}/captures`
 pub async fn list(
     State(state): State<Shared>,
@@ -140,7 +131,7 @@ pub async fn artifact(
     request: Request,
 ) -> Result<Response, ApiError> {
     let blob = captures::artifact(&state, &principal, &id).await?;
-    crate::http::blob::respond(&state.blobs, &blob.sha256, &blob.mime, request).await
+    crate::http::blob::respond(&state, blob.sha256, &blob.mime, request).await
 }
 
 #[cfg(test)]
@@ -155,26 +146,17 @@ mod tests {
     }
 
     async fn upload(port: u16, token: &str, data: &[u8]) -> String {
-        let sha = digest(data);
-        let response = request(
-            port,
-            format!(
-                "PUT /v1/blobs/{sha} HTTP/1.1\r\nHost: test\r\nAuthorization: Bearer {token}\r\n\
-                 Content-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                data.len(),
-                String::from_utf8_lossy(data)
-            ),
-        )
-        .await;
-        assert!(
-            matches!(status(&response), StatusCode::OK | StatusCode::CREATED),
-            "{response}"
-        );
-        sha
+        stream_blob(port, token, "demo", data).await
     }
 
     /// Ana owns `demo`; Bruno reads it; Carla is an outsider. Returns their tokens.
     async fn demo() -> (u16, [String; USERS]) {
+        let (port, _state, tokens) = demo_with_state().await;
+        (port, tokens)
+    }
+
+    /// [`demo`], also handing back the server state so a test can change its settings.
+    async fn demo_with_state() -> (u16, crate::state::Shared, [String; USERS]) {
         let (port, state) = start_custom(settings(), None, true).await;
         for handle in ["ana", "bruno", "carla"] {
             seed_account(&state, handle, false).await;
@@ -200,7 +182,7 @@ mod tests {
             Some(r#"{"role":"reader"}"#),
         )
         .await;
-        (port, [ana, bruno, carla])
+        (port, state, [ana, bruno, carla])
     }
 
     /// Ana (owner), Bruno (reader) and Carla (outsider).
@@ -224,15 +206,13 @@ mod tests {
         let sha = upload(port, &ana, b"png-bytes").await;
         let again = request(
             port,
-            format!("PUT /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: 9\r\nConnection: close\r\n\r\npng-bytes"),
+            format!("PUT /v1/projects/demo/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: 9\r\nConnection: close\r\n\r\npng-bytes"),
         )
         .await;
         assert_eq!(status(&again), StatusCode::OK, "{again}");
-        let head = request(port, format!("HEAD /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nConnection: close\r\n\r\n")).await;
-        assert_eq!(status(&head), StatusCode::OK, "{head}");
         let forged = request(
             port,
-            format!("PUT /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: 5\r\nConnection: close\r\n\r\nother"),
+            format!("PUT /v1/projects/demo/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: 5\r\nConnection: close\r\n\r\nother"),
         )
         .await;
         assert_eq!(
@@ -240,12 +220,37 @@ mod tests {
             StatusCode::UNPROCESSABLE_ENTITY,
             "{forged}"
         );
-        let anonymous = request(
+        let legacy = request(
             port,
-            format!("HEAD /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n"),
+            format!("PUT /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: 9\r\nConnection: close\r\n\r\npng-bytes"),
         )
         .await;
-        assert_eq!(status(&anonymous), StatusCode::UNAUTHORIZED, "{anonymous}");
+        assert_eq!(status(&legacy), StatusCode::NOT_FOUND, "{legacy}");
+    }
+
+    #[tokio::test]
+    async fn project_cannot_attach_another_projects_blob() {
+        let (port, [ana, ..]) = demo().await;
+        let created = call(
+            port,
+            "POST",
+            "/v1/projects",
+            Some(&ana),
+            Some(r#"{"id":"other","label":"Other"}"#),
+        )
+        .await;
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
+        let home = upload(port, &ana, b"only-in-demo").await;
+        let frame = upload(port, &ana, b"also-only-in-demo").await;
+        let cross = call(
+            port,
+            "POST",
+            "/v1/projects/other/captures",
+            Some(&ana),
+            Some(&capture_json(&home, &frame)),
+        )
+        .await;
+        assert_eq!(status(&cross), StatusCode::UNPROCESSABLE_ENTITY, "{cross}");
     }
 
     #[tokio::test]
@@ -448,16 +453,19 @@ mod tests {
             );
             async move { call(port, "POST", &path, Some(&token), Some(&body)).await }
         };
-        // Stored, but no capture of the project cites them yet.
+        // Uploaded to `demo`, so `demo` already holds it, while `other` does not.
         let before = ask(&ana, "demo", &[&home, &fresh, &home]).await;
         assert_eq!(status(&before), StatusCode::OK, "{before}");
         let before: rupicola_api::Missing = json(&before);
+        assert_eq!(before.missing, std::slice::from_ref(&fresh));
+        assert!(before.limits.max_blob_bytes > 0, "the limits come along");
+        let other_missing: rupicola_api::Missing =
+            json(&ask(&carla, "other", &[&home, &fresh, &home]).await);
         assert_eq!(
-            before.missing,
+            other_missing.missing,
             [home.clone(), fresh.clone()],
             "in order and once each"
         );
-        assert!(before.limits.max_blob_bytes > 0, "the limits come along");
         let created = call(
             port,
             "POST",
@@ -646,5 +654,81 @@ mod tests {
         assert_eq!(status(&reader), StatusCode::FORBIDDEN, "{reader}");
         let outsider = stream(port, &carla, &digest(data), data, data.len()).await;
         assert_eq!(status(&outsider), StatusCode::NOT_FOUND, "{outsider}");
+    }
+
+    #[tokio::test]
+    async fn running_a_capture_validates_target_and_enforces_access() {
+        let (port, state, [ana, bruno, carla]) = demo_with_state().await;
+        let denied = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&bruno),
+            Some(r#"{"scenario":"Home","url":"http://127.0.0.1:4731/"}"#),
+        )
+        .await;
+        assert_eq!(status(&denied), StatusCode::FORBIDDEN, "{denied}");
+
+        let outsider = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&carla),
+            Some(r#"{"scenario":"Home","url":"http://127.0.0.1:4731/"}"#),
+        )
+        .await;
+        assert_eq!(status(&outsider), StatusCode::NOT_FOUND, "{outsider}");
+
+        let invalid = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&ana),
+            Some(r#"{"scenario":"Bad","url":"file:///etc/passwd"}"#),
+        )
+        .await;
+        assert_eq!(
+            status(&invalid),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{invalid}"
+        );
+
+        let local_blocked = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&ana),
+            Some(r#"{"scenario":"Home","url":"http://127.0.0.1:9/"}"#),
+        )
+        .await;
+        assert_eq!(
+            status(&local_blocked),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{local_blocked}"
+        );
+
+        // Capture the test server itself: it answers at once and needs no outside network,
+        // so the run ends quickly whether or not the host has a browser.
+        state
+            .allow_local_captures
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let local_page = format!(
+            r#"{{"scenario":"Home","url":"http://127.0.0.1:{port}{}"}}"#,
+            crate::http::routes::HEALTH_PATH
+        );
+        let ran = call(
+            port,
+            "POST",
+            "/v1/projects/demo/captures/run",
+            Some(&ana),
+            Some(&local_page),
+        )
+        .await;
+        assert_eq!(status(&ran), StatusCode::CREATED, "{ran}");
+        let capture: Capture = json(&ran);
+        assert_eq!(capture.scenario, "Home");
+
+        let caps = call(port, "GET", "/v1/capture-capabilities", Some(&ana), None).await;
+        assert_eq!(status(&caps), StatusCode::OK, "{caps}");
     }
 }

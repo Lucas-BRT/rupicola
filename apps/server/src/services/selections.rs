@@ -2,9 +2,9 @@
 //! cite as proof. A selection is never changed; a new proof is a new selection.
 
 use crate::{
-    domain::{Access, ApiError, Principal, secret::now_ms, selection},
+    domain::{ApiError, Principal, secret::now_ms, selection},
     repositories::selections,
-    services::access::access,
+    services::access::{require_publisher, require_reader},
     state::AppState,
 };
 use rupicola_api::{NewSelection, Role, Selection};
@@ -57,15 +57,12 @@ pub async fn create(
     project: &str,
     form: &NewSelection,
 ) -> Result<Selection, ApiError> {
-    match access(state, principal, project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reviewer)?,
-    }
+    require_publisher(state, principal, project, Role::Reviewer).await?;
     let mut tx = state.db.begin().await?;
     let id = keep(&mut tx, project, principal.handle.as_deref(), form).await?;
     tx.commit().await?;
-    let mut kept = selections::load(&state.db, std::slice::from_ref(&id)).await?;
-    Ok(kept.remove(0))
+    let kept = selections::load(&state.db, std::slice::from_ref(&id)).await?;
+    kept.into_iter().next().ok_or(ApiError::NotFound)
 }
 
 /// Loads one selection after checking the caller may read its project.
@@ -73,10 +70,7 @@ pub async fn get(state: &AppState, principal: &Principal, id: &str) -> Result<Se
     let project = selections::project_of(&state.db, id)
         .await?
         .ok_or(ApiError::NotFound)?;
-    match access(state, principal, &project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reader)?,
-    }
-    let mut kept = selections::load(&state.db, std::slice::from_ref(&id.to_owned())).await?;
-    Ok(kept.remove(0))
+    require_reader(state, principal, &project).await?;
+    let kept = selections::load(&state.db, std::slice::from_ref(&id.to_owned())).await?;
+    kept.into_iter().next().ok_or(ApiError::NotFound)
 }

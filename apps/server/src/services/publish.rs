@@ -12,7 +12,8 @@ use crate::{
     services::{access::require_publisher, limits},
     state::AppState,
 };
-use rupicola_api::{Capture, Role, record::CaptureRecord};
+use rupicola_api::{Capture, Limits, Role, record::CaptureRecord};
+use sqlx::SqliteConnection;
 
 /// What publishing did.
 pub enum Published {
@@ -35,7 +36,10 @@ pub async fn publish(
     let digest = record
         .digest()
         .map_err(|error| ApiError::invalid(error.to_string()))?;
-    if let Some(kept) = records::kept(&state.db, id).await? {
+    let limits = limits::effective(state, project).await?;
+    let mut tx = state.db.begin().await?;
+    if let Some(kept) = records::kept(&mut *tx, id).await? {
+        tx.commit().await?;
         return if kept.project_id == project && kept.digest.as_deref() == Some(digest.as_str()) {
             Ok(Published::Same(captures::load(&state.db, id).await?))
         } else {
@@ -44,41 +48,42 @@ pub async fn publish(
             ))
         };
     }
-    check(state, project, record).await?;
-    keep(state, principal, project, record, &digest).await?;
+    check(&mut tx, &limits, project, record).await?;
+    keep(&mut tx, principal, project, record, &digest).await?;
+    tx.commit().await?;
     Ok(Published::New(captures::load(&state.db, id).await?))
 }
 
 /// Checks what only the server knows: the project's limits, the files it holds, and that the
 /// parents are its captures.
-async fn check(state: &AppState, project: &str, record: &CaptureRecord) -> Result<(), ApiError> {
-    let limits = limits::effective(state, project).await?;
+async fn check(
+    tx: &mut SqliteConnection,
+    limits: &Limits,
+    project: &str,
+    record: &CaptureRecord,
+) -> Result<(), ApiError> {
     check_members(
         record,
         usize::try_from(limits.max_artifacts_per_capture).unwrap_or(usize::MAX),
     )?;
     let hashes: Vec<&str> = record.members.iter().map(|m| m.sha256.as_str()).collect();
-    check_files(record, &records::held(&state.db, project, &hashes).await?)?;
+    check_files(record, &records::held(&mut *tx, project, &hashes).await?)?;
     let parents: Vec<&str> = record.parents.iter().map(|p| p.id.as_str()).collect();
-    check_parents(
-        &parents,
-        &records::live(&state.db, project, &parents).await?,
-    )
+    check_parents(&parents, &records::live(&mut *tx, project, &parents).await?)
 }
 
 /// Writes the capture, its files, its parents, its screens and its facets in one transaction.
 async fn keep(
-    state: &AppState,
+    tx: &mut SqliteConnection,
     principal: &Principal,
     project: &str,
     record: &CaptureRecord,
     digest: &str,
 ) -> Result<(), ApiError> {
-    let mut tx = state.db.begin().await?;
     records::insert(&mut *tx, project, record, digest, now_ms()).await?;
     for (position, member) in record.members.iter().enumerate() {
         let surface = match &member.surface {
-            Some(key) => Some(records::surface_id(&mut tx, project, key).await?),
+            Some(key) => Some(records::surface_id(tx, project, key).await?),
             None => None,
         };
         records::insert_member(&mut *tx, &record.id, position, member, surface.as_deref()).await?;
@@ -104,6 +109,5 @@ async fn keep(
         &format!("Published capture {}", record.scenario.name),
     )
     .await?;
-    tx.commit().await?;
     Ok(())
 }

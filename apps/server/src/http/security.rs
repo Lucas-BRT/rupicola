@@ -34,9 +34,6 @@ pub const DEFAULT_RATE_REFILL_MS: u64 = 100;
 pub const DEFAULT_BODY_LIMIT: usize = MIB;
 /// Default largest media upload of any kind: the ceiling every other file limit stays under.
 pub const DEFAULT_BLOB_LIMIT: usize = 512 * MIB;
-/// Largest file the older `PUT /v1/blobs/…` route takes. It holds the whole body in memory,
-/// so it keeps a small cap until clients move to the streamed upload.
-pub const LEGACY_BLOB_LIMIT: usize = 64 * MIB;
 /// Default seconds before a request is answered with 408.
 pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
 /// Default requests processed at once.
@@ -72,6 +69,23 @@ pub struct Security {
     /// it when clients reach the server directly, or they can forge their address.
     #[arg(long, env = "RUPICOLA_BEHIND_PROXY")]
     pub behind_proxy: bool,
+}
+
+impl Security {
+    /// Validates security flags before starting the server.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `rate_burst` or `rate_refill_ms` is zero.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.rate_burst == 0 {
+            anyhow::bail!("rate_burst must be greater than zero");
+        }
+        if self.rate_refill_ms == 0 {
+            anyhow::bail!("rate_refill_ms must be greater than zero");
+        }
+        Ok(())
+    }
 }
 
 /// Rate-limit key: the client address as seen by us or by our own proxy.
@@ -123,17 +137,17 @@ pub type RateLimit = GovernorLayer<ClientIp, NoOpMiddleware<QuantaInstant>, axum
 /// Builds a [`RateLimit`]: `burst` requests at once, one more every `refill_ms`.
 /// Must run inside a Tokio runtime, which hosts the pruning task.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if `burst` or `refill_ms` is zero.
-pub fn rate_limit(burst: u32, refill_ms: u64, behind_proxy: bool) -> RateLimit {
+/// Returns an error if `burst` or `refill_ms` is zero.
+pub fn rate_limit(burst: u32, refill_ms: u64, behind_proxy: bool) -> anyhow::Result<RateLimit> {
     let config = Arc::new(
         GovernorConfigBuilder::default()
             .key_extractor(ClientIp { behind_proxy })
             .per_millisecond(refill_ms)
             .burst_size(burst)
             .finish()
-            .expect("rate burst and refill must be greater than zero"),
+            .ok_or_else(|| anyhow::anyhow!("rate burst and refill must be greater than zero"))?,
     );
     let limiter = config.limiter().clone();
     tokio::spawn(async move {
@@ -143,13 +157,15 @@ pub fn rate_limit(burst: u32, refill_ms: u64, behind_proxy: bool) -> RateLimit {
             limiter.retain_recent();
         }
     });
-    GovernorLayer::new(config).error_handler(|error| match error {
-        GovernorError::TooManyRequests { wait_time, .. } => ApiError::TooManyRequests {
-            retry_after: wait_time,
-        }
-        .into_response(),
-        other => ApiError::Internal(anyhow::anyhow!("rate limiter: {other}")).into_response(),
-    })
+    Ok(
+        GovernorLayer::new(config).error_handler(|error| match error {
+            GovernorError::TooManyRequests { wait_time, .. } => ApiError::TooManyRequests {
+                retry_after: wait_time,
+            }
+            .into_response(),
+            other => ApiError::Internal(anyhow::anyhow!("rate limiter: {other}")).into_response(),
+        }),
+    )
 }
 
 /// Caps request bodies for `router` at `limit` bytes. Applied per group of routes,
@@ -165,7 +181,30 @@ pub fn limit_body(
 
 /// Wraps `router` with every protection except body limits (see [`limit_body`]). A request
 /// that takes longer than `timeout` is answered with 408. Must run inside a Tokio runtime.
-pub fn harden(router: Router, settings: &Security, timeout: Duration) -> Router {
+///
+/// # Errors
+///
+/// Returns an error if the rate-limit configuration is invalid.
+pub fn harden(router: Router, settings: &Security, timeout: Duration) -> anyhow::Result<Router> {
+    let limiter = rate_limit(
+        settings.rate_burst,
+        settings.rate_refill_ms,
+        settings.behind_proxy,
+    )?;
+    Ok(harden_inner(router, settings, timeout, Some(limiter)))
+}
+
+/// Wraps `router` with request hardening without per-client IP rate limiting (used for `/healthz`).
+pub fn harden_without_rate_limit(router: Router, settings: &Security, timeout: Duration) -> Router {
+    harden_inner(router, settings, timeout, None)
+}
+
+fn harden_inner(
+    router: Router,
+    settings: &Security,
+    timeout: Duration,
+    limiter: Option<RateLimit>,
+) -> Router {
     let mut headers = vec![
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         (header::X_FRAME_OPTIONS, "DENY"),
@@ -183,7 +222,7 @@ pub fn harden(router: Router, settings: &Security, timeout: Duration) -> Router 
     if settings.behind_proxy {
         headers.push((header::STRICT_TRANSPORT_SECURITY, STRICT_TRANSPORT_SECURITY));
     }
-    let mut router = router
+    let router = router
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|error: tower::BoxError| async move {
@@ -199,15 +238,14 @@ pub fn harden(router: Router, settings: &Security, timeout: Duration) -> Router 
                 .concurrency_limit(settings.max_concurrency)
                 .timeout(timeout),
         )
-        .layer(axum::middleware::map_response(json_payload_too_large))
-        .layer(rate_limit(
-            settings.rate_burst,
-            settings.rate_refill_ms,
-            settings.behind_proxy,
-        ))
-        .layer(CatchPanicLayer::custom(|_| {
-            ApiError::Internal(anyhow::anyhow!("handler panicked")).into_response()
-        }));
+        .layer(axum::middleware::map_response(json_payload_too_large));
+    let router = match limiter {
+        Some(limiter) => router.layer(limiter),
+        None => router,
+    };
+    let mut router = router.layer(CatchPanicLayer::custom(|_| {
+        ApiError::Internal(anyhow::anyhow!("handler panicked")).into_response()
+    }));
     for (name, value) in headers {
         router = router.layer(SetResponseHeaderLayer::overriding(
             name,

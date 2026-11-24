@@ -35,10 +35,14 @@ const UPLOAD_BACKSTOP: Duration = Duration::from_hours(6);
 /// Every route, wrapped in the request hardening from [`security`]. Versioned
 /// routes are mounted once under [`rupicola_api::PREFIX`], so a future version is
 /// a second `nest` rather than an edit of every path.
-pub fn app(settings: &security::Security, state: Shared) -> Router {
+///
+/// # Errors
+///
+/// Returns an error if the rate-limit configuration is invalid.
+pub fn app(settings: &security::Security, state: Shared) -> anyhow::Result<Router> {
+    let health_route = Router::new().route(HEALTH_PATH, routing::get(health));
     let routes = Router::new()
-        .route(HEALTH_PATH, routing::get(health))
-        .nest(rupicola_api::PREFIX, v1(settings))
+        .nest(rupicola_api::PREFIX, v1(settings)?)
         .merge(security::limit_body(
             Router::new().route(MCP_PATH, routing::post(mcp::serve)),
             settings.body_limit,
@@ -50,17 +54,21 @@ pub fn app(settings: &security::Security, state: Shared) -> Router {
     let uploads = Router::new()
         .nest(rupicola_api::PREFIX, blobs::uploads())
         .with_state(state);
-    security::harden(
-        routes,
-        settings,
-        Duration::from_secs(settings.request_timeout),
+    let timeout = Duration::from_secs(settings.request_timeout);
+    Ok(
+        security::harden_without_rate_limit(health_route, settings, timeout)
+            .merge(security::harden(routes, settings, timeout)?)
+            .merge(security::harden(uploads, settings, UPLOAD_BACKSTOP)?),
     )
-    .merge(security::harden(uploads, settings, UPLOAD_BACKSTOP))
 }
 
 /// Version 1 of the API, with paths relative to [`rupicola_api::PREFIX`].
-fn v1(settings: &security::Security) -> Router<Shared> {
+fn v1(settings: &security::Security) -> anyhow::Result<Router<Shared>> {
     let api = Router::new()
+        .route(
+            "/capture-capabilities",
+            routing::get(super::handlers::captures::capabilities),
+        )
         .nest("/projects", projects::routes())
         .nest("/captures", captures::routes())
         .nest("/artifacts", artifacts::routes())
@@ -71,11 +79,8 @@ fn v1(settings: &security::Security) -> Router<Shared> {
         .nest("/settings", settings::routes())
         .nest("/tokens", tokens::routes())
         .merge(account::routes())
-        .merge(account::sign_in(settings));
-    security::limit_body(api, settings.body_limit).merge(security::limit_body(
-        blobs::legacy(),
-        settings.blob_limit.min(security::LEGACY_BLOB_LIMIT),
-    ))
+        .merge(account::sign_in(settings)?);
+    Ok(security::limit_body(api, settings.body_limit))
 }
 
 async fn health() -> Json<Health> {

@@ -1,7 +1,7 @@
 //! `POST /projects/{project}/fixes/{fix}/review`
 
 use crate::app::{account, panel, respond};
-use crate::{Account, Arc, PageResult, Panel, StatusCode, auth, auth::Role, redirect};
+use crate::{Account, Arc, PageResult, Panel, StatusCode, auth, redirect, safe_name};
 use crate::{
     app::_workspace::projects::project::fixes::fix::fix as fix_param,
     app::_workspace::projects::project::project as project_param,
@@ -42,8 +42,8 @@ pub async fn review_fix_action(
     form: ReviewFixForm,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
-    if auth::role(&panel, &account, &project_id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
+    if !safe_name(&project_id) {
+        return Err(StatusCode::NOT_FOUND);
     }
     let outcome = form
         .status

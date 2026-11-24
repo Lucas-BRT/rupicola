@@ -2,12 +2,16 @@
 
 use crate::{
     domain::{
-        Access, ApiError, Principal,
+        ApiError, Principal,
         fix::{AFTER_LABEL, BEFORE_LABEL, check_step, validate, validate_review},
         secret::now_ms,
     },
     repositories::{audit, fixes, selections},
-    services::{access::access, captures::require_project_artifact, selections::keep},
+    services::{
+        access::{require, require_publisher, require_reader},
+        captures::require_project_artifact,
+        selections::keep,
+    },
     state::AppState,
 };
 use rupicola_api::{
@@ -27,7 +31,11 @@ async fn fix_access(
     let project = fixes::project_of(&state.db, fix)
         .await?
         .ok_or(ApiError::NotFound)?;
-    access(state, principal, &project).await?.require(role)?;
+    if role == Role::Reader {
+        require_reader(state, principal, &project).await?;
+    } else {
+        require(state, principal, &project, role).await?;
+    }
     Ok(project)
 }
 
@@ -137,10 +145,7 @@ pub async fn create(
     project: &str,
     form: &NewFix,
 ) -> Result<Fix, ApiError> {
-    match access(state, principal, project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reviewer)?,
-    }
+    require_publisher(state, principal, project, Role::Reviewer).await?;
     validate(form)?;
     let problems = check_references(state, project, form).await?;
     let id = uuid::Uuid::now_v7().to_string();
@@ -169,11 +174,10 @@ pub async fn create(
         let position = i64::try_from(position).map_err(anyhow::Error::from)?;
         fixes::cite(&mut tx, project, &id, &selection, role, position).await?;
     }
-    let actor = principal.handle.as_deref().unwrap_or("device");
     audit::record(
         &mut *tx,
         Some(project),
-        actor,
+        principal.actor(),
         &format!("Filed fix {}", form.title.trim()),
     )
     .await?;
@@ -187,9 +191,7 @@ pub async fn list(
     principal: &Principal,
     project: &str,
 ) -> Result<Vec<FixSummary>, ApiError> {
-    access(state, principal, project)
-        .await?
-        .require(Role::Reader)?;
+    require_reader(state, principal, project).await?;
     fixes::list(&state.db, project).await
 }
 
@@ -199,9 +201,7 @@ pub async fn list_details(
     principal: &Principal,
     project: &str,
 ) -> Result<Vec<Fix>, ApiError> {
-    access(state, principal, project)
-        .await?
-        .require(Role::Reader)?;
+    require_reader(state, principal, project).await?;
     fixes::list_details(&state.db, project).await
 }
 
@@ -221,10 +221,7 @@ pub async fn add_step(
     let project = fixes::project_of(&state.db, id)
         .await?
         .ok_or(ApiError::NotFound)?;
-    match access(state, principal, &project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reviewer)?,
-    }
+    require_publisher(state, principal, &project, Role::Reviewer).await?;
     check_step(&step)?;
     if let Some(artifact) = &step.evidence {
         require_project_artifact(state, &project, artifact).await?;
@@ -265,11 +262,10 @@ pub async fn review(
             fixes::set_problem_status(&mut tx, &problem, status, now).await?;
         }
     }
-    let actor = principal.handle.as_deref().unwrap_or("device");
     audit::record(
         &mut *tx,
         Some(&project),
-        actor,
+        principal.actor(),
         &format!("Reviewed fix {id}: {}", form.outcome),
     )
     .await?;

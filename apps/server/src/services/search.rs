@@ -2,28 +2,24 @@
 
 use crate::{
     domain::{
-        Access, ApiError, Principal,
+        ApiError, Principal,
         search::{CURSOR_SEPARATOR, Search},
     },
     repositories::{captures, search},
-    services::access::access,
+    services::access::require_reader,
     state::AppState,
 };
-use rupicola_api::{CapturePage, Role};
+use rupicola_api::CapturePage;
 
 /// Searches a project's captures, newest first, returning one page and an optional next cursor.
 pub async fn find(
     state: &AppState,
     principal: &Principal,
     project: &str,
-    query: Option<&str>,
+    parsed: &Search,
 ) -> Result<CapturePage, ApiError> {
-    match access(state, principal, project).await? {
-        Access::Device => {}
-        person @ Access::Person(_) => person.require(Role::Reader)?,
-    }
-    let parsed = Search::parse(query)?;
-    let mut rows = search::capture_ids(&state.db, project, &parsed).await?;
+    require_reader(state, principal, project).await?;
+    let mut rows = search::capture_ids(&state.db, project, parsed).await?;
     let page = usize::try_from(parsed.limit).unwrap_or(usize::MAX);
     let next = (rows.len() > page).then(|| {
         rows.truncate(page);
@@ -33,12 +29,11 @@ pub async fn find(
     });
     let ids: Vec<String> = rows.into_iter().map(|(id, _)| id).collect();
     let items = captures::summaries(&state.db, &ids).await?;
-    let mut details = Vec::new();
-    if parsed.details {
-        for id in &ids {
-            details.push(captures::load(&state.db, id).await?);
-        }
-    }
+    let details = if parsed.details {
+        captures::load_many(&state.db, &ids).await?
+    } else {
+        Vec::new()
+    };
     Ok(CapturePage {
         items,
         details,

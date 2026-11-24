@@ -122,7 +122,7 @@ impl Tab {
 #[component]
 pub async fn project_frame(
     cx: &Cx,
-    project: &crate::project::Context,
+    project: &crate::project::ProjectMeta,
     tab: Tab,
     #[default] child: Child<'_>,
 ) -> Result<impl View> {

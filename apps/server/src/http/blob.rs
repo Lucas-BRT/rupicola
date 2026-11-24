@@ -1,9 +1,6 @@
 //! Answering a request with a stored blob.
 
-use crate::{
-    domain::ApiError,
-    storage::blobs::{Blobs, Stored},
-};
+use crate::{domain::ApiError, state::Shared, storage::blobs::Stored};
 use axum::{
     body::Body,
     extract::Request,
@@ -20,13 +17,17 @@ use tower_http::services::ServeFile;
 ///
 /// [`ApiError::NotFound`] when the blob is missing.
 pub async fn respond(
-    blobs: &Blobs,
-    sha256: &str,
+    state: &Shared,
+    sha256: String,
     mime: &str,
     request: Request,
 ) -> Result<Response, ApiError> {
     let mime = HeaderValue::from_str(mime).map_err(anyhow::Error::from)?;
-    let mut response = match blobs.locate(sha256)? {
+    let shared = state.clone();
+    let located = tokio::task::spawn_blocking(move || shared.blobs.locate(&sha256))
+        .await
+        .map_err(anyhow::Error::from)??;
+    let mut response = match located {
         Stored::File(path) => ServeFile::new(path)
             .oneshot(request)
             .await

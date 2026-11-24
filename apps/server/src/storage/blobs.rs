@@ -291,15 +291,19 @@ impl Upload {
             } => {
                 file.sync_all().await.map_err(anyhow::Error::from)?;
                 drop(file);
-                if target.is_file() {
-                    return Ok(false);
-                }
-                match temp.persist_noclobber(&target) {
-                    Ok(()) => Ok(true),
-                    // Another upload stored the same content first.
-                    Err(_) if target.is_file() => Ok(false),
-                    Err(error) => Err(anyhow::Error::from(error.error).into()),
-                }
+                tokio::task::spawn_blocking(move || {
+                    if target.is_file() {
+                        return Ok(false);
+                    }
+                    match temp.persist_noclobber(&target) {
+                        Ok(()) => Ok(true),
+                        // Another upload stored the same content first.
+                        Err(_) if target.is_file() => Ok(false),
+                        Err(error) => Err(anyhow::Error::from(error.error).into()),
+                    }
+                })
+                .await
+                .map_err(anyhow::Error::from)?
             }
             #[cfg(test)]
             Staging::Memory(data) => match store {

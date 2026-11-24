@@ -53,9 +53,10 @@ pub async fn list(
 ) -> Result<Vec<DesignEntry>, ApiError> {
     let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM design_entries WHERE project_id = ?1
-         ORDER BY created_at DESC, id DESC"
+         ORDER BY created_at DESC, id DESC LIMIT ?2"
     )))
     .bind(project)
+    .bind(super::MAX_LIST_ITEMS)
     .fetch_all(db)
     .await?;
     rows.into_iter().map(DesignEntry::try_from).collect()

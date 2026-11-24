@@ -6,7 +6,7 @@
 
 use crate::{
     domain::{ApiError, Principal},
-    services::{captures, design, fixes, problems, projects},
+    services::{capture_runner, captures, design, fixes, problems, projects},
     state::Shared,
 };
 use axum::{
@@ -16,7 +16,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::Engine as _;
-use rupicola_api::{NewFinding, NewFix, NewProblem, NewProject, NewReview, NewStep, ProblemPatch};
+use rupicola_api::{
+    NewFinding, NewFix, NewProblem, NewProject, NewReview, NewStep, ProblemPatch, RunCapture,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -51,6 +53,12 @@ enum Call {
     CaptureGet {
         id: String,
     },
+    CaptureRun {
+        project: String,
+        #[serde(flatten)]
+        capture: RunCapture,
+    },
+    CaptureCapabilities {},
     CaptureReview {
         id: String,
         #[serde(flatten)]
@@ -133,6 +141,10 @@ impl Call {
                 value(&captures::list(&state, &principal, &project).await?)
             }
             Self::CaptureGet { id } => value(&captures::get(&state, &principal, &id).await?),
+            Self::CaptureRun { project, capture } => {
+                value(&capture_runner::run(&state, &principal, &project, capture).await?)
+            }
+            Self::CaptureCapabilities {} => value(&capture_runner::capabilities().await),
             Self::CaptureReview { id, finding } => {
                 value(&captures::add_finding(&state, &principal, &id, finding).await?)
             }
@@ -179,20 +191,18 @@ impl Call {
 /// A slice of an artifact as base64, with the media type and total size, so an agent can
 /// page through files it cannot fetch over HTTP.
 async fn read_artifact(
-    state: &crate::state::AppState,
+    state: &Shared,
     principal: &Principal,
     id: &str,
     offset: u64,
     length: usize,
 ) -> Result<Value, ApiError> {
-    let blob = captures::artifact(state, principal, id).await?;
-    let (sha256, mime, bytes) = (blob.sha256, blob.mime, blob.bytes);
-    let data = state
-        .blobs
-        .read_range(&sha256, offset, length.min(MAX_READ_BYTES))?;
+    let (blob, data) =
+        captures::read_artifact_range(state, principal, id, offset, length.min(MAX_READ_BYTES))
+            .await?;
     Ok(json!({
-        "mime": mime,
-        "bytes": bytes,
+        "mime": blob.mime,
+        "bytes": blob.bytes,
         "offset": offset,
         "length": data.len(),
         "data": base64::engine::general_purpose::STANDARD.encode(data),
@@ -245,6 +255,33 @@ fn step_properties() -> Value {
     json!({"title": text(), "detail": text(), "verification": text(), "evidence": text()})
 }
 
+fn selections_schema() -> Value {
+    json!({
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["label", "items"],
+            "properties": {
+                "label": text(),
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["capture", "mark"],
+                        "properties": {
+                            "capture": text(),
+                            "artifact": text(),
+                            "path": text(),
+                            "mark": {"enum": ["proof", "context"]},
+                            "fragment": {"type": "object"}
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// Every tool, in the order clients list them.
 const TOOLS: &[Tool] = &[
     Tool {
@@ -270,6 +307,65 @@ const TOOLS: &[Tool] = &[
         description: "One capture with its checkpoints, clips and review notes",
         required: &["id"],
         properties: || json!({"id": text()}),
+    },
+    Tool {
+        name: "capture_run",
+        description: "Execute a headless web capture on the server and store its checkpoints and clips",
+        required: &["project", "scenario", "url"],
+        properties: || {
+            let action = json!({
+                "type": "object",
+                "required": ["kind", "selector"],
+                "properties": {
+                    "kind": {"enum": ["click", "hover", "fill", "press", "ready"]},
+                    "selector": text(),
+                    "value": text(),
+                    "key": text()
+                }
+            });
+            json!({
+                "project": text(),
+                "scenario": text(),
+                "url": text(),
+                "revision": text(),
+                "timeout_ms": {"type": "integer", "minimum": 1},
+                "allow_degraded": {"type": "boolean"},
+                "environment": {
+                    "type": "object",
+                    "properties": {
+                        "width": {"type": "integer", "minimum": 1},
+                        "height": {"type": "integer", "minimum": 1},
+                        "scale": {"type": "number"},
+                        "locale": text(),
+                        "color_scheme": {"enum": ["light", "dark"]},
+                        "reduced_motion": {"type": "boolean"}
+                    }
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["kind"],
+                        "properties": {
+                            "kind": {"enum": ["click", "hover", "fill", "press", "ready", "checkpoint", "clip"]},
+                            "selector": text(),
+                            "value": text(),
+                            "key": text(),
+                            "id": text(),
+                            "trigger": action,
+                            "samples": {"type": "integer", "minimum": 2},
+                            "interval_ms": {"type": "integer", "minimum": 1}
+                        }
+                    }
+                }
+            })
+        },
+    },
+    Tool {
+        name: "capture_capabilities",
+        description: "Probe which server-side web capture backends are available and return OS install hints for missing ones",
+        required: &[],
+        properties: || json!({}),
     },
     Tool {
         name: "capture_review",
@@ -304,7 +400,7 @@ const TOOLS: &[Tool] = &[
         "origin": {"enum": ["agent-measured", "agent-visual", "user-reported"]},
         "route": text(), "viewport": text(), "theme": text(), "diagnosis": text(), "proposed_solution": text(),
         "rules": {"type": "array", "items": {"type": "object", "required": ["scope", "code", "title"], "properties": {"scope": text(), "code": text(), "title": text()}}},
-        "evidence": string_list()})
+        "evidence": string_list(), "selections": selections_schema()})
         },
     },
     Tool {
@@ -366,7 +462,7 @@ const TOOLS: &[Tool] = &[
         properties: || {
             json!({"project": text(), "title": text(), "summary": text(),
         "problems": string_list(), "tactics": string_list(), "files": string_list(),
-        "comparisons": comparisons(),
+        "comparisons": comparisons(), "baseline": selections_schema(), "proof": selections_schema(),
         "steps": {"type": "array", "items": {"type": "object", "required": ["title"], "properties": step_properties()}}})
         },
     },
@@ -405,6 +501,10 @@ fn rpc_error(code: i64, message: &str) -> Value {
 fn tool_result(outcome: Result<Value, ApiError>) -> Value {
     let (text, is_error) = match outcome {
         Ok(body) => (body.to_string(), false),
+        Err(ApiError::Internal(err)) => {
+            tracing::error!(error = %err, "mcp internal error");
+            ("internal server error".to_owned(), true)
+        }
         Err(error) => (error.to_string(), true),
     };
     json!({"result": {"content": [{"type": "text", "text": text}], "isError": is_error}})
@@ -471,7 +571,6 @@ mod tests {
     use axum::http::StatusCode;
     use base64::Engine as _;
     use serde_json::{Value, json};
-    use sha2::Digest as _;
 
     /// Calls `/mcp` as `token` and returns the JSON-RPC reply.
     async fn rpc(port: u16, token: &str, body: &Value) -> Value {
@@ -592,16 +691,7 @@ mod tests {
     #[tokio::test]
     async fn artifacts_are_read_in_pages() {
         let (port, [ana, ..]) = demo_with_artifacts().await;
-        let sha = format!("{:x}", sha2::Sha256::digest(CONTENT));
-        let upload = request(
-            port,
-            format!(
-                "PUT /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{CONTENT}",
-                CONTENT.len()
-            ),
-        )
-        .await;
-        assert!(status(&upload).is_success(), "{upload}");
+        let sha = stream_blob(port, &ana, "demo", CONTENT.as_bytes()).await;
         let capture = call(
             port,
             "POST",
@@ -632,5 +722,45 @@ mod tests {
             .decode(read["data"].as_str().unwrap())
             .unwrap();
         assert_eq!(decoded, READ_BACK.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn capture_capabilities_and_selection_schemas_work() {
+        const CAPTURE_SHOT: &str = "capture-shot";
+        let (port, [ana, ..]) = demo_with_artifacts().await;
+        let caps = payload(&rpc(port, &ana, &tool("capture_capabilities", &json!({}))).await);
+        assert!(caps["backends"].is_array(), "{caps}");
+
+        let selection = json!([{
+            "label": "Proof",
+            "items": [{"capture": CAPTURE_SHOT, "artifact": PROJECT_ARTIFACT, "mark": "proof"}]
+        }]);
+        let problem = payload(
+            &rpc(
+                port,
+                &ana,
+                &tool(
+                    "problem_create",
+                    &json!({"project": "demo", "title": "Alignment", "severity": "minor",
+                        "origin": "agent-visual", "selections": selection}),
+                ),
+            )
+            .await,
+        );
+        assert_eq!(problem["selections"].as_array().unwrap().len(), 1);
+
+        let fix = payload(
+            &rpc(
+                port,
+                &ana,
+                &tool(
+                    "fix_create",
+                    &json!({"project": "demo", "title": "Aligned", "problems": [problem["id"]],
+                        "baseline": selection, "proof": selection}),
+                ),
+            )
+            .await,
+        );
+        assert_eq!(fix["selections"].as_array().unwrap().len(), 2);
     }
 }

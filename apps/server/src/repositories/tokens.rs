@@ -8,6 +8,7 @@ pub struct Bearer {
     pub kind: String,
     pub handle: Option<String>,
     pub project_id: Option<String>,
+    pub last_used_at: Option<i64>,
     pub admin: bool,
 }
 
@@ -17,7 +18,7 @@ pub async fn bearer(
     now: i64,
 ) -> sqlx::Result<Option<Bearer>> {
     sqlx::query_as(
-        "SELECT t.kind, t.handle, t.project_id, COALESCE(a.admin, 0) AS admin FROM tokens t
+        "SELECT t.kind, t.handle, t.project_id, t.last_used_at, COALESCE(a.admin, 0) AS admin FROM tokens t
          LEFT JOIN accounts a ON a.handle = t.handle
          WHERE t.digest = ?1 AND (t.expires_at IS NULL OR t.expires_at > ?2)",
     )
