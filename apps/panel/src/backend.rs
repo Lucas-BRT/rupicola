@@ -4,8 +4,8 @@
 use crate::{Account, Panel, auth};
 use http::StatusCode;
 use rupicola_api::{
-    Capture, CaptureSummary, DesignEntry, FixSummary, ProblemSummary, Project, SystemList,
-    SystemVersion,
+    Capture, CaptureSummary, DesignEntry, Fix, FixSummary, Problem, ProblemSummary, Project,
+    SystemList, SystemVersion,
 };
 use std::sync::Arc;
 use topcoat::context::{Cx, context, memoize};
@@ -61,6 +61,17 @@ pub async fn problems(cx: &Cx, project: &str) -> Result<Vec<ProblemSummary>, Fai
         .map_err(|e| auth::api_error(&e))
 }
 
+/// Every problem of `project` in full, most recently updated first.
+#[memoize]
+pub async fn problems_detailed(cx: &Cx, project: &str) -> Result<Vec<Problem>, Failure> {
+    let (panel, account) = api(cx);
+    panel
+        .api
+        .problems_detailed(&account.session, project)
+        .await
+        .map_err(|e| auth::api_error(&e))
+}
+
 /// The fixes of `project`, most recently updated first.
 #[memoize]
 pub async fn fixes(cx: &Cx, project: &str) -> Result<Vec<FixSummary>, Failure> {
@@ -68,6 +79,17 @@ pub async fn fixes(cx: &Cx, project: &str) -> Result<Vec<FixSummary>, Failure> {
     panel
         .api
         .fixes(&account.session, project)
+        .await
+        .map_err(|e| auth::api_error(&e))
+}
+
+/// Every fix of `project` in full, most recently updated first.
+#[memoize]
+pub async fn fixes_detailed(cx: &Cx, project: &str) -> Result<Vec<Fix>, Failure> {
+    let (panel, account) = api(cx);
+    panel
+        .api
+        .fixes_detailed(&account.session, project)
         .await
         .map_err(|e| auth::api_error(&e))
 }

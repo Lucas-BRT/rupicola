@@ -1,15 +1,12 @@
 //! Problems, fixes, and design records as the panel shows them. The backend owns them: this
 //! reads them through the [`Api`] and shapes each into the view model the screens render.
 
-use super::{Account, PageResult, Panel, auth, backend, media, project::AssetOption};
+use super::{PageResult, backend, media, project::AssetOption};
 use rupicola_api::{
-    DesignEntry, Fix, FixStatus, NewProblem, Problem as ApiProblem, ProblemOrigin, ProblemPatch,
-    ProblemStatus, Severity,
+    DesignEntry, Fix, FixStatus, Problem as ApiProblem, ProblemOrigin, ProblemStatus, Severity,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
-use tokio::task::JoinSet;
-use topcoat::context::{Cx, context};
+use topcoat::context::Cx;
 
 /// Author shown when the backend recorded none.
 const UNKNOWN_AUTHOR: &str = "unknown";
@@ -229,22 +226,11 @@ fn fix_of(fix: Fix) -> FixRecord {
 ///
 /// The status of a failed call to the backend.
 pub async fn fixes(cx: &Cx, project: &str) -> PageResult<Vec<FixRecord>> {
-    let summaries = backend::fixes(cx, project).await.as_ref().map_err(|e| *e)?;
-    let (panel, account) = (context::<Arc<Panel>>(cx), context::<Account>(cx));
-    let mut reading = JoinSet::new();
-    for (position, summary) in summaries.iter().enumerate() {
-        let api = Arc::clone(&panel.api);
-        let session = account.session.clone();
-        let id = summary.id.clone();
-        reading.spawn(async move { (position, api.fix(&session, &id).await) });
-    }
-    let mut found = Vec::new();
-    while let Some(joined) = reading.join_next().await {
-        let (position, fix) = joined.map_err(super::db_error)?;
-        found.push((position, fix_of(fix.map_err(|e| auth::api_error(&e))?)));
-    }
-    found.sort_by_key(|(position, _)| *position);
-    Ok(found.into_iter().map(|(_, fix)| fix).collect())
+    let detailed = backend::fixes_detailed(cx, project)
+        .await
+        .as_ref()
+        .map_err(|e| *e)?;
+    Ok(detailed.iter().cloned().map(fix_of).collect())
 }
 
 /// Every problem of `project`, most recently updated first. `fixes` says which fix each
@@ -259,66 +245,24 @@ pub async fn problems(
     assets: &[AssetOption],
     fixes: &[FixRecord],
 ) -> PageResult<Vec<Problem>> {
-    let summaries = backend::problems(cx, project)
+    let detailed = backend::problems_detailed(cx, project)
         .await
         .as_ref()
         .map_err(|e| *e)?;
-    let (panel, account) = (context::<Arc<Panel>>(cx), context::<Account>(cx));
     let mut linked: BTreeMap<&String, &String> = BTreeMap::new();
     for fix in fixes {
         for problem in &fix.problem_ids {
             linked.entry(problem).or_insert(&fix.id);
         }
     }
-    let mut reading = JoinSet::new();
-    for (position, summary) in summaries.iter().enumerate() {
-        let api = Arc::clone(&panel.api);
-        let session = account.session.clone();
-        let id = summary.id.clone();
-        reading.spawn(async move { (position, api.problem(&session, &id).await) });
-    }
-    let mut found = Vec::new();
-    while let Some(joined) = reading.join_next().await {
-        let (position, problem) = joined.map_err(super::db_error)?;
-        let problem = problem.map_err(|e| auth::api_error(&e))?;
-        let fix = linked.get(&problem.id).copied();
-        found.push((position, problem_of(problem, assets, fix)));
-    }
-    found.sort_by_key(|(position, _)| *position);
-    Ok(found.into_iter().map(|(_, problem)| problem).collect())
-}
-
-/// Opens on the backend the problem inferred from a capture's finding, and moves it to
-/// `status` when that is not the status a new problem starts in.
-///
-/// # Errors
-///
-/// The status of a failed call to the backend.
-pub async fn open_inferred(
-    panel: &Panel,
-    account: &Account,
-    project_id: &str,
-    new: &NewProblem,
-    status: Option<ProblemStatus>,
-) -> PageResult<()> {
-    let created = panel
-        .api
-        .create_problem(&account.session, project_id, new)
-        .await
-        .map_err(|e| auth::api_error(&e))?;
-    if let Some(status) = status {
-        let patch = ProblemPatch {
-            status: Some(status),
-            severity: None,
-            proposed_solution: None,
-        };
-        panel
-            .api
-            .update_problem(&account.session, &created.id, &patch)
-            .await
-            .map_err(|e| auth::api_error(&e))?;
-    }
-    Ok(())
+    Ok(detailed
+        .iter()
+        .cloned()
+        .map(|problem| {
+            let fix = linked.get(&problem.id).copied();
+            problem_of(problem, assets, fix)
+        })
+        .collect())
 }
 
 /// The design records of `project`, newest first.
