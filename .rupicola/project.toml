@@ -1,0 +1,7 @@
+project = "rupicola-site"
+base = "develop"
+
+[preview]
+command = "cargo run -q -p rupicola-site -- --port {port}"
+ready = "http://127.0.0.1:{port}/healthz"
+timeout_secs = 180

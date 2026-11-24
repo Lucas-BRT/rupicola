@@ -637,6 +637,26 @@ impl Api for HttpApi {
         .await
     }
 
+    async fn scenario_version(
+        &self,
+        token: &str,
+        project: &str,
+        name: &str,
+        hash: &str,
+    ) -> Result<ScenarioVersion> {
+        Self::read(self.request(
+            Method::GET,
+            &format!(
+                "/projects/{}/scenarios/{}/{}",
+                encode_segment(project),
+                encode_segment(name),
+                encode_segment(hash)
+            ),
+            Some(token),
+        ))
+        .await
+    }
+
     async fn push_scenario(
         &self,
         token: &str,
@@ -650,6 +670,28 @@ impl Api for HttpApi {
                 Some(token),
             )
             .json(scenario),
+        )
+        .await
+    }
+
+    async fn publish_record(
+        &self,
+        token: &str,
+        project: &str,
+        id: &str,
+        record: &rupicola_api::record::CaptureRecord,
+    ) -> Result<Capture> {
+        Self::read(
+            self.request(
+                Method::PUT,
+                &format!(
+                    "/projects/{}/captures/{}",
+                    encode_segment(project),
+                    encode_segment(id)
+                ),
+                Some(token),
+            )
+            .json(record),
         )
         .await
     }

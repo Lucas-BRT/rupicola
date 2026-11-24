@@ -15,6 +15,7 @@ mod scenarios;
 pub use account::{LoginArgs, Logout, WhoamiArgs, set_token};
 pub use bridge::{McpBridgeArgs, PublishArgs};
 pub use captures::CapturesArgs;
+pub use client::Scoped;
 pub use design::DesignArgs;
 pub use fixes::FixesArgs;
 pub use jobs::JobsArgs;

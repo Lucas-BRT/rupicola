@@ -1,6 +1,7 @@
 target
 /dist/
 /.rupicola/*
+!/.rupicola/project.toml
 !/.rupicola/scenarios/
 *.swp
 .DS_Store

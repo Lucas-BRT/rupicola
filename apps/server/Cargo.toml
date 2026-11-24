@@ -17,7 +17,7 @@ axum.workspace = true
 clap = { workspace = true, features = ["env"] }
 governor.workspace = true
 http-body-util.workspace = true
-rupicola-api.workspace = true
+rupicola-api = { workspace = true, features = ["capture"] }
 rupicola-capture.workspace = true
 rupicola-protocol.workspace = true
 serde_json.workspace = true

@@ -13,6 +13,8 @@ mod fixes;
 mod jobs;
 mod limits;
 mod lineage;
+#[cfg(feature = "capture")]
+pub mod plan;
 mod problems;
 pub mod record;
 mod removal;

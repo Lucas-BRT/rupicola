@@ -239,6 +239,15 @@ pub trait Api: Send + Sync {
     /// The latest version of one scenario of `project`.
     async fn scenario(&self, token: &str, project: &str, name: &str) -> Result<ScenarioVersion>;
 
+    /// A specific version of one scenario of `project`, by its content hash.
+    async fn scenario_version(
+        &self,
+        token: &str,
+        project: &str,
+        name: &str,
+        hash: &str,
+    ) -> Result<ScenarioVersion>;
+
     /// Pushes a scenario definition; the same definition twice changes nothing.
     async fn push_scenario(
         &self,
@@ -246,6 +255,16 @@ pub trait Api: Send + Sync {
         project: &str,
         scenario: &Scenario,
     ) -> Result<ScenarioVersion>;
+
+    /// Publishes an immutable capture record whose files were uploaded with
+    /// [`Api::upload_project_blob`].
+    async fn publish_record(
+        &self,
+        token: &str,
+        project: &str,
+        id: &str,
+        record: &rupicola_api::record::CaptureRecord,
+    ) -> Result<Capture>;
 
     /// Appends a step to a fix.
     async fn add_step(&self, token: &str, id: &str, form: &NewStep) -> Result<Step>;

@@ -2242,9 +2242,12 @@ name = "rupicola"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
+ "reqwest",
  "rpassword",
  "rupicola-api",
+ "rupicola-capture",
  "rupicola-client",
  "rupicola-core",
  "serde",
@@ -2253,12 +2256,17 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
 name = "rupicola-api"
 version = "0.1.1"
 dependencies = [
+ "rupicola-capture",
+ "rupicola-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",

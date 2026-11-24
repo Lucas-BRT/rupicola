@@ -2,15 +2,9 @@
 //! `rupicola_capture::session::Plan` plans.
 
 use super::{ApiError, capture::check_scenario};
-use rupicola_api::{CaptureAction, CaptureStep, RunCapture};
-use rupicola_capture::session::{
-    ColorScheme, Environment, NetworkPolicy, Plan, Step, Target, WaitCondition, valid_id,
-};
-use rupicola_protocol::UiAction;
-use std::{
-    collections::HashSet,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-};
+use rupicola_api::{CaptureStep, RunCapture, plan};
+use rupicola_capture::session::{ColorScheme, Environment, NetworkPolicy, Plan, Target};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 pub const DEFAULT_WIDTH: u32 = 1440;
 pub const DEFAULT_HEIGHT: u32 = 900;
@@ -23,16 +17,6 @@ const MAX_VIEWPORT_SIDE: u32 = 4096;
 const MIN_SCALE: f64 = 0.5;
 const MAX_SCALE: f64 = 3.0;
 const MAX_DEVICE_PIXELS: f64 = 8_300_000.0;
-const MAX_STEPS: usize = 64;
-const CLIP_SAMPLES: std::ops::RangeInclusive<usize> = 2..=60;
-const CLIP_INTERVAL_MS: std::ops::RangeInclusive<u32> = 1..=1000;
-const MAX_CLIP_SPAN_MS: usize = 10_000;
-const MAX_TOTAL_CLIP_MS: usize = 30_000;
-const DEFAULT_CHECKPOINT: &str = "home";
-const CSS_ENGINE: &str = "css=";
-const CHORD_SEPARATOR: char = '+';
-const MAX_WAIT_MS: u32 = 10_000;
-const MAX_TOTAL_WAIT_MS: u64 = 30_000;
 
 /// Validated capture target URL with its extracted host and port for DNS/SSRF checks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,174 +24,6 @@ pub struct ParsedTarget {
     pub url: String,
     pub host: String,
     pub port: u16,
-}
-
-fn selector_target(selector: &str) -> Result<String, ApiError> {
-    let trimmed = selector.trim();
-    if trimmed.is_empty() {
-        return Err(ApiError::invalid("step selector must not be empty"));
-    }
-    Ok(format!("{CSS_ENGINE}{trimmed}"))
-}
-
-fn optional_target(selector: Option<&str>) -> Result<Option<String>, ApiError> {
-    selector.map(selector_target).transpose()
-}
-
-fn action_steps(action: &CaptureAction) -> Result<Vec<Step>, ApiError> {
-    match action {
-        CaptureAction::Click { selector } => Ok(vec![Step::Action {
-            action: UiAction::Click {
-                target_id: selector_target(selector)?,
-            },
-        }]),
-        CaptureAction::Hover { selector } => Ok(vec![Step::Action {
-            action: UiAction::Hover {
-                target_id: selector_target(selector)?,
-            },
-        }]),
-        CaptureAction::Fill { selector, value } => Ok(vec![Step::Action {
-            action: UiAction::TypeText {
-                target_id: selector_target(selector)?,
-                text: value.clone(),
-            },
-        }]),
-        CaptureAction::Press { selector, key } => {
-            let mut parts = key
-                .split(CHORD_SEPARATOR)
-                .map(str::to_owned)
-                .collect::<Vec<_>>();
-            let key = parts.pop().unwrap_or_default();
-            if key.trim().is_empty() {
-                return Err(ApiError::invalid("key press must not be empty"));
-            }
-            Ok(vec![
-                Step::Action {
-                    action: UiAction::Focus {
-                        target_id: selector_target(selector)?,
-                    },
-                },
-                Step::Action {
-                    action: UiAction::PressKey {
-                        key,
-                        modifiers: parts,
-                    },
-                },
-            ])
-        }
-        CaptureAction::Ready { selector } => Ok(vec![Step::Wait {
-            condition: WaitCondition::Visible {
-                target_id: selector_target(selector)?,
-            },
-        }]),
-        CaptureAction::Scroll { selector, dx, dy } => Ok(vec![Step::Action {
-            action: UiAction::Scroll {
-                target_id: optional_target(selector.as_deref())?,
-                dx: f64::from(*dx),
-                dy: f64::from(*dy),
-            },
-        }]),
-        CaptureAction::ScrollIntoView { selector } => Ok(vec![Step::Action {
-            action: UiAction::ScrollIntoView {
-                target_id: selector_target(selector)?,
-            },
-        }]),
-        CaptureAction::ScrollTo { selector, x, y } => Ok(vec![Step::Action {
-            action: UiAction::ScrollTo {
-                target_id: optional_target(selector.as_deref())?,
-                x: f64::from(*x),
-                y: f64::from(*y),
-            },
-        }]),
-        CaptureAction::ScrollToEnd { selector } => Ok(vec![Step::Action {
-            action: UiAction::ScrollToEnd {
-                target_id: optional_target(selector.as_deref())?,
-            },
-        }]),
-        CaptureAction::Wait { ms } => {
-            if *ms > MAX_WAIT_MS {
-                return Err(ApiError::invalid(format!(
-                    "a wait takes at most {MAX_WAIT_MS} ms"
-                )));
-            }
-            Ok(vec![Step::Wait {
-                condition: WaitCondition::Delay { ms: u64::from(*ms) },
-            }])
-        }
-    }
-}
-
-fn step_into_plan(step: &CaptureStep) -> Result<(Vec<Step>, Option<u32>), ApiError> {
-    match step {
-        CaptureStep::Click { selector } => action_steps(&CaptureAction::Click {
-            selector: selector.clone(),
-        })
-        .map(|s| (s, None)),
-        CaptureStep::Hover { selector } => action_steps(&CaptureAction::Hover {
-            selector: selector.clone(),
-        })
-        .map(|s| (s, None)),
-        CaptureStep::Fill { selector, value } => action_steps(&CaptureAction::Fill {
-            selector: selector.clone(),
-            value: value.clone(),
-        })
-        .map(|s| (s, None)),
-        CaptureStep::Press { selector, key } => action_steps(&CaptureAction::Press {
-            selector: selector.clone(),
-            key: key.clone(),
-        })
-        .map(|s| (s, None)),
-        CaptureStep::Ready { selector } => action_steps(&CaptureAction::Ready {
-            selector: selector.clone(),
-        })
-        .map(|s| (s, None)),
-        CaptureStep::Scroll { selector, dx, dy } => action_steps(&CaptureAction::Scroll {
-            selector: selector.clone(),
-            dx: *dx,
-            dy: *dy,
-        })
-        .map(|s| (s, None)),
-        CaptureStep::ScrollIntoView { selector } => action_steps(&CaptureAction::ScrollIntoView {
-            selector: selector.clone(),
-        })
-        .map(|s| (s, None)),
-        CaptureStep::ScrollTo { selector, x, y } => action_steps(&CaptureAction::ScrollTo {
-            selector: selector.clone(),
-            x: *x,
-            y: *y,
-        })
-        .map(|s| (s, None)),
-        CaptureStep::ScrollToEnd { selector } => action_steps(&CaptureAction::ScrollToEnd {
-            selector: selector.clone(),
-        })
-        .map(|s| (s, None)),
-        CaptureStep::Wait { ms } => {
-            action_steps(&CaptureAction::Wait { ms: *ms }).map(|s| (s, None))
-        }
-        CaptureStep::Checkpoint { id, full_page } => Ok((
-            vec![Step::Checkpoint {
-                id: id.clone(),
-                full_page: *full_page,
-            }],
-            None,
-        )),
-        CaptureStep::Clip {
-            id,
-            trigger,
-            samples,
-            interval_ms,
-        } => {
-            let span = u64::try_from(samples.saturating_sub(1)).unwrap_or(u64::MAX)
-                * u64::from(*interval_ms);
-            let mut steps = vec![Step::StartRecording];
-            steps.extend(action_steps(trigger)?);
-            steps.push(Step::Wait {
-                condition: WaitCondition::Delay { ms: span },
-            });
-            steps.push(Step::StopRecording { id: id.clone() });
-            Ok((steps, Some(*interval_ms)))
-        }
-    }
 }
 
 const CGNAT_PREFIX: u8 = 100;
@@ -394,7 +210,9 @@ fn build_environment(
 ///
 /// [`ApiError::Invalid`] when the steps would not make a valid run.
 pub fn check_steps(steps: &[CaptureStep]) -> Result<(), ApiError> {
-    build_steps(steps).map(|_| ())
+    plan::build_steps(steps)
+        .map(|_| ())
+        .map_err(|err| ApiError::invalid(err.to_string()))
 }
 
 /// Checks the steps that put a page in a theme: actions only, since a theme's setup captures
@@ -404,114 +222,9 @@ pub fn check_steps(steps: &[CaptureStep]) -> Result<(), ApiError> {
 ///
 /// [`ApiError::Invalid`] for a checkpoint or clip, or an action that would not run.
 pub fn check_setup_steps(steps: &[CaptureStep]) -> Result<(), ApiError> {
-    if steps.len() > MAX_STEPS {
-        return Err(ApiError::invalid(format!(
-            "a theme's setup takes at most {MAX_STEPS} steps"
-        )));
-    }
-    for step in steps {
-        if matches!(
-            step,
-            CaptureStep::Checkpoint { .. } | CaptureStep::Clip { .. }
-        ) {
-            return Err(ApiError::invalid(
-                "a theme's setup takes actions only, not checkpoints or clips",
-            ));
-        }
-        step_into_plan(step)?;
-    }
-    Ok(())
-}
-
-fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiError> {
-    let default_steps;
-    let raw_steps = if steps.is_empty() {
-        default_steps = [CaptureStep::Checkpoint {
-            id: DEFAULT_CHECKPOINT.to_owned(),
-            full_page: false,
-        }];
-        &default_steps[..]
-    } else {
-        steps
-    };
-    if raw_steps.len() > MAX_STEPS {
-        return Err(ApiError::invalid(format!(
-            "a capture takes at most {MAX_STEPS} steps"
-        )));
-    }
-    let mut ids = HashSet::new();
-    let mut checkpoints_or_clips = 0usize;
-    let mut plan_steps = Vec::new();
-    let mut min_interval: Option<u32> = None;
-    let mut total_clip_ms = 0usize;
-    let mut total_wait_ms = 0u64;
-
-    for step in raw_steps {
-        match step {
-            CaptureStep::Wait { ms } => {
-                total_wait_ms = total_wait_ms.saturating_add(u64::from(*ms));
-                if total_wait_ms > MAX_TOTAL_WAIT_MS {
-                    return Err(ApiError::invalid(format!(
-                        "total wait time exceeds {MAX_TOTAL_WAIT_MS} ms"
-                    )));
-                }
-            }
-            CaptureStep::Checkpoint { id, .. } => {
-                if !valid_id(id) || !ids.insert(id.to_ascii_lowercase()) {
-                    return Err(ApiError::invalid(format!(
-                        "invalid or duplicate checkpoint id `{id}`"
-                    )));
-                }
-                checkpoints_or_clips += 1;
-            }
-            CaptureStep::Clip {
-                id,
-                samples,
-                interval_ms,
-                ..
-            } => {
-                if !valid_id(id) || !ids.insert(id.to_ascii_lowercase()) {
-                    return Err(ApiError::invalid(format!(
-                        "invalid or duplicate clip id `{id}`"
-                    )));
-                }
-                let clip_ms = samples
-                    .saturating_sub(1)
-                    .saturating_mul(usize::try_from(*interval_ms).unwrap_or(usize::MAX));
-                if !CLIP_SAMPLES.contains(samples)
-                    || !CLIP_INTERVAL_MS.contains(interval_ms)
-                    || clip_ms > MAX_CLIP_SPAN_MS
-                {
-                    return Err(ApiError::invalid(format!(
-                        "clip `{id}` needs {}..={} samples at {}..={} ms (max {MAX_CLIP_SPAN_MS} ms)",
-                        CLIP_SAMPLES.start(),
-                        CLIP_SAMPLES.end(),
-                        CLIP_INTERVAL_MS.start(),
-                        CLIP_INTERVAL_MS.end(),
-                    )));
-                }
-                total_clip_ms = total_clip_ms.saturating_add(clip_ms);
-                if total_clip_ms > MAX_TOTAL_CLIP_MS {
-                    return Err(ApiError::invalid(format!(
-                        "total clip duration exceeds {MAX_TOTAL_CLIP_MS} ms"
-                    )));
-                }
-                checkpoints_or_clips += 1;
-            }
-            _ => {}
-        }
-        let (converted, interval) = step_into_plan(step)?;
-        plan_steps.extend(converted);
-        if let Some(ms) = interval {
-            min_interval = Some(min_interval.map_or(ms, |cur| cur.min(ms)));
-        }
-    }
-    if checkpoints_or_clips == 0 {
-        return Err(ApiError::invalid(
-            "provide at least one checkpoint or clip step",
-        ));
-    }
-    Ok((plan_steps, min_interval))
+    plan::build_setup_steps(steps)
+        .map(|_| ())
+        .map_err(|err| ApiError::invalid(err.to_string()))
 }
 
 /// Validates `form` and turns it into a declarative capture [`Plan`] and [`ParsedTarget`].
@@ -522,7 +235,8 @@ fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiErr
 pub fn to_plan(form: &RunCapture, allow_local: bool) -> Result<(Plan, ParsedTarget), ApiError> {
     check_scenario(&form.scenario)?;
     let target = validate_url(&form.url, allow_local)?;
-    let (steps, min_interval) = build_steps(&form.steps)?;
+    let (steps, min_interval) =
+        plan::build_steps(&form.steps).map_err(|err| ApiError::invalid(err.to_string()))?;
     let mut environment = build_environment(form, min_interval)?;
     environment.network_policy = if allow_local {
         NetworkPolicy::Unrestricted
@@ -547,7 +261,11 @@ pub fn to_plan(form: &RunCapture, allow_local: bool) -> Result<(Plan, ParsedTarg
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rupicola_api::Environment as ApiEnvironment;
+    use rupicola_api::{CaptureAction, Environment as ApiEnvironment};
+    use rupicola_capture::session::{Step, WaitCondition};
+    use rupicola_protocol::UiAction;
+
+    const MAX_WAIT_MS: u32 = 10_000;
 
     fn req(url: &str) -> RunCapture {
         RunCapture {
