@@ -125,7 +125,7 @@ After `rupicola login`, the CLI reads and writes the backend's resources. Every 
 
 ```sh
 rupicola projects [create ID --label NAME]
-rupicola captures [list|show ID|note ID TEXT]
+rupicola captures [list|show ID|note ID TEXT|run URL]
 rupicola problems [list|show ID|create --file -|update ID --status S|comment ID TEXT]
 rupicola fixes [list|show ID|create --file F|step ID --file F|review ID --outcome O]
 rupicola design [list|add --file F]
@@ -146,12 +146,7 @@ The Topcoat web panel (`rupicola-panel`) organizes visual engineering into a str
 - **`Captures` (`/projects/{id}/captures`):** Research hub with screenshots, contact sheets and interaction recordings, a **Screen health** filter (`All captured screens`, `Clean / verified only`, `With problems only`, `Unanalyzed`) and 1-click problem extraction (`Extract problems` / `Flag problem`).
 - **`Problems` (`/projects/{id}/problems`):** Structured triage queue linking captured evidence, violated **Global Norms** (`SKILL.md` / `reference/`) and **Project Design Norms**, root-cause diagnosis and proposed solution. Problems marked `Intentional` or `False positive` are suppressed when later captures are analysed.
 - **`Fixes` (`/projects/{id}/fixes`):** Before/After verification workbench for screenshots (`.png`) and recordings (`.mp4` / `.webm`) across **`Split Slider`**, **`Side by Side`**, **`Video Player (Slow-Mo 1× / 0.5× / 0.25×)`** and **`Pixel Diff`**, plus applied tactics, modified files, a steps timeline and review (`Approve Fix` / `Request Changes`).
-- **`Design` (`/projects/{id}/design`):** The project design register and versioned design systems.
-
-### Review a design system
-
-Open **Design → System** and create or inspect a draft (identity and usage, semantic colors, typography, spacing, and component guidance). Review, variations, and explicit adoption live under **Design → Proposals**.
-- **`Storage` (`/projects/{id}/storage`):** Disk usage telemetry grouped **By Fix**, **By Date**, **By Capture Run**, and **By Asset Category**, with selective cleanup (`Strip raw clip frames`, `Prune unpinned runs`) and external bucket offload (`S3-Compatible / Cloudflare R2 / MinIO / B2`, `rclone`, or mounted volume) with optional automatic offload when a Fix is approved.
+- **`Design` (`/projects/{id}/design`):** The project design register (`brief`, `direction`, `tactic`, `decision`) and versioned design systems.
 
 ## Docker & Open-Internet Deployment (Dokploy / Traefik)
 
@@ -225,4 +220,4 @@ url = "https://YOUR-RUPICOLA-HOST/mcp"
 bearer_token_env_var = "RUPICOLA_MCP_TOKEN"
 ```
 
-The endpoint is stateless and checks the token on every request. It exposes `project_list`, `project_create`, `capture_list`, `capture_get`, `capture_review`, `artifact_read`, `problem_list`, `problem_get`, `problem_create`, `problem_triage`, `problem_comment`, `fix_list`, `fix_get`, `fix_create`, `fix_step` and `fix_review`. The panel no longer serves MCP, so the tools that only it offered (design records and the design system, proposals, storage, project rename, access and merge, and `capture_publish`) are unavailable until they move to the backend. Tokens are issued by the backend's API (`POST /v1/tokens` for a machine, `POST /v1/projects/{id}/devices` for a project device) until the panel offers them again.
+The endpoint is stateless and checks the token on every request. It exposes `project_list`, `project_create`, `capture_list`, `capture_get`, `capture_run`, `capture_review`, `artifact_read`, `problem_list`, `problem_get`, `problem_create`, `problem_triage`, `problem_comment`, `problem_analyze`, `design_list`, `design_record`, `fix_list`, `fix_get`, `fix_create`, `fix_step` and `fix_review`. Tokens are issued by the backend (`POST /v1/tokens` for a machine, `POST /v1/projects/{id}/devices` for a project device).

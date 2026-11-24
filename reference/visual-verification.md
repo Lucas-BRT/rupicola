@@ -1,6 +1,6 @@
 # Visual verification
 
-Shared rules: [common](../reference/common.md), [verification](verification.md). Code that compiles says nothing about how an interface looks. Research on coding agents finds that rendered feedback improves GUI code (UI2Code^N, Coding with Eyes, RecreationWorld, WebGen-Agent), so look at the result whenever a capture is possible.
+Shared rules: [common](common.md), [verification](verification.md). Code that compiles says nothing about how an interface looks. Research on coding agents finds that rendered feedback improves GUI code (UI2Code^N, Coding with Eyes, RecreationWorld, WebGen-Agent), so look at the result whenever a capture is possible.
 
 ## Safety first
 

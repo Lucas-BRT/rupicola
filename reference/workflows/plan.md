@@ -8,7 +8,7 @@ Define a reviewable functional slice: state transitions, input/error behavior, U
 
 When the user states a broad goal, new interface, or open-ended redesign rather than a narrow surgical fix:
 
-1. **Ground feasibility first:** inspect the workspace (`discover`, `design open`, dependencies, renderer, CSP/platform limits) before asking questions so every option you offer is technically viable in the actual stack.
+1. **Ground feasibility first:** inspect the workspace (`rupicola discover`, `rupicola design list` / `design_list`, dependencies, renderer, CSP/platform limits) before asking questions so every option you offer is technically viable in the actual stack.
 2. **Interview before assuming (1 round, 4–6 closed questions):** use the host's structured question tool (`ask_question`) when available—otherwise a concise numbered list—to ask 4–6 high-leverage technical questions in a single round (skip for narrow bugfixes or already-specified tasks):
    - **Task & density:** daily power-tool density vs guided low-frequency flow.
    - **Targets & input:** required viewports (`1440px` + `320px`), keyboard-first shortcuts vs coarse touch targets.

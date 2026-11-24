@@ -131,6 +131,6 @@ pub fn project() -> Result<Option<ProjectName>> {
 
 pub fn detect_project() -> Result<ProjectName> {
     project()?.ok_or_else(|| {
-        anyhow!("Run inside a Git checkout, set a project with rupicola link, or provide --out")
+        anyhow!("Run inside a Git checkout, pass --project, or set a project with rupicola link")
     })
 }

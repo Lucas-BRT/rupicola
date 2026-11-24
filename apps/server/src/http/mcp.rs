@@ -286,13 +286,52 @@ const TOOLS: &[Tool] = &[
         description: "Execute a headless web capture on the server and store its checkpoints and clips",
         required: &["project", "scenario", "url"],
         properties: || {
-            json!({"project": text(), "scenario": text(), "url": text(),
-            "revision": text(), "allow_degraded": {"type": "boolean"},
-            "environment": {"type": "object", "properties": {
-                "width": {"type": "integer"}, "height": {"type": "integer"},
-                "color_scheme": {"enum": ["light", "dark"]},
-                "reduced_motion": {"type": "boolean"}
-            }}})
+            let action = json!({
+                "type": "object",
+                "required": ["kind", "selector"],
+                "properties": {
+                    "kind": {"enum": ["click", "hover", "fill", "press", "ready"]},
+                    "selector": text(),
+                    "value": text(),
+                    "key": text()
+                }
+            });
+            json!({
+                "project": text(),
+                "scenario": text(),
+                "url": text(),
+                "revision": text(),
+                "timeout_ms": {"type": "integer", "minimum": 1},
+                "allow_degraded": {"type": "boolean"},
+                "environment": {
+                    "type": "object",
+                    "properties": {
+                        "width": {"type": "integer", "minimum": 1},
+                        "height": {"type": "integer", "minimum": 1},
+                        "scale": {"type": "number"},
+                        "locale": text(),
+                        "color_scheme": {"enum": ["light", "dark"]},
+                        "reduced_motion": {"type": "boolean"}
+                    }
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["kind"],
+                        "properties": {
+                            "kind": {"enum": ["click", "hover", "fill", "press", "ready", "checkpoint", "clip"]},
+                            "selector": text(),
+                            "value": text(),
+                            "key": text(),
+                            "id": text(),
+                            "trigger": action,
+                            "samples": {"type": "integer", "minimum": 2},
+                            "interval_ms": {"type": "integer", "minimum": 16}
+                        }
+                    }
+                }
+            })
         },
     },
     Tool {
