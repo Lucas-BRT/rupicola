@@ -52,4 +52,37 @@
       }
     });
   }
+
+  // Hero Visual Stage Canvas interactive preview
+  const heroDiff = document.getElementById("hero-diff");
+  const heroSplit = document.querySelector("[data-hero-split]");
+  const heroTitle = document.getElementById("hero-stage-title");
+  heroSplit?.addEventListener("input", () => {
+    heroDiff?.style.setProperty("--pos", `${heroSplit.value}%`);
+  });
+
+  document.querySelectorAll("[data-hero-vp]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const vp = btn.getAttribute("data-hero-vp") || "1440";
+      if (heroDiff) heroDiff.setAttribute("data-vp", vp);
+      document.querySelectorAll("[data-hero-vp]").forEach((b) =>
+        b.classList.toggle("btn-primary", b === btn)
+      );
+    });
+  });
+
+  document.querySelector("[data-hero-diff]")?.addEventListener("click", (ev) => {
+    const on = heroDiff?.classList.toggle("is-pixel");
+    ev.currentTarget.classList.toggle("btn-primary", Boolean(on));
+  });
+
+  document.querySelectorAll("[data-hero-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-hero-tab]").forEach((b) =>
+        b.classList.toggle("is-active", b === btn)
+      );
+      const title = btn.getAttribute("data-hero-title");
+      if (heroTitle && title) heroTitle.textContent = title;
+    });
+  });
 })();

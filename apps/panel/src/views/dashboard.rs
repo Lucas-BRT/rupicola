@@ -64,18 +64,20 @@ pub async fn dashboard_board(cx: &Cx, data: &Dashboard) -> Result<impl View> {
     } = data;
     let items: Vec<&Run> = queue.iter().map(|&index| &runs[index]).collect();
     Ok(view! {
+        counts(label: "Workspace activity",
+            metric(href: "/dashboard?state=pending", value: *pending, featured: *pending > 0, "Needs review")
+            metric(href: "/dashboard?state=blocked", value: *blocked, "Blocked captures")
+            metric(href: "/projects", value: *project_count, "Projects")
+        )
         <div class="studio-board">
             <div class="studio-evidence">
                 if let Some(proof) = latest_evidence {
-                    proof_card(href: &proof.href, image: &proof.image, scenario: &proof.scenario,
-                        <h2>"Latest evidence"</h2>
-                    )
+                    <div class="canvas-stage">
+                        proof_card(href: &proof.href, image: &proof.image, scenario: &proof.scenario,
+                            <h2>"Latest evidence"</h2>
+                        )
+                    </div>
                 }
-                counts(label: "Workspace activity",
-                    metric(href: "/dashboard?state=pending", value: *pending, featured: *pending > 0, "Needs review")
-                    metric(href: "/dashboard?state=blocked", value: *blocked, "Blocked captures")
-                    metric(href: "/projects", value: *project_count, "Projects")
-                )
                 <section class="surface studio-queue">
                     section_head(title: "Capture queue",
                         <form class="filters" method="get" action="/dashboard">

@@ -66,7 +66,7 @@ pub async fn shell(
                         </nav>
                         <div class="topbar-actions">
                             <button class="btn btn-sm" type="button" data-theme-toggle="" aria-label="Toggle color theme">"Dark"</button>
-                            <a class="btn btn-sm btn-primary" href=(panel_url) target="_blank" rel="noopener">"Panel"</a>
+                            <a class="btn btn-sm btn-primary" href=(panel_url) target="_blank" rel="noopener">"Open Panel"</a>
                             <button class="btn btn-sm nav-toggle" type="button" data-nav-toggle="" aria-expanded="false" aria-label="Toggle navigation">"Menu"</button>
                         </div>
                     </div>

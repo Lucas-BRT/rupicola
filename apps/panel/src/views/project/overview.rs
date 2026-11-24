@@ -41,11 +41,18 @@ pub async fn overview_tab(cx: &Cx, data: Overview<'_>) -> Result<impl View> {
             .iter()
             .filter(|entry| !superseded.contains(entry.id.as_str()))
             .count();
+        counts(label: "Project pipeline",
+            metric(href: format!("{base}/captures"), value: captures, "Captures (" (assets.to_string()) " assets)")
+            metric(href: format!("{base}/problems"), value: open_problems_count, featured: open_problems_count > 0, "Problems queue")
+            metric(href: format!("{base}/fixes"), value: fix_count, "Recorded fixes")
+        )
         <div class="overview-hero">
             if let Some(proof) = &latest_project_evidence {
-                proof_card(href: &proof.href, image: &proof.image, scenario: &proof.scenario,
-                    section_head(title: "Latest evidence", chip("1440×900 · verified"))
-                )
+                <section class="canvas-stage">
+                    proof_card(href: &proof.href, image: &proof.image, scenario: &proof.scenario,
+                        section_head(title: "Latest evidence", chip("Visual Stage"))
+                    )
+                </section>
             }
             <section class="project-brief">
                 section_head(title: "Design context",
@@ -71,11 +78,6 @@ pub async fn overview_tab(cx: &Cx, data: Overview<'_>) -> Result<impl View> {
                 <p class="muted brief-foot">(current.to_string()) " active design records"</p>
             </section>
         </div>
-        counts(label: "Project pipeline",
-            metric(href: format!("{base}/captures"), value: captures, "Captures (" (assets.to_string()) " assets)")
-            metric(href: format!("{base}/problems"), value: open_problems_count, featured: open_problems_count > 0, "Problems queue")
-            metric(href: format!("{base}/fixes"), value: fix_count, "Recorded fixes")
-        )
         <section class="surface captures-ledger">
             section_head(title: "Recent captures",
                 link_button(href: format!("{base}/captures"), "Open research hub")
