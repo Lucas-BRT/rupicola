@@ -33,6 +33,17 @@ pub async fn list(
     fixes::list(&state, &principal, &project).await.map(Json)
 }
 
+/// `GET /v1/projects/{id}/fixes/details`
+pub async fn list_details(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(project): Path<String>,
+) -> Result<Json<Vec<Fix>>, ApiError> {
+    fixes::list_details(&state, &principal, &project)
+        .await
+        .map(Json)
+}
+
 /// `GET /v1/fixes/{id}`
 pub async fn get(
     State(state): State<Shared>,

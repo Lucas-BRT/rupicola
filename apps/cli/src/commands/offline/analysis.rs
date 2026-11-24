@@ -15,7 +15,7 @@ pub struct DiscoverArgs {
 }
 
 impl DiscoverArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         let DiscoverArgs {
             path,
             json: output_json,
@@ -59,7 +59,7 @@ pub struct ScanArgs {
 }
 
 impl ScanArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         let ScanArgs {
             path,
             framework,
@@ -115,7 +115,7 @@ pub struct CheckArgs {
 }
 
 impl CheckArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         let CheckArgs {
             path,
             json: output_json,
@@ -144,7 +144,7 @@ pub struct RulesArgs {
 }
 
 impl RulesArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         let RulesArgs { json: output_json } = self;
         if output_json {
             json(&scan::RULES)?;
@@ -164,7 +164,7 @@ pub struct ModulesArgs {
 }
 
 impl ModulesArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         let ModulesArgs { json: output_json } = self;
         let modules: Vec<_> = FRAMEWORKS
             .iter()

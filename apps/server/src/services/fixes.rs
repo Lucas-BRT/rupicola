@@ -193,6 +193,18 @@ pub async fn list(
     fixes::list(&state.db, project).await
 }
 
+/// Lists every fix of `project` in full.
+pub async fn list_details(
+    state: &AppState,
+    principal: &Principal,
+    project: &str,
+) -> Result<Vec<Fix>, ApiError> {
+    access(state, principal, project)
+        .await?
+        .require(Role::Reader)?;
+    fixes::list_details(&state.db, project).await
+}
+
 /// Loads one fix after checking the caller may read its project.
 pub async fn get(state: &AppState, principal: &Principal, id: &str) -> Result<Fix, ApiError> {
     fix_access(state, principal, id, Role::Reader).await?;

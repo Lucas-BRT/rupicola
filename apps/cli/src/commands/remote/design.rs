@@ -26,7 +26,7 @@ enum DesignAction {
 }
 
 impl DesignArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         block_on(async {
             match self.action {
                 DesignAction::List(scope) => {

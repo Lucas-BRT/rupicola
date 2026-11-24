@@ -149,23 +149,25 @@ pub async fn resolve_evidence_capture(
     Ok(capture)
 }
 
-/// Inserts a problem row and its rules inside `tx`.
-pub async fn insert(
+/// Inserts a problem row with `status` and its rules inside `tx`.
+pub async fn insert_with_status(
     tx: &mut SqliteConnection,
     id: &str,
     project: &str,
     form: &NewProblem,
+    status: ProblemStatus,
     author: Option<&str>,
     now: i64,
 ) -> Result<(), ApiError> {
     sqlx::query(
         "INSERT INTO problems (id, project_id, title, status, severity, origin, route, viewport,
            theme, diagnosis, proposed_solution, author, created_at, updated_at)
-         VALUES (?1, ?2, ?3, 'open', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
     )
     .bind(id)
     .bind(project)
     .bind(form.title.trim())
+    .bind(status.as_str())
     .bind(form.severity.as_str())
     .bind(form.origin.as_str())
     .bind(&form.route)
@@ -202,6 +204,21 @@ pub async fn list(db: &SqlitePool, project: &str) -> Result<Vec<ProblemSummary>,
     .fetch_all(db)
     .await?;
     rows.into_iter().map(ProblemSummary::try_from).collect()
+}
+
+/// Lists every problem of `project` in full, newest first.
+pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Problem>, ApiError> {
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM problems WHERE project_id = ?1 ORDER BY updated_at DESC, id DESC",
+    )
+    .bind(project)
+    .fetch_all(db)
+    .await?;
+    let mut detailed = Vec::with_capacity(ids.len());
+    for id in ids {
+        detailed.push(load(db, &id).await?);
+    }
+    Ok(detailed)
 }
 
 /// Applies `patch` to `problem` inside `tx`.

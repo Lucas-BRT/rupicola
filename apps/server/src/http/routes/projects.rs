@@ -34,7 +34,9 @@ fn project() -> Router<Shared> {
             "/problems",
             routing::get(problems::list).post(problems::create),
         )
+        .route("/problems/details", routing::get(problems::list_details))
         .route("/fixes", routing::get(fixes::list).post(fixes::create))
+        .route("/fixes/details", routing::get(fixes::list_details))
         .route("/design", routing::get(design::list).post(design::create))
         .route("/selections", routing::post(selections::create))
         .route("/topics", routing::get(topics::tree).post(topics::create))
@@ -69,6 +71,10 @@ fn project_captures() -> Router<Shared> {
         .route("/", routing::get(captures::list).post(captures::create))
         .route("/search", routing::get(search::search))
         .route("/{capture}", routing::put(publish::put))
+        .route(
+            "/{capture}/analyze",
+            routing::post(problems::analyze_capture),
+        )
 }
 
 fn design_systems() -> Router<Shared> {

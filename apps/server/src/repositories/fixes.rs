@@ -357,6 +357,21 @@ pub async fn list(db: &SqlitePool, project: &str) -> Result<Vec<FixSummary>, Api
     rows.into_iter().map(FixSummary::try_from).collect()
 }
 
+/// Lists every fix of `project` in full, newest first.
+pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Fix>, ApiError> {
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM fixes WHERE project_id = ?1 ORDER BY updated_at DESC, id DESC",
+    )
+    .bind(project)
+    .fetch_all(db)
+    .await?;
+    let mut detailed = Vec::with_capacity(ids.len());
+    for id in ids {
+        detailed.push(load(db, &id).await?);
+    }
+    Ok(detailed)
+}
+
 /// Records a review, updates the fix status and returns the linked problem ids inside `tx`.
 pub async fn apply_review(
     tx: &mut SqliteConnection,

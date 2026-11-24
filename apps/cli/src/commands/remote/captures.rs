@@ -35,7 +35,7 @@ enum CapturesAction {
 }
 
 impl CapturesArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         block_on(async {
             match self.action {
                 CapturesAction::List(scope) => {

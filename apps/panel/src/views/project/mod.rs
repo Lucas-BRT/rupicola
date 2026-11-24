@@ -14,7 +14,7 @@ pub use problems::problems_tab;
 use crate::components::badge::{BadgeVariant, badge};
 use crate::components::layout::{breadcrumbs, tab_link, tabs};
 use crate::project::AssetOption;
-use crate::records::{ComparisonPair, FixRecord, Problem};
+use crate::records::{FixRecord, Problem};
 use crate::{Run, auth};
 use auth::Role;
 use rupicola_api::{DesignEntry, FixStatus, ProblemStatus, Severity};
@@ -48,46 +48,6 @@ pub(super) fn fix_status_badge(st: FixStatus) -> BadgeVariant {
         FixStatus::ChangesRequested => BadgeVariant::Destructive,
         FixStatus::PendingReview | FixStatus::Superseded => BadgeVariant::Secondary,
     }
-}
-
-pub(super) fn is_video_url(url: &str) -> bool {
-    let path = url.split('?').next().unwrap_or(url);
-    matches!(path.rsplit_once('.'), Some((_, "mp4" | "webm")))
-}
-
-pub(super) fn extract_media_url_from_text(text: &str) -> Option<String> {
-    let idx = text.find("/media/")?;
-    let token: String = text[idx..]
-        .chars()
-        .take_while(|ch| !ch.is_whitespace())
-        .collect();
-    let clean = token.trim_end_matches(['.', ',', ';', ')']);
-    if matches!(clean.rsplit_once('.'), Some((_, "mp4" | "webm" | "png"))) {
-        Some(clean.to_string())
-    } else {
-        None
-    }
-}
-
-pub(super) fn effective_after_url(fix: &FixRecord, pair: &ComparisonPair) -> String {
-    if is_video_url(&pair.after_url) {
-        return pair.after_url.clone();
-    }
-    for rev in fix.reviews.iter().rev() {
-        if let Some(u) = extract_media_url_from_text(&rev.comment)
-            && is_video_url(&u)
-        {
-            return u;
-        }
-    }
-    for st in fix.steps.iter().rev() {
-        if let Some(ev) = &st.evidence_url
-            && is_video_url(ev)
-        {
-            return ev.clone();
-        }
-    }
-    pair.after_url.clone()
 }
 
 /// A tab of the project page.

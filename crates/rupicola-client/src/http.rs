@@ -2,12 +2,12 @@ use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
-    AuditEvent, Capture, CaptureSummary, Comment, Credential, Credentials, DesignEntry,
-    DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me, Member, NewCapture,
-    NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewProblem,
-    NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch, ProblemSummary,
-    Project, Redeem, Register, SessionToken, Setup, SetupStatus, Step, SystemActionForm,
-    SystemList, SystemVersion,
+    AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
+    DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
+    Member, NewCapture, NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite,
+    NewProblem, NewProject, NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch,
+    ProblemSummary, Project, Redeem, Register, SessionToken, Setup, SetupStatus, Step,
+    SystemActionForm, SystemList, SystemVersion,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -222,6 +222,19 @@ impl Api for HttpApi {
         .await
     }
 
+    async fn search_captures(
+        &self,
+        token: &str,
+        project: &str,
+        query: Option<String>,
+    ) -> Result<CapturePage> {
+        let path = match query.as_deref().filter(|q| !q.is_empty()) {
+            Some(q) => format!("/projects/{project}/captures/search?{q}"),
+            None => format!("/projects/{project}/captures/search"),
+        };
+        Self::read(self.request(Method::GET, &path, Some(token))).await
+    }
+
     async fn capture(&self, token: &str, id: &str) -> Result<Capture> {
         Self::read(self.request(Method::GET, &format!("/captures/{id}"), Some(token))).await
     }
@@ -238,10 +251,33 @@ impl Api for HttpApi {
         .await
     }
 
+    async fn analyze_capture(
+        &self,
+        token: &str,
+        project: &str,
+        capture: &str,
+    ) -> Result<Vec<Problem>> {
+        Self::read(self.request(
+            Method::POST,
+            &format!("/projects/{project}/captures/{capture}/analyze"),
+            Some(token),
+        ))
+        .await
+    }
+
     async fn problems(&self, token: &str, project: &str) -> Result<Vec<ProblemSummary>> {
         Self::read(self.request(
             Method::GET,
             &format!("/projects/{project}/problems"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn problems_detailed(&self, token: &str, project: &str) -> Result<Vec<Problem>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/problems/details"),
             Some(token),
         ))
         .await
@@ -381,6 +417,15 @@ impl Api for HttpApi {
         Self::read(self.request(
             Method::GET,
             &format!("/projects/{project}/fixes"),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn fixes_detailed(&self, token: &str, project: &str) -> Result<Vec<Fix>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{project}/fixes/details"),
             Some(token),
         ))
         .await

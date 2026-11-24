@@ -1,18 +1,17 @@
 //! The Model Context Protocol endpoint (`POST /mcp`): JSON-RPC 2.0 whose tools call the
-//! same handlers as the REST API, so an agent has exactly the access its token gives.
+//! same services as the REST API, so an agent has exactly the access its token gives.
 //!
 //! Tools are the variants of [`Call`]; [`catalog`] describes them. A test keeps the two
 //! in step.
 
-use super::handlers::{fixes, problems};
 use crate::{
     domain::{ApiError, Principal},
-    services::{captures, design, projects},
+    services::{captures, design, fixes, problems, projects},
     state::Shared,
 };
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -85,6 +84,10 @@ enum Call {
         #[serde(flatten)]
         comment: rupicola_api::NewComment,
     },
+    ProblemAnalyze {
+        project: String,
+        capture: String,
+    },
     DesignList {
         project: String,
     },
@@ -123,7 +126,6 @@ fn value<T: Serialize>(body: &T) -> Result<Value, ApiError> {
 
 impl Call {
     async fn run(self, state: Shared, principal: Principal) -> Result<Value, ApiError> {
-        let state_arg = State(state.clone());
         match self {
             Self::ProjectList {} => value(&projects::list(&state, &principal).await?),
             Self::ProjectCreate(form) => value(&projects::create(&state, &principal, form).await?),
@@ -138,55 +140,38 @@ impl Call {
                 read_artifact(&state, &principal, &id, offset, length).await
             }
             Self::ProblemList { project } => {
-                value(&problems::list(state_arg, principal, Path(project)).await?.0)
+                value(&problems::list(&state, &principal, &project).await?)
             }
-            Self::ProblemGet { id } => {
-                value(&problems::get(state_arg, principal, Path(id)).await?.0)
+            Self::ProblemGet { id } => value(&problems::get(&state, &principal, &id).await?),
+            Self::ProblemCreate { project, problem } => {
+                value(&problems::create(&state, &principal, &project, &problem).await?)
             }
-            Self::ProblemCreate { project, problem } => value(
-                &problems::create(state_arg, principal, Path(project), Json(problem))
-                    .await?
-                    .1
-                    .0,
-            ),
-            Self::ProblemTriage { id, patch } => value(
-                &problems::update(state_arg, principal, Path(id), Json(patch))
-                    .await?
-                    .0,
-            ),
-            Self::ProblemComment { id, comment } => value(
-                &problems::comment(state_arg, principal, Path(id), Json(comment))
-                    .await?
-                    .1
-                    .0,
-            ),
+            Self::ProblemTriage { id, patch } => {
+                value(&problems::update(&state, &principal, &id, &patch).await?)
+            }
+            Self::ProblemComment { id, comment } => {
+                value(&problems::comment(&state, &principal, &id, &comment).await?)
+            }
+            Self::ProblemAnalyze { project, capture } => {
+                value(&problems::analyze_capture(&state, &principal, &project, &capture).await?)
+            }
             Self::DesignList { project } => {
                 value(&design::list(&state, &principal, &project).await?)
             }
             Self::DesignRecord { project, entry } => {
                 value(&design::create(&state, &principal, &project, entry).await?)
             }
-            Self::FixList { project } => {
-                value(&fixes::list(state_arg, principal, Path(project)).await?.0)
+            Self::FixList { project } => value(&fixes::list(&state, &principal, &project).await?),
+            Self::FixGet { id } => value(&fixes::get(&state, &principal, &id).await?),
+            Self::FixCreate { project, fix } => {
+                value(&fixes::create(&state, &principal, &project, &fix).await?)
             }
-            Self::FixGet { id } => value(&fixes::get(state_arg, principal, Path(id)).await?.0),
-            Self::FixCreate { project, fix } => value(
-                &fixes::create(state_arg, principal, Path(project), Json(fix))
-                    .await?
-                    .1
-                    .0,
-            ),
-            Self::FixStep { id, step } => value(
-                &fixes::add_step(state_arg, principal, Path(id), Json(step))
-                    .await?
-                    .1
-                    .0,
-            ),
-            Self::FixReview { id, review } => value(
-                &fixes::review(state_arg, principal, Path(id), Json(review))
-                    .await?
-                    .0,
-            ),
+            Self::FixStep { id, step } => {
+                value(&fixes::add_step(&state, &principal, &id, step).await?)
+            }
+            Self::FixReview { id, review } => {
+                value(&fixes::review(&state, &principal, &id, &review).await?)
+            }
         }
     }
 }
@@ -337,6 +322,12 @@ const TOOLS: &[Tool] = &[
         description: "Add a comment to a problem",
         required: &["id", "text"],
         properties: || json!({"id": text(), "text": text()}),
+    },
+    Tool {
+        name: "problem_analyze",
+        description: "Infer and file deduplicated, unsuppressed problems from a capture's findings",
+        required: &["project", "capture"],
+        properties: || json!({"project": text(), "capture": text()}),
     },
     Tool {
         name: "design_list",

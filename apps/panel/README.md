@@ -3,7 +3,8 @@
 Review screenshots, recordings and analysis by project. Topcoat serves the
 routes and renders the pages. Tailwind compiles the panel stylesheet at build
 time, and the button, badge and card components come from Topcoat UI 0.11.
-Turso stores the index, accounts and access records. Captures stay on disk.
+The backend owns accounts, captures, problems, fixes, design records and design
+systems in SQLite and its media store; the panel is stateless.
 
 ## Local
 
@@ -29,7 +30,7 @@ stylesheet is embedded in the binary.
 Routes follow the module tree (topcoat module routing): `src/app/projects/project/problems.rs`
 serves `/projects/{project}/problems`, and its child modules are that tab's actions. A route
 module loads what its page shows and calls a view. Markup lives only in `src/views/`, which
-takes loaded data and calls no backend. `auth.rs`, `project.rs`, `records.rs`, `runs.rs` and
+takes loaded data and calls no backend. `auth/`, `project.rs`, `records.rs`, `runs.rs` and
 `media.rs` read from the backend; `systems.rs` reads the design systems the backend validates and stores.
 Pages sit under layouts (`app/_workspace.rs` for the document and navigation, `projects/project.rs` for the heading and tabs) and set their title with `Metadata`; backend reads shared by a request are `#[memoize]`d in `backend.rs`.
 
@@ -59,8 +60,8 @@ rupicola serve \
 ```
 
 The upstream binds to loopback. Terminate TLS at the proxy and keep the upstream
-private. Back up the panel's data directory and the backend's database and media
-store together. Accounts, memberships, access records, captures and their media
+private. Back up the backend's database and media store; the panel itself is
+stateless. Accounts, memberships, access records, captures and their media
 live in the backend.
 
 In **Project settings**, create a Reader or Reviewer invitation. Share its code

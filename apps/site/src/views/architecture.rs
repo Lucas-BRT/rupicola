@@ -25,15 +25,15 @@ pub async fn architecture_page(cx: &Cx, panel_url: &str) -> Result<impl View> {
             section(grid: "grid-2",
                 article_card(
                     <h3><code>"rupicola"</code> " (CLI & Core)"</h3>
-                    <p class="muted">"MSRV 1.85.0. Runs " <code>"discover"</code> ", " <code>"scan"</code> ", " <code>"capture"</code> ", " <code>"publish"</code> ", " <code>"video"</code> ", " <code>"audit"</code> ", and the " <code>"mcp-bridge"</code> " to the backend."</p>
+                    <p class="muted">"MSRV 1.99. Runs " <code>"discover"</code> ", " <code>"scan"</code> ", " <code>"check"</code> ", " <code>"publish"</code> ", and the " <code>"mcp-bridge"</code> " to the backend."</p>
                 )
                 article_card(
                     <h3><code>"rupicola-server"</code> " (API)"</h3>
-                    <p class="muted">"Axum + SQLite: accounts, projects, captures, problems, fixes, design records, the media store and the MCP endpoint at " <code>"/mcp"</code> "."</p>
+                    <p class="muted">"Axum + SQLite: accounts, projects, captures, problems, fixes, design records, design systems, the media store and the MCP endpoint at " <code>"/mcp"</code> "."</p>
                 )
                 article_card(
                     <h3><code>"rupicola-panel"</code> " (Review App)"</h3>
-                    <p class="muted">"A Topcoat web client of the backend: sessions, review, Split Slider and Pixel Diff. It keeps only design-system versions of its own."</p>
+                    <p class="muted">"Stateless Topcoat web client of the backend: sessions, captures, review, Split Slider and Pixel Diff."</p>
                 )
                 article_card(
                     <h3><code>"rupicola-site"</code> " (Landing & Docs)"</h3>

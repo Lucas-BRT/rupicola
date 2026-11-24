@@ -1,9 +1,10 @@
 //! Captures as the panel shows them. The backend owns them: this reads a project's
 //! captures through the [`Api`] and wraps each with its project label.
 
-use super::{PageResult, Run, StatusCode, backend};
+use super::{Account, PageResult, Panel, Run, StatusCode, auth, backend};
 use rupicola_api::{Capture, Project};
-use topcoat::context::Cx;
+use std::sync::Arc;
+use topcoat::context::{Cx, context};
 
 /// Newest captures read in full per project when listing; older ones are not shown.
 const RECENT_PER_PROJECT: usize = 50;
@@ -42,19 +43,18 @@ pub async fn list(cx: &Cx) -> PageResult<Vec<Run>> {
 ///
 /// The status of a failed call to the backend.
 pub async fn of_project(cx: &Cx, project: &Project) -> PageResult<Vec<Run>> {
-    let summaries = backend::captures(cx, &project.id)
+    let (panel, account) = (context::<Arc<Panel>>(cx), context::<Account>(cx));
+    let query = format!("limit={RECENT_PER_PROJECT}&include=details");
+    let page = panel
+        .api
+        .search_captures(&account.session, &project.id, Some(query))
         .await
-        .as_ref()
-        .map_err(|e| *e)?;
-    let mut runs = Vec::new();
-    for summary in summaries.iter().take(RECENT_PER_PROJECT) {
-        let capture = backend::capture(cx, &summary.id)
-            .await
-            .as_ref()
-            .map_err(|e| *e)?;
-        runs.push(run_of(project, capture));
-    }
-    Ok(runs)
+        .map_err(|e| auth::api_error(&e))?;
+    Ok(page
+        .details
+        .iter()
+        .map(|capture| run_of(project, capture))
+        .collect())
 }
 
 /// One capture with the project it belongs to.

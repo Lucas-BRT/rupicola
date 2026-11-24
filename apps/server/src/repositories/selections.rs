@@ -96,30 +96,34 @@ pub async fn resolve_item(
     })
 }
 
+/// Anchor item row to insert under a selection.
+pub struct NewSelectionItem<'a> {
+    pub project: &'a str,
+    pub selection_id: &'a str,
+    pub position: i64,
+    pub capture_id: &'a str,
+    pub artifact_id: Option<&'a str>,
+    pub mark: &'a str,
+    pub fragment: Option<&'a str>,
+}
+
 /// Inserts one anchor item for a selection inside `tx`.
-#[allow(clippy::too_many_arguments)]
 pub async fn insert_item(
     tx: &mut SqliteConnection,
-    project: &str,
-    selection_id: &str,
-    position: i64,
-    capture_id: &str,
-    artifact_id: Option<&str>,
-    mark: &str,
-    fragment: Option<&str>,
+    item: NewSelectionItem<'_>,
 ) -> Result<(), ApiError> {
     sqlx::query(
         "INSERT INTO selection_items (project_id, selection_id, position, capture_id,
            artifact_id, mark, fragment)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )
-    .bind(project)
-    .bind(selection_id)
-    .bind(position)
-    .bind(capture_id)
-    .bind(artifact_id)
-    .bind(mark)
-    .bind(fragment)
+    .bind(item.project)
+    .bind(item.selection_id)
+    .bind(item.position)
+    .bind(item.capture_id)
+    .bind(item.artifact_id)
+    .bind(item.mark)
+    .bind(item.fragment)
     .execute(&mut *tx)
     .await?;
     Ok(())
