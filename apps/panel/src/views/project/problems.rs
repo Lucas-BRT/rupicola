@@ -158,7 +158,7 @@ async fn report_form(
                         <option value="content.md#anti-verbosity:Zero Decorative Boilerplate Microcopy">"content.md#anti-verbosity — Zero Decorative Boilerplate Microcopy"</option>
                 )
                 select_field(id: "prob-project-rule", name: "project_rule", label: "Violated project design norm",
-                    <option value="Design#flyio-copper-broadsheet:Fly.io Copper Broadsheet Direction">"Design#flyio-copper-broadsheet — Fly.io Copper Broadsheet Direction"</option>
+                    <option value="">"None"</option>
                     for d in design_entries.iter().take(12) {
                         <option value=(format!("Design#{}:{}", d.id, d.entry.title))>(d.entry.kind.label()) " · " (&d.entry.title)</option>
                     }

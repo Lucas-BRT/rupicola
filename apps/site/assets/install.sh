@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${RUPICOLA_REPO:-Lucas-BRT/ferris-atelier}"
+REPO="${RUPICOLA_REPO:-Lucas-BRT/rupicola}"
 INSTALL_ROOT="${RUPICOLA_HOME:-$HOME/.local/share/rupicola/dist}"
 BIN_DIR="${RUPICOLA_BIN_DIR:-$HOME/.local/bin}"
 VERSION="${RUPICOLA_VERSION:-latest}"

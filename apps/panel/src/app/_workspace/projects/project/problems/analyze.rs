@@ -175,7 +175,7 @@ fn infer_rule(text: &str) -> (Severity, &'static str, &'static str, &'static str
 }
 
 fn infer_from_finding(note: &str, evidence_artifact_id: Option<&str>) -> NewProblem {
-    let origin = if note.starts_with("measured") || note.contains("Visto e medido") {
+    let origin = if note.starts_with("measured") {
         ProblemOrigin::AgentMeasured
     } else {
         ProblemOrigin::AgentVisual
@@ -229,18 +229,11 @@ fn infer_from_finding(note: &str, evidence_artifact_id: Option<&str>) -> NewProb
         theme,
         diagnosis: note.to_owned(),
         proposed_solution: solution.to_owned(),
-        rules: vec![
-            Rule {
-                scope: "global".into(),
-                code: rule_code.into(),
-                title: rule_title.into(),
-            },
-            Rule {
-                scope: "project".into(),
-                code: "Design#flyio-copper-broadsheet".into(),
-                title: "Fly.io Copper Broadsheet Direction".into(),
-            },
-        ],
+        rules: vec![Rule {
+            scope: "global".into(),
+            code: rule_code.into(),
+            title: rule_title.into(),
+        }],
         evidence: evidence_artifact_id
             .filter(|id| !id.is_empty())
             .map(|id| vec![id.to_owned()])

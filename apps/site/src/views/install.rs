@@ -45,7 +45,7 @@ pub async fn install_page(cx: &Cx, panel_url: &str, public_url: &str) -> Result<
                 card(
                     <h2>"2. Prebuilt Release Binaries"</h2>
                     <p class="muted">"Built by CI for " <code>"x86_64-unknown-linux-gnu"</code> ", " <code>"x86_64-pc-windows-msvc"</code> ", " <code>"aarch64-apple-darwin"</code> ", and " <code>"x86_64-apple-darwin"</code> " with " <code>"SHA256SUMS"</code> "."</p>
-                    code_block(label: "Linux / macOS Release Archive", code: "gh release download <tag> --repo Lucas-BRT/ferris-atelier --pattern 'rupicola-<tag>-<target>.tar.gz'\ntar -xzf rupicola-<tag>-<target>.tar.gz\n./rupicola/rupicola --version")
+                    code_block(label: "Linux / macOS Release Archive", code: "gh release download <tag> --repo Lucas-BRT/rupicola --pattern 'rupicola-<tag>-<target>.tar.gz'\ntar -xzf rupicola-<tag>-<target>.tar.gz\n./rupicola/rupicola --version")
                 )
             )
             section(grid: "grid-2",
