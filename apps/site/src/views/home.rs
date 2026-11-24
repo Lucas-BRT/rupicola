@@ -61,7 +61,7 @@ async fn hero_stage_preview(cx: &Cx) -> Result<impl View> {
             </div>
             <div class="frame-body">
                 <div class="frame-canvas">
-                    <div class="diff-box" id="hero-diff" data-vp="1440" style="--pos:56%">
+                    <div class="diff-box" id="hero-diff" data-vp="1440" style="--pos:50%">
                         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--rail);border-bottom:1px solid var(--line)">
                             <span class="mono" id="hero-stage-title" style="font-size:11px">"settings-popover · 1440×900 · dark"</span>
                             <span class="pill pill-crest">"1.4% diff px"</span>
@@ -69,22 +69,22 @@ async fn hero_stage_preview(cx: &Cx) -> Result<impl View> {
                         <div class="diff-canvas">
                             <div class="diff-side diff-before">
                                 <span class="pill" style="background:#18181b;border-color:#27272a;color:#e4e4e7;width:fit-content">"BEFORE · rev 710b"</span>
-                                <div style="border:1px solid #27272a;padding:10px;border-radius:4px;background:#111114;font-size:12px">
+                                <div style="border:1px solid #27272a;padding:10px;border-radius:4px;background:#111114;font-size:12px;max-inline-size:28ch">
                                     <strong>"Focus lost on Escape"</strong>
-                                    <p class="mono" style="color:#a1a1aa;margin-top:4px;font-size:11px">"3px misaligned column · low placeholder contrast"</p>
+                                    <p class="mono" style="color:#a1a1aa;margin-top:4px;font-size:11px">"3px misaligned · low contrast"</p>
                                 </div>
                             </div>
                             <div class="diff-side diff-after">
                                 <span class="pill pill-ok" style="width:fit-content">"AFTER · rev a91f02"</span>
-                                <div style="border:1px solid var(--line);padding:10px;border-radius:4px;background:var(--rail);font-size:12px">
-                                    <strong>"Focus ring #FB6803 + 1px hairline grid"</strong>
-                                    <p class="muted" style="margin-top:4px;font-size:11px">"Zero overflow at 320px · contrast 14.2:1 · tabular numbers"</p>
+                                <div style="border:1px solid var(--line);padding:10px;border-radius:4px;background:var(--rail);font-size:12px;max-inline-size:28ch">
+                                    <strong>"Focus #FB6803 + 1px grid"</strong>
+                                    <p class="muted" style="margin-top:4px;font-size:11px">"Zero overflow · 14.2:1 contrast"</p>
                                 </div>
                             </div>
                             <div class="diff-pixel-mask"></div>
                             <div class="diff-line"></div>
                             <div class="diff-knob" aria-hidden="true">"↔"</div>
-                            <input class="diff-range" data-hero-split="" type="range" min="12" max="88" value="56" aria-label="Before and after split slider">
+                            <input class="diff-range" data-hero-split="" type="range" min="12" max="88" value="50" aria-label="Before and after split slider">
                         </div>
                     </div>
                     <div class="stage-hud" role="toolbar" aria-label="Preview controls">

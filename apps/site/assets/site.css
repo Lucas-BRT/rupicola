@@ -109,11 +109,11 @@
   }
   .topbar-inner {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 1rem; min-block-size: 50px;
+    gap: 0.6rem; min-block-size: 50px;
   }
 
   .brand {
-    display: inline-flex; align-items: center; gap: 0.55rem;
+    display: inline-flex; align-items: center; gap: 0.55rem; flex-shrink: 0; white-space: nowrap;
     color: var(--ink); text-decoration: none; font-weight: 700; min-block-size: 36px;
   }
   .mark {
@@ -135,7 +135,7 @@
     box-shadow: inset 0 -2px 0 var(--bird-crest);
   }
 
-  .topbar-actions { display: flex; align-items: center; gap: 0.45rem; }
+  .topbar-actions { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
   .nav-toggle { display: none; }
 
   @media (max-width: 780px) {
@@ -147,6 +147,9 @@
     }
     .nav-links.is-open { display: flex; }
     .nav-links a { min-block-size: 40px; }
+  }
+  @media (max-width: 440px) {
+    .topbar-panel-cta { display: none; }
   }
 
   .section { padding-block: clamp(2rem, 4vw, 3.25rem); }
@@ -179,7 +182,8 @@
   }
   .pill {
     display: inline-flex; align-items: center; gap: 5px;
-    height: 22px; padding: 0 8px; border-radius: 999px;
+    min-block-size: 22px; padding: 0.15rem 0.55rem; border-radius: 999px;
+    max-inline-size: 100%; text-align: center; line-height: 1.3;
     font-family: var(--mono); font-size: 11px; font-weight: 500;
     border: 1px solid var(--line); background: var(--surface); color: var(--muted);
   }
@@ -195,21 +199,24 @@
   /* Linear / Raycast Hero + Visual Stage Preview */
   .hero {
     position: relative;
-    padding-block: clamp(2.75rem, 5.5vw, 4.25rem) clamp(2rem, 4vw, 3rem);
+    padding-block: clamp(2.25rem, 5.5vw, 4.25rem) clamp(1.75rem, 4vw, 3rem);
     border-bottom: 1px solid var(--line);
     background: radial-gradient(62% 48% at 50% 0%, rgba(251, 104, 3, 0.14), transparent 72%);
   }
   .hero-center {
     text-align: center; display: grid; gap: 0.9rem; justify-items: center;
-    max-inline-size: 760px; margin-inline: auto;
+    max-inline-size: min(760px, 100%); min-inline-size: 0; margin-inline: auto;
   }
-  .hero-lead { font-size: 0.98rem; color: var(--muted); max-inline-size: 56ch; }
-  .cta-row { margin-top: 0.45rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.55rem; }
+  .hero-lead { font-size: 0.98rem; color: var(--muted); max-inline-size: min(56ch, 100%); }
+  .cta-row {
+    margin-top: 0.45rem; display: flex; flex-wrap: wrap; align-items: center;
+    justify-content: center; gap: 0.55rem; max-inline-size: 100%; min-inline-size: 0;
+  }
 
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
     min-block-size: 32px; padding: 0.35rem 0.85rem; border-radius: var(--radius-sm);
-    font-size: 0.82rem; font-weight: 600; text-decoration: none; cursor: pointer;
+    font-size: 0.82rem; font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap; flex-shrink: 0;
     border: 1px solid var(--input-line); background: var(--surface); color: var(--ink);
     box-shadow: var(--top-edge);
     transition: background-color 140ms var(--ease), border-color 140ms var(--ease), transform 100ms var(--ease);
@@ -223,33 +230,33 @@
   .btn-sm { min-block-size: 26px; padding: 0.18rem 0.55rem; font-size: 0.76rem; }
 
   .cmd-bar {
-    display: inline-flex; align-items: center; gap: 0.6rem; max-inline-size: 100%;
-    padding: 0.25rem 0.3rem 0.25rem 0.75rem; border-radius: var(--radius-md);
+    display: inline-flex; align-items: center; gap: 0.5rem; max-inline-size: 100%; min-inline-size: 0;
+    padding: 0.25rem 0.3rem 0.25rem 0.7rem; border-radius: var(--radius-md);
     background: var(--surface); border: 1px solid var(--input-line);
   }
-  .cmd-bar code { font-size: 0.78rem; color: var(--ink); overflow-x: auto; white-space: nowrap; }
+  .cmd-bar code { font-size: 0.76rem; color: var(--ink); overflow-x: auto; white-space: nowrap; min-inline-size: 0; }
 
   /* Embedded Live Visual Stage Canvas in Hero */
   .app-frame {
-    margin-top: 2.2rem; border: 1px solid var(--input-line); border-radius: var(--radius-lg);
-    overflow: hidden; background: var(--surface); box-shadow: var(--shadow-card);
+    margin-top: 2rem; border: 1px solid var(--input-line); border-radius: var(--radius-lg);
+    overflow: hidden; background: var(--surface); box-shadow: var(--shadow-card); max-inline-size: 100%;
   }
   .frame-chrome {
-    height: 34px; padding: 0 12px; background: var(--rail); border-bottom: 1px solid var(--line);
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-block-size: 34px; padding: 0.35rem 0.75rem; background: var(--rail); border-bottom: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.45rem;
   }
   .frame-dots { display: flex; gap: 5px; }
   .frame-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--input-line); }
-  .frame-body { display: grid; grid-template-columns: 1fr 270px; min-height: 315px; }
+  .frame-body { display: grid; grid-template-columns: minmax(0, 1fr) 260px; min-height: 300px; }
   .frame-canvas {
-    position: relative; padding: 18px; display: grid; place-items: center;
+    position: relative; padding: 0.9rem; display: grid; place-items: center; min-inline-size: 0;
     background-color: var(--canvas);
     background-image: radial-gradient(var(--input-line) 1px, transparent 1px);
     background-size: 16px 16px;
   }
   .frame-rail {
     border-left: 1px solid var(--line); background: var(--rail); padding: 12px;
-    display: grid; gap: 10px; align-content: start;
+    display: grid; gap: 10px; align-content: start; min-inline-size: 0;
   }
   .frame-tab {
     display: flex; align-items: center; justify-content: space-between; width: 100%;
@@ -261,18 +268,19 @@
   .frame-tab.is-active { background: var(--surface); color: var(--ink); border-color: var(--line); border-left: 2px solid var(--bird-crest); font-weight: 600; }
 
   .diff-box {
-    position: relative; width: 100%; max-width: 100%; border: 1px solid var(--input-line);
+    position: relative; width: 100%; max-inline-size: 100%; min-inline-size: 0; border: 1px solid var(--input-line);
     border-radius: var(--radius-md); overflow: hidden; background: var(--stage);
     transition: width 180ms var(--ease); user-select: none;
   }
   .diff-box[data-vp="768"] { width: min(620px, 100%); }
-  .diff-box[data-vp="320"] { width: 320px; }
+  .diff-box[data-vp="320"] { width: min(320px, 100%); }
   .diff-canvas { position: relative; display: grid; min-height: 210px; }
-  .diff-side { grid-area: 1 / 1; padding: 14px; display: grid; gap: 8px; align-content: start; }
+  .diff-side { grid-area: 1 / 1; padding: 14px; display: grid; gap: 8px; align-content: start; min-inline-size: 0; }
   .diff-before { background: #0d0d10; color: #d4d4d8; }
   .diff-after {
     background: var(--surface); color: var(--ink);
-    clip-path: inset(0 calc(100% - var(--pos, 56%)) 0 0);
+    clip-path: inset(0 0 0 var(--pos, 50%));
+    justify-items: end; text-align: right;
   }
   .diff-line { position: absolute; inset-block: 0; left: var(--pos, 56%); width: 2px; background: var(--bird-crest); pointer-events: none; }
   .diff-knob {

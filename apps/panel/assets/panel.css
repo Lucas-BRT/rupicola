@@ -22,6 +22,8 @@
     --input-line: light-dark(#d4d4d8, #32323a);
     --copper: light-dark(#d84803, #fb6803);
     --on-copper: light-dark(#ffffff, #111113);
+    --primary: #fb6803;
+    --primary-foreground: #111113;
     --tint: light-dark(#fff1e6, rgba(251, 104, 3, 0.14));
     --ok: light-dark(#15803d, #4ade80);
     --ok-bg: light-dark(#f0fdf4, rgba(34, 197, 94, 0.12));
