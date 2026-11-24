@@ -17,7 +17,7 @@ use crate::project::AssetOption;
 use crate::records::{FixRecord, Problem};
 use crate::{Run, auth};
 use auth::Role;
-use rupicola_api::{DesignEntry, FixStatus, ProblemStatus, Severity};
+use rupicola_api::{DesignEntry, FixStatus, Job, JobStatus, ProblemStatus, Severity};
 use topcoat::{
     Result,
     context::Cx,
@@ -124,16 +124,35 @@ pub async fn project_frame(
     cx: &Cx,
     project: &crate::project::ProjectMeta,
     tab: Tab,
+    open_jobs: Vec<Job>,
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     let (id, label, base, role) = (&project.id, &project.label, &project.base, project.role);
     let overview = tab == Tab::Overview;
+    let jobs_url = format!("{base}/jobs");
+    let done: u32 = open_jobs.iter().map(|j| j.cells_done).sum();
+    let total: u32 = open_jobs.iter().map(|j| j.cells_total).sum();
+    let job_noun = if open_jobs.len() == 1 {
+        "capture job"
+    } else {
+        "capture jobs"
+    };
+    let job_verb = if open_jobs.iter().any(|j| j.status == JobStatus::Running) {
+        "running"
+    } else {
+        "queued"
+    };
+    let jobs_summary = format!(
+        "{} {job_noun} {job_verb} · {done}/{total} cells",
+        open_jobs.len()
+    );
     Ok(view! {
         breadcrumbs(<a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span><span>(label)</span>)
         <header class="page-title project-masthead">
             <div><h1>(if overview { label.as_str() } else { tab.heading() })</h1>
                 if overview && label != id { <code class="muted">(id)</code> }
             </div>
+            <div class="jobs-indicator" role="status" aria-live="polite" data-jobs-url=(jobs_url) if open_jobs.is_empty() { hidden="" }>(jobs_summary)</div>
         </header>
         tabs(label: "Project",
             for each in Tab::ALL {

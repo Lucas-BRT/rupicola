@@ -178,13 +178,26 @@ pub async fn auto_recapture_enabled(state: &AppState, project: &str) -> Result<b
     Ok(DEFAULT_AUTO_RECAPTURE)
 }
 
+fn decode_base_ref(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let decoded = serde_json::from_str::<String>(trimmed).unwrap_or_else(|_| trimmed.to_owned());
+    let clean = decoded.trim();
+    (!clean.is_empty()).then(|| clean.to_owned())
+}
+
+fn encode_base_ref(base: &str) -> Result<String, ApiError> {
+    crate::domain::fix::check_git_ref(base)?;
+    serde_json::to_string(base.trim()).map_err(|_| ApiError::invalid("invalid base_ref"))
+}
+
 /// Base Git ref for `project` when composing comparison trees.
 pub async fn project_base_ref(state: &AppState, project: &str) -> Result<String, ApiError> {
     let proj_rows = settings::project(&state.db, project).await?;
-    if let Some(val) = find_setting(&proj_rows, KEY_BASE_REF)
-        && !val.trim().is_empty()
-    {
-        return Ok(val.trim().to_owned());
+    if let Some(val) = find_setting(&proj_rows, KEY_BASE_REF).and_then(decode_base_ref) {
+        return Ok(val);
     }
     Ok(DEFAULT_BASE_REF.to_owned())
 }
@@ -200,9 +213,8 @@ pub async fn capture_server(
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(DEFAULT_AUTO_RECAPTURE);
     let base_ref = find_setting(&srv_rows, KEY_BASE_REF)
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or(DEFAULT_BASE_REF)
-        .to_owned();
+        .and_then(decode_base_ref)
+        .unwrap_or_else(|| DEFAULT_BASE_REF.to_owned());
     Ok(RecaptureSettings {
         auto_recapture,
         base_ref,
@@ -229,8 +241,8 @@ pub async fn update_capture_server(
         .await?;
     }
     if let Some(base) = &patch.base_ref {
-        crate::domain::fix::check_git_ref(base)?;
-        settings::set_server(&mut *tx, KEY_BASE_REF, base.trim(), actor, now).await?;
+        let encoded = encode_base_ref(base)?;
+        settings::set_server(&mut *tx, KEY_BASE_REF, &encoded, actor, now).await?;
     }
     tx.commit().await?;
     capture_server(state, principal).await
@@ -272,8 +284,8 @@ pub async fn update_capture_project(
         .await?;
     }
     if let Some(base) = &patch.base_ref {
-        crate::domain::fix::check_git_ref(base)?;
-        settings::set_project(&mut *tx, project, KEY_BASE_REF, base.trim(), actor, now).await?;
+        let encoded = encode_base_ref(base)?;
+        settings::set_project(&mut *tx, project, KEY_BASE_REF, &encoded, actor, now).await?;
     }
     tx.commit().await?;
     capture_project(state, principal, project).await

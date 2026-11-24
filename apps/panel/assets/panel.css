@@ -621,3 +621,8 @@
 .design-preview { width: 100%; min-height: min(42rem, 78vh); border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-inner); }
 .design-notes { padding-inline-start: 1.2rem; overflow-wrap: anywhere; }
 .design-notes time { margin-inline-start: 0.5rem; }
+.jobs-indicator { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.25rem 0.6rem; border: 1px solid var(--line); border-radius: var(--r-inner); background: var(--rail); font-family: var(--mono); font-size: 0.78rem; color: var(--copper); max-inline-size: 100%; }
+.jobs-indicator[hidden], .fix-job-badge[hidden] { display: none; }
+.fix-job-badge { display: inline-flex; align-items: center; padding: 0.15rem 0.45rem; border: 1px solid var(--copper); border-radius: var(--r-inner); font-family: var(--mono); font-size: 0.72rem; color: var(--copper); }
+.checkbox-row { display: inline-flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; }
+.checkbox-row input[type="checkbox"] { inline-size: 1.05rem; block-size: 1.05rem; min-block-size: auto; padding: 0; margin-block-start: 0.15rem; flex: none; accent-color: var(--bird-crest); }

@@ -10,7 +10,9 @@ use crate::{
     views::credential::credential_slip,
     views::project::{Tab, settings::settings_tab},
 };
-use rupicola_api::NewInvite;
+use rupicola_api::{
+    DEFAULT_AUTO_RECAPTURE, DEFAULT_BASE_REF, NewInvite, RecaptureSettings, RecaptureSettingsPatch,
+};
 use topcoat::{
     Result,
     context::Cx,
@@ -22,15 +24,32 @@ use topcoat::{
 #[page(with(Metadata::from_fn(async |cx| tab_metadata(cx, Tab::Settings).await)))]
 async fn page(cx: &Cx) -> Result<impl View> {
     let project = current_meta(cx).await.as_ref().map_err(|e| fail(*e))?;
-    let (members, audit) = if project.role == Role::Owner {
-        access_lists(&panel(cx), &account(cx), &project.id)
+    let (members, audit, capture) = if project.role == Role::Owner {
+        let (m, a) = access_lists(&panel(cx), &account(cx), &project.id)
             .await
-            .map_err(fail)?
+            .map_err(fail)?;
+        let cap = crate::backend::capture_settings(cx, &project.id)
+            .await
+            .as_ref()
+            .ok()
+            .cloned()
+            .unwrap_or_else(|| RecaptureSettings {
+                auto_recapture: DEFAULT_AUTO_RECAPTURE,
+                base_ref: DEFAULT_BASE_REF.to_owned(),
+            });
+        (m, a, cap)
     } else {
-        (Vec::new(), Vec::new())
+        (
+            Vec::new(),
+            Vec::new(),
+            RecaptureSettings {
+                auto_recapture: DEFAULT_AUTO_RECAPTURE,
+                base_ref: DEFAULT_BASE_REF.to_owned(),
+            },
+        )
     };
     Ok(view! {
-        settings_tab(base: &project.base, role: project.role, members: members, audit: audit)
+        settings_tab(base: &project.base, role: project.role, members: members, audit: audit, capture: capture)
     })
 }
 
@@ -47,7 +66,7 @@ async fn change_access(cx: &Cx, Form(form): Form<ProjectAction>) -> Result<impl 
         return Err(fail(StatusCode::FORBIDDEN));
     }
     let url = format!("{}/settings", project.base);
-    let secret = change_project_access(&panel, &account, &project.id, &form.action, &form.value)
+    let secret = change_project_access(&panel, &account, &project.id, &form)
         .await
         .map_err(fail)?
         .ok_or_else(|| see_other(&url))?;
@@ -58,20 +77,24 @@ async fn change_access(cx: &Cx, Form(form): Form<ProjectAction>) -> Result<impl 
 struct ProjectAction {
     csrf: String,
     action: String,
+    #[serde(default)]
     value: String,
+    #[serde(default)]
+    auto_recapture: Option<String>,
+    #[serde(default)]
+    base_ref: Option<String>,
 }
 
-/// Changes who can reach a project; returns the code of a new invitation.
+/// Changes who can reach a project or its capture settings; returns the code of a new invitation.
 async fn change_project_access(
     panel: &Panel,
     account: &Account,
     id: &str,
-    action: &str,
-    value: &str,
+    form: &ProjectAction,
 ) -> PageResult<Option<String>> {
-    let value = value.trim();
+    let value = form.value.trim();
     let api = &panel.api;
-    match action {
+    match form.action.as_str() {
         "invite" => {
             let role = match value {
                 "reader" => rupicola_api::Role::Reader,
@@ -88,6 +111,26 @@ async fn change_project_access(
             api.remove_member(&account.session, id, value)
                 .await
                 .map_err(|e| auth::api_error(&e))?;
+            Ok(None)
+        }
+        "capture-settings" => {
+            let auto_recapture = Some(form.auto_recapture.is_some());
+            let base_ref = form
+                .base_ref
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            api.update_capture_settings(
+                &account.session,
+                id,
+                &RecaptureSettingsPatch {
+                    auto_recapture,
+                    base_ref,
+                },
+            )
+            .await
+            .map_err(|e| auth::api_error(&e))?;
             Ok(None)
         }
         _ => Err(StatusCode::UNPROCESSABLE_ENTITY),

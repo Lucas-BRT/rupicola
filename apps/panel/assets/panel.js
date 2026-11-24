@@ -308,3 +308,42 @@ for (const comp of document.querySelectorAll("[data-comparator]")) {
     });
   }
 }
+
+// Poll open capture jobs and update masthead + fix card indicators. Polling never stops, so a
+// job queued after the page rendered still shows up.
+const jobsIndicator = document.querySelector("[data-jobs-url]");
+if (jobsIndicator) {
+  const jobsUrl = jobsIndicator.dataset.jobsUrl;
+  const busyPollMs = 4000;
+  const idlePollMs = 10000;
+  const pollJobs = async () => {
+    let open = 0;
+    try {
+      const resp = await fetch(jobsUrl, { headers: { Accept: "application/json" } });
+      if (resp.ok) {
+        const jobs = await resp.json();
+        open = jobs.length;
+        const done = jobs.reduce((acc, j) => acc + (j.cells_done || 0), 0);
+        const total = jobs.reduce((acc, j) => acc + (j.cells_total || 0), 0);
+        const noun = jobs.length === 1 ? "capture job" : "capture jobs";
+        const verb = jobs.some((j) => j.status === "running") ? "running" : "queued";
+        jobsIndicator.textContent = `${jobs.length} ${noun} ${verb} · ${done}/${total} cells`;
+        jobsIndicator.hidden = open === 0;
+        for (const badge of document.querySelectorAll("[data-fix-job-badge]")) {
+          const job = jobs.find((j) => j.fix === badge.dataset.fixJobBadge);
+          badge.hidden = !job;
+          if (job) {
+            badge.textContent =
+              job.status === "queued"
+                ? "Queued for recapture"
+                : `Recapturing · ${job.cells_done}/${job.cells_total}`;
+          }
+        }
+      }
+    } catch {
+      // Transient error: retry on the next tick.
+    }
+    setTimeout(pollJobs, open > 0 ? busyPollMs : idlePollMs);
+  };
+  pollJobs();
+}

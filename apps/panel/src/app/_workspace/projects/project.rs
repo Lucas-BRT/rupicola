@@ -6,6 +6,7 @@ mod design;
 mod findings;
 mod fixes;
 mod images;
+mod jobs;
 mod problems;
 mod runs;
 mod settings;
@@ -63,7 +64,13 @@ pub async fn tab_metadata(cx: &Cx, tab: Tab) -> Result<Metadata> {
 async fn frame(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
     let project = current_meta(cx).await.as_ref().map_err(|e| fail(*e))?;
     let tab = Tab::of(request::uri(cx).path(), &project.base);
-    Ok(view! { project_frame(project: project, tab: tab, (slot)) })
+    let open_jobs = crate::backend::open_jobs(cx, &project.id)
+        .await
+        .as_ref()
+        .ok()
+        .cloned()
+        .unwrap_or_default();
+    Ok(view! { project_frame(project: project, tab: tab, open_jobs: open_jobs, (slot)) })
 }
 
 /// Recent captures listed on the overview.

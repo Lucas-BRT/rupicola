@@ -4,8 +4,8 @@
 use crate::{Account, Panel, auth};
 use http::StatusCode;
 use rupicola_api::{
-    Capture, CaptureSummary, DesignEntry, Fix, FixSummary, Problem, ProblemSummary, Project,
-    SystemList, SystemVersion,
+    Capture, CaptureSummary, DesignEntry, Fix, FixSummary, Job, Problem, ProblemSummary, Project,
+    RecaptureSettings, SystemList, SystemVersion,
 };
 use std::sync::Arc;
 use topcoat::context::{Cx, context, memoize};
@@ -79,6 +79,28 @@ pub async fn fixes(cx: &Cx, project: &str) -> Result<Vec<FixSummary>, Failure> {
     panel
         .api
         .fixes(&account.session, project)
+        .await
+        .map_err(|e| auth::api_error(&e))
+}
+
+/// Queued or running capture jobs of `project`.
+#[memoize]
+pub async fn open_jobs(cx: &Cx, project: &str) -> Result<Vec<Job>, Failure> {
+    let (panel, account) = api(cx);
+    panel
+        .api
+        .jobs(&account.session, project, true)
+        .await
+        .map_err(|e| auth::api_error(&e))
+}
+
+/// Capture and automatic-recapture settings of `project`.
+#[memoize]
+pub async fn capture_settings(cx: &Cx, project: &str) -> Result<RecaptureSettings, Failure> {
+    let (panel, account) = api(cx);
+    panel
+        .api
+        .capture_settings(&account.session, project)
         .await
         .map_err(|e| auth::api_error(&e))
 }

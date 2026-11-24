@@ -6,6 +6,7 @@ use crate::components::{
 };
 use crate::project::Filter;
 use crate::records::ComparisonPair;
+use rupicola_api::{Job, JobStatus};
 use topcoat::{
     Result,
     context::context,
@@ -22,6 +23,7 @@ pub async fn fixes_tab(
     fixes: Vec<FixRecord>,
     problems: Vec<Problem>,
     assets: Vec<AssetOption>,
+    open_jobs: Vec<Job>,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
     Ok(view! {
@@ -73,7 +75,10 @@ pub async fn fixes_tab(
         } else {
             <div class="fixes-list">
                 for fix in &filtered {
-                    fix_card(fix: fix, base: base, role: role, token: &account.csrf)
+                    let fix_job = open_jobs
+                        .iter()
+                        .find(|j| j.fix.as_deref() == Some(fix.id.as_str()));
+                    fix_card(fix: fix, base: base, role: role, token: &account.csrf, job: fix_job)
                 }
             </div>
         }
@@ -149,13 +154,22 @@ async fn fix_card(
     base: &str,
     role: Role,
     token: &str,
+    job: Option<&Job>,
 ) -> Result<impl View> {
+    let job_text = job.map(|j| {
+        if j.status == JobStatus::Queued {
+            "Queued for recapture".to_owned()
+        } else {
+            format!("Recapturing · {}/{}", j.cells_done, j.cells_total)
+        }
+    });
     Ok(view! {
         <article class="surface fix-card" id=(format!("fix-{}", fix.id)) data-fix-card=(&fix.id)>
             <header class="propose-head">
                 <div>
                     <div class="propose-badges">
                         badge(variant: fix_status_badge(fix.status), (fix.status.label()))
+                        <span class="fix-job-badge" data-fix-job-badge=(&fix.id) if job_text.is_none() { hidden="" }>(job_text.as_deref().unwrap_or(""))</span>
                         for pid in &fix.problem_ids {
                             <a class="tactic-chip" href=(format!("{base}/problems#problem-{pid}"))>"Problem #" (pid.chars().take(10).collect::<String>()) " ↗"</a>
                         }

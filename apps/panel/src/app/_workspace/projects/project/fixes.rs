@@ -24,7 +24,13 @@ async fn page(cx: &Cx) -> Result<impl View> {
     let problems = records::problems(cx, &project.id, &assets, &fixes)
         .await
         .map_err(fail)?;
+    let open_jobs = crate::backend::open_jobs(cx, &project.id)
+        .await
+        .as_ref()
+        .ok()
+        .cloned()
+        .unwrap_or_default();
     Ok(view! {
-        fixes_tab(role: project.role, base: &project.base, filter: filter, fixes: fixes, problems: problems, assets: assets)
+        fixes_tab(role: project.role, base: &project.base, filter: filter, fixes: fixes, problems: problems, assets: assets, open_jobs: open_jobs)
     })
 }

@@ -1,5 +1,6 @@
 use crate::components::{display::empty, form::csrf};
 use crate::{Account, auth::Role, project::AccessItem};
+use rupicola_api::RecaptureSettings;
 use topcoat::{
     Result,
     context::{Cx, context},
@@ -14,6 +15,7 @@ pub async fn settings_tab(
     role: Role,
     members: Vec<AccessItem>,
     audit: Vec<AccessItem>,
+    capture: RecaptureSettings,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
     Ok(view! {
@@ -34,6 +36,20 @@ pub async fn settings_tab(
                         <label for="role">"Invitation role"</label>
                         <select name="value" id="role"><option value="reader">"Reader"</option><option value="reviewer">"Reviewer"</option></select>
                         <button class="button" type="submit">"Create invitation"</button>
+                    </form>
+                </section>
+                <section class="surface panel-padding">
+                    <h3>"Capture & recapture"</h3>
+                    <form method="post" action=(format!("{base}/settings")) class="stack-form">
+                        csrf(token: &account.csrf)
+                        <input type="hidden" name="action" value="capture-settings">
+                        <label class="checkbox-row" for="auto-recapture">
+                            <input type="checkbox" id="auto-recapture" name="auto_recapture" value="true" if capture.auto_recapture { checked="" }>
+                            <span>"Automatically recapture pending fixes when a fix is approved"</span>
+                        </label>
+                        <label for="base-ref">"Base Git ref"</label>
+                        <input type="text" id="base-ref" name="base_ref" value=(&capture.base_ref) maxlength="200" required="">
+                        <button class="button" type="submit">"Save capture settings"</button>
                     </form>
                 </section>
             </div>

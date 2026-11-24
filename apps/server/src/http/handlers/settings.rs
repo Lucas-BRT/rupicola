@@ -291,4 +291,34 @@ mod tests {
                 .any(|e| e.event == "Reset max_artifacts_per_capture")
         );
     }
+
+    #[tokio::test]
+    async fn capture_settings_round_trip_with_base_ref() {
+        let (port, _state, [_root, ana, bruno]) = demo().await;
+        let updated = call(
+            port,
+            "PATCH",
+            "/v1/projects/demo/capture-settings",
+            Some(&ana),
+            Some(r#"{"auto_recapture":false,"base_ref":"main"}"#),
+        )
+        .await;
+        assert_eq!(status(&updated), StatusCode::OK);
+        let parsed: rupicola_api::RecaptureSettings = json(&updated);
+        assert!(!parsed.auto_recapture);
+        assert_eq!(parsed.base_ref, "main");
+
+        let read_back: rupicola_api::RecaptureSettings = json(
+            &call(
+                port,
+                "GET",
+                "/v1/projects/demo/capture-settings",
+                Some(&bruno),
+                None,
+            )
+            .await,
+        );
+        assert!(!read_back.auto_recapture);
+        assert_eq!(read_back.base_ref, "main");
+    }
 }
