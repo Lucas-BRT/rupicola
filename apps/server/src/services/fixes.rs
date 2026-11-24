@@ -15,8 +15,8 @@ use crate::{
     state::AppState,
 };
 use rupicola_api::{
-    Fix, FixSelectionLink, FixSelectionRole, FixSummary, NewFix, NewReview, NewSelection, NewStep,
-    ProblemStatus, Role, SelectionItem, SelectionMark, Step,
+    ComparisonView, Fix, FixSelectionLink, FixSelectionRole, FixSummary, NewFix, NewReview,
+    NewSelection, NewStep, ProblemStatus, Role, SelectionItem, SelectionMark, Step,
 };
 use sqlx::SqliteConnection;
 use std::collections::BTreeSet;
@@ -101,7 +101,13 @@ async fn proofs(
 ) -> Result<Vec<(FixSelectionRole, NewSelection)>, ApiError> {
     let mut before = Vec::new();
     let mut after = Vec::new();
-    for comparison in &form.comparisons {
+    // Only the isolated comparisons are the fix's own proof; an integrated one also shows other
+    // fixes' changes.
+    for comparison in form
+        .comparisons
+        .iter()
+        .filter(|comparison| comparison.view == ComparisonView::Isolated)
+    {
         before.push(anchor(tx, project, &comparison.before).await?);
         after.push(anchor(tx, project, &comparison.after).await?);
         if let Some(diff) = &comparison.diff {

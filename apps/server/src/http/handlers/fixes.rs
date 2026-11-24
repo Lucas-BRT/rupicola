@@ -324,6 +324,135 @@ mod tests {
         );
     }
 
+    /// A fix with one comparison of `view`, listing `applied` as the fixes already in its tree.
+    fn viewed_fix(problem: &str, view: &str, applied: &[&str]) -> String {
+        let applied = applied
+            .iter()
+            .map(|id| format!("\"{id}\""))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            r#"{{"title":"Add spacing","problems":["{problem}"],
+                "comparisons":[{{"label":"home","view":"{view}","applied_fixes":[{applied}],
+                  "base_revision":"a1b2c3d","revision":"e4f5a6b",
+                  "before":"{PROJECT_ARTIFACT}","after":"{PROJECT_ARTIFACT}"}}]}}"#
+        )
+    }
+
+    async fn file_fix(port: u16, token: &str, form: &str) -> Fix {
+        let created = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(token),
+            Some(form),
+        )
+        .await;
+        assert_eq!(status(&created), StatusCode::CREATED, "{created}");
+        json(&created)
+    }
+
+    async fn fetch(port: u16, token: &str, id: &str) -> Fix {
+        json(&call(port, "GET", &format!("/v1/fixes/{id}"), Some(token), None).await)
+    }
+
+    #[tokio::test]
+    async fn an_integrated_comparison_goes_stale_when_the_approved_fixes_change() {
+        let (port, [ana, _, _]) = demo_with_artifacts().await;
+        let problem = file_problem(port, &ana).await;
+        let first = file_fix(port, &ana, &new_fix(&problem, PROJECT_ARTIFACT)).await;
+        let isolated = file_fix(port, &ana, &viewed_fix(&problem, "isolated", &[])).await;
+        let alone = file_fix(port, &ana, &viewed_fix(&problem, "integrated", &[])).await;
+        let with_first = file_fix(
+            port,
+            &ana,
+            &viewed_fix(&problem, "integrated", &[first.id.as_str()]),
+        )
+        .await;
+        assert!(!fetch(port, &ana, &alone.id).await.comparisons[0].stale);
+
+        let approved = call(
+            port,
+            "POST",
+            &format!("/v1/fixes/{}/reviews", first.id),
+            Some(&ana),
+            Some(r#"{"outcome":"approved"}"#),
+        )
+        .await;
+        assert_eq!(status(&approved), StatusCode::OK, "{approved}");
+
+        let alone = fetch(port, &ana, &alone.id).await;
+        assert!(
+            alone.comparisons[0].stale,
+            "taken before the first fix was approved"
+        );
+        assert_eq!(alone.comparisons[0].revision, "e4f5a6b");
+        assert!(!fetch(port, &ana, &with_first.id).await.comparisons[0].stale);
+        assert!(
+            !fetch(port, &ana, &isolated.id).await.comparisons[0].stale,
+            "an isolated comparison does not depend on other fixes"
+        );
+        let listed: Vec<Fix> = json(
+            &call(
+                port,
+                "GET",
+                "/v1/projects/demo/fixes/details",
+                Some(&ana),
+                None,
+            )
+            .await,
+        );
+        let stale: Vec<&str> = listed
+            .iter()
+            .filter(|fix| fix.comparisons.iter().any(|c| c.stale))
+            .map(|fix| fix.id.as_str())
+            .collect();
+        assert_eq!(stale, [alone.id.as_str()], "the detailed list agrees");
+    }
+
+    #[tokio::test]
+    async fn only_isolated_comparisons_are_the_fixs_own_proof() {
+        let (port, [ana, _, _]) = demo_with_artifacts().await;
+        let problem = file_problem(port, &ana).await;
+        let form = format!(
+            r#"{{"title":"Add spacing","problems":["{problem}"],
+                "comparisons":[
+                  {{"label":"alone","view":"isolated","before":"{PROJECT_ARTIFACT}","after":"{PROJECT_ARTIFACT}"}},
+                  {{"label":"stacked","view":"integrated","before":"{PROJECT_ARTIFACT}","after":"{PROJECT_ARTIFACT}"}}]}}"#
+        );
+        let fix = file_fix(port, &ana, &form).await;
+        assert_eq!(fix.comparisons.len(), 2);
+        let sizes: Vec<usize> = fix
+            .selections
+            .iter()
+            .map(|s| s.selection.items.len())
+            .collect();
+        assert_eq!(
+            sizes,
+            [1, 1],
+            "one before and one after, from the isolated pair"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_isolated_comparison_cannot_apply_other_fixes() {
+        let (port, [ana, _, _]) = demo_with_artifacts().await;
+        let problem = file_problem(port, &ana).await;
+        let refused = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&ana),
+            Some(&viewed_fix(&problem, "isolated", &["other"])),
+        )
+        .await;
+        assert_eq!(
+            status(&refused),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{refused}"
+        );
+    }
+
     #[tokio::test]
     async fn a_fix_cites_a_selection_changes_its_role_and_drops_it() {
         let (port, [ana, bruno, carla]) = demo_with_artifacts().await;

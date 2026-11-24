@@ -248,7 +248,12 @@ fn comparisons() -> Value {
         "required": ["label", "before", "after"],
         "properties": {"label": text(), "route": text(), "viewport": text(), "theme": text(),
             "before": text(), "after": text(), "diff": text(),
-            "changed_ratio": {"type": "number"}}}})
+            "changed_ratio": {"type": "number"},
+            "view": {"enum": ["isolated", "integrated"],
+                "description": "isolated: the base against the base plus this fix alone. integrated: the base with every approved fix against the same plus this fix."},
+            "base_revision": text(), "revision": text(),
+            "applied_fixes": {"type": "array", "items": text(),
+                "description": "Ids of the approved fixes the before tree already had; empty when isolated."}}}})
 }
 
 fn step_properties() -> Value {

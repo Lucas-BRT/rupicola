@@ -100,6 +100,7 @@ pub async fn create_fix_action(
             after: crate::records::artifact_of(after).to_owned(),
             diff: None,
             changed_ratio: None,
+            ..rupicola_api::Comparison::default()
         }]
     };
     let new = rupicola_api::NewFix {

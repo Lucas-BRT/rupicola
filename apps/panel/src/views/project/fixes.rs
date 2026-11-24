@@ -289,14 +289,14 @@ async fn comparator(cx: &Cx, fix: &FixRecord, pair: &ComparisonPair) -> Result<i
                                 data-pair-before=(&cmp.before_url)
                                 data-pair-after=(effective_after_url(fix, cmp))
                                 data-pair-diff=(cmp.diff_url.as_deref().unwrap_or(""))
-                                data-pair-label=(&cmp.label)>
-                                (&cmp.label)
+                                data-pair-label=(cmp.caption())>
+                                (cmp.caption())
                             </button>
                         }
                     </div>
                 } else {
                     <span class="tactic-chip" data-pair-current-label="">
-                        (&pair.label)
+                        (pair.caption())
                         if after_video { " · VIDEO MP4" }
                     </span>
                 }

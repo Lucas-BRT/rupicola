@@ -48,11 +48,39 @@ pub struct FixSelectionLink {
     pub role: FixSelectionRole,
 }
 
+text_enum! {
+    /// Which tree a comparison was captured on.
+    #[derive(Default)]
+    ComparisonView {
+        /// The base against the base plus this fix alone: what the fix does by itself.
+        #[default]
+        Isolated => "isolated",
+        /// The base with every approved fix against the same plus this fix: how the fix looks
+        /// once the approved ones are in.
+        Integrated => "integrated",
+    }
+}
+
 /// Before/after proof for one route, viewport and theme. The artifacts are files of
 /// captures in the same project.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Comparison {
     pub label: String,
+    #[serde(default)]
+    pub view: ComparisonView,
+    /// Source revision the before capture was taken at.
+    #[serde(default)]
+    pub base_revision: String,
+    /// Source revision the after capture was taken at.
+    #[serde(default)]
+    pub revision: String,
+    /// Fixes the before tree already had applied; empty for an isolated comparison.
+    #[serde(default)]
+    pub applied_fixes: Vec<String>,
+    /// An integrated comparison is stale once the approved fixes are not the ones it was taken
+    /// with. Set when a fix is read; whatever a client sends is ignored.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
     #[serde(default)]
     pub route: String,
     #[serde(default)]
@@ -65,6 +93,26 @@ pub struct Comparison {
     pub diff: Option<String>,
     #[serde(default)]
     pub changed_ratio: Option<f64>,
+}
+
+impl Comparison {
+    /// Whether this comparison no longer matches the project: an integrated one whose
+    /// `applied_fixes` differ from `approved`, the approved fixes other than `own`. An
+    /// isolated comparison does not depend on other fixes.
+    #[must_use]
+    pub fn is_stale(&self, own: &str, approved: &std::collections::BTreeSet<String>) -> bool {
+        if self.view != ComparisonView::Integrated {
+            return false;
+        }
+        let applied: std::collections::BTreeSet<&str> =
+            self.applied_fixes.iter().map(String::as_str).collect();
+        let current: std::collections::BTreeSet<&str> = approved
+            .iter()
+            .map(String::as_str)
+            .filter(|id| *id != own)
+            .collect();
+        applied != current
+    }
 }
 
 /// One verified step of the work, optionally backed by an artifact.

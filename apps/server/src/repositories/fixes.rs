@@ -7,7 +7,7 @@ use rupicola_api::{
     ProblemStatus, Review, Step,
 };
 use sqlx::{SqliteConnection, SqlitePool};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// A `fixes` row as listed.
 #[derive(sqlx::FromRow)]
@@ -57,12 +57,23 @@ struct ComparisonRow {
     after_artifact_id: String,
     diff_artifact_id: Option<String>,
     changed_ratio: Option<f64>,
+    view: String,
+    base_revision: String,
+    revision: String,
+    applied_fixes: String,
 }
 
-impl From<ComparisonRow> for Comparison {
-    fn from(row: ComparisonRow) -> Self {
-        Self {
+impl TryFrom<ComparisonRow> for Comparison {
+    type Error = ApiError;
+
+    fn try_from(row: ComparisonRow) -> Result<Self, ApiError> {
+        Ok(Self {
             label: row.label,
+            view: row.view.parse().map_err(anyhow::Error::from)?,
+            base_revision: row.base_revision,
+            revision: row.revision,
+            applied_fixes: serde_json::from_str(&row.applied_fixes).map_err(anyhow::Error::from)?,
+            stale: false,
             route: row.route,
             viewport: row.viewport,
             theme: row.theme,
@@ -70,8 +81,34 @@ impl From<ComparisonRow> for Comparison {
             after: row.after_artifact_id,
             diff: row.diff_artifact_id,
             changed_ratio: row.changed_ratio,
-        }
+        })
     }
+}
+
+/// Ids of the project's approved fixes, which an integrated comparison is taken against.
+async fn approved_ids(db: &SqlitePool, project: &str) -> Result<BTreeSet<String>, ApiError> {
+    let ids: Vec<String> =
+        sqlx::query_scalar("SELECT id FROM fixes WHERE project_id = ?1 AND status = ?2")
+            .bind(project)
+            .bind(FixStatus::Approved.as_str())
+            .fetch_all(db)
+            .await?;
+    Ok(ids.into_iter().collect())
+}
+
+/// Converts comparison rows and flags the integrated ones the approved fixes have outdated.
+fn comparisons_of(
+    rows: Vec<ComparisonRow>,
+    fix: &str,
+    approved: &BTreeSet<String>,
+) -> Result<Vec<Comparison>, ApiError> {
+    rows.into_iter()
+        .map(|row| {
+            let mut comparison = Comparison::try_from(row)?;
+            comparison.stale = comparison.is_stale(fix, approved);
+            Ok(comparison)
+        })
+        .collect()
 }
 
 /// A `fix_steps` row.
@@ -239,8 +276,9 @@ pub async fn insert_details(
     for (position, comparison) in form.comparisons.iter().enumerate() {
         sqlx::query(
             "INSERT INTO fix_comparisons (id, fix_id, position, label, route, viewport, theme,
-               before_artifact_id, after_artifact_id, diff_artifact_id, changed_ratio)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+               before_artifact_id, after_artifact_id, diff_artifact_id, changed_ratio,
+               view, base_revision, revision, applied_fixes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         )
         .bind(uuid::Uuid::now_v7().to_string())
         .bind(id)
@@ -253,6 +291,10 @@ pub async fn insert_details(
         .bind(&comparison.after)
         .bind(&comparison.diff)
         .bind(comparison.changed_ratio)
+        .bind(comparison.view.as_str())
+        .bind(&comparison.base_revision)
+        .bind(&comparison.revision)
+        .bind(serde_json::to_string(&comparison.applied_fixes).map_err(anyhow::Error::from)?)
         .execute(&mut *tx)
         .await?;
     }
@@ -471,7 +513,7 @@ async fn batch_comparisons(
 ) -> Result<HashMap<String, Vec<ComparisonRow>>, ApiError> {
     let mut qb = sqlx::QueryBuilder::new(
         "SELECT fix_id, label, route, viewport, theme, before_artifact_id, after_artifact_id,
-                diff_artifact_id, changed_ratio
+                diff_artifact_id, changed_ratio, view, base_revision, revision, applied_fixes
          FROM fix_comparisons WHERE fix_id",
     );
     super::push_in(&mut qb, ids);
@@ -522,6 +564,7 @@ pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Fix>, Ap
     .await?;
 
     let mut comparisons_by_id = batch_comparisons(db, &ids).await?;
+    let approved = approved_ids(db, project).await?;
 
     let mut qb = sqlx::QueryBuilder::new(
         "SELECT fix_id, title, detail, verification, evidence_artifact_id, created_at
@@ -568,12 +611,11 @@ pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Fix>, Ap
             problems: problems_by_id.remove(&id).unwrap_or_default(),
             tactics: tactics_by_id.remove(&id).unwrap_or_default(),
             files: files_by_id.remove(&id).unwrap_or_default(),
-            comparisons: comparisons_by_id
-                .remove(&id)
-                .unwrap_or_default()
-                .into_iter()
-                .map(Comparison::from)
-                .collect(),
+            comparisons: comparisons_of(
+                comparisons_by_id.remove(&id).unwrap_or_default(),
+                &id,
+                &approved,
+            )?,
             selections: fix_selections,
             steps: steps_by_id
                 .remove(&id)
@@ -652,12 +694,13 @@ pub async fn load(db: &SqlitePool, id: &str) -> Result<Fix, ApiError> {
         .await?;
     let comparisons: Vec<ComparisonRow> = sqlx::query_as(
         "SELECT label, route, viewport, theme, before_artifact_id, after_artifact_id,
-           diff_artifact_id, changed_ratio
+           diff_artifact_id, changed_ratio, view, base_revision, revision, applied_fixes
          FROM fix_comparisons WHERE fix_id = ?1 ORDER BY position",
     )
     .bind(id)
     .fetch_all(db)
     .await?;
+    let approved = approved_ids(db, &row.project_id).await?;
     let steps: Vec<StepRow> = sqlx::query_as(
         "SELECT title, detail, verification, evidence_artifact_id, created_at
          FROM fix_steps WHERE fix_id = ?1 ORDER BY position",
@@ -703,7 +746,7 @@ pub async fn load(db: &SqlitePool, id: &str) -> Result<Fix, ApiError> {
         problems,
         tactics,
         files,
-        comparisons: comparisons.into_iter().map(Comparison::from).collect(),
+        comparisons: comparisons_of(comparisons, id, &approved)?,
         selections,
         steps: steps.into_iter().map(Step::from).collect(),
         reviews: reviews

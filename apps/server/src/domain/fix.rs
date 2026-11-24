@@ -1,7 +1,9 @@
 //! Fix domain rules: field bounds for filing, steps and reviews.
 
 use crate::domain::{ApiError, problem::check_len};
-use rupicola_api::{FixStatus, NewFix, NewReview, NewStep, ProblemStatus};
+use rupicola_api::{
+    Comparison, ComparisonView, FixStatus, NewFix, NewReview, NewStep, ProblemStatus,
+};
 
 /// Longest fix title or comparison label, in characters.
 const MAX_TITLE_CHARS: usize = 200;
@@ -13,6 +15,42 @@ const MAX_ITEMS: usize = 64;
 /// and diff files.
 pub const BEFORE_LABEL: &str = "Before";
 pub const AFTER_LABEL: &str = "After";
+
+/// Longest revision name a comparison holds, in characters.
+const MAX_REVISION_CHARS: usize = 200;
+
+/// Field bounds and view rules of a new comparison.
+fn check_comparison(comparison: &Comparison) -> Result<(), ApiError> {
+    check_len(
+        "a comparison label",
+        &comparison.label,
+        MAX_TITLE_CHARS,
+        true,
+    )?;
+    check_len(
+        "a comparison base revision",
+        &comparison.base_revision,
+        MAX_REVISION_CHARS,
+        false,
+    )?;
+    check_len(
+        "a comparison revision",
+        &comparison.revision,
+        MAX_REVISION_CHARS,
+        false,
+    )?;
+    if comparison.applied_fixes.len() > MAX_ITEMS {
+        return Err(ApiError::invalid(format!(
+            "a comparison lists at most {MAX_ITEMS} applied fixes"
+        )));
+    }
+    if comparison.view == ComparisonView::Isolated && !comparison.applied_fixes.is_empty() {
+        return Err(ApiError::invalid(
+            "an isolated comparison applies no other fix",
+        ));
+    }
+    Ok(())
+}
 
 /// Field bounds of a new step.
 pub fn check_step(step: &NewStep) -> Result<(), ApiError> {
@@ -55,14 +93,7 @@ pub fn validate(form: &NewFix) -> Result<(), ApiError> {
              selections of each role"
         )));
     }
-    for comparison in &form.comparisons {
-        check_len(
-            "a comparison label",
-            &comparison.label,
-            MAX_TITLE_CHARS,
-            true,
-        )?;
-    }
+    form.comparisons.iter().try_for_each(check_comparison)?;
     form.steps.iter().try_for_each(check_step)
 }
 

@@ -3,7 +3,8 @@
 
 use super::{PageResult, backend, media, project::AssetOption};
 use rupicola_api::{
-    DesignEntry, Fix, FixStatus, Problem as ApiProblem, ProblemOrigin, ProblemStatus, Severity,
+    ComparisonView, DesignEntry, Fix, FixStatus, Problem as ApiProblem, ProblemOrigin,
+    ProblemStatus, Severity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use topcoat::context::Cx;
@@ -59,9 +60,34 @@ pub struct Problem {
 #[derive(Clone, Debug)]
 pub struct ComparisonPair {
     pub label: String,
+    pub view: ComparisonView,
+    pub base_revision: String,
+    pub revision: String,
+    /// An integrated pair the approved fixes have outdated.
+    pub stale: bool,
     pub before_url: String,
     pub after_url: String,
     pub diff_url: Option<String>,
+}
+
+impl ComparisonPair {
+    /// What the button and caption say: the view, the label, the revisions the captures came
+    /// from and, when it is out of date, that it is.
+    #[must_use]
+    pub fn caption(&self) -> String {
+        let view = match self.view {
+            ComparisonView::Isolated => "Isolated",
+            ComparisonView::Integrated => "Integrated",
+        };
+        let mut parts = vec![view.to_owned(), self.label.clone()];
+        if !self.base_revision.is_empty() && !self.revision.is_empty() {
+            parts.push(format!("{} → {}", self.base_revision, self.revision));
+        }
+        if self.stale {
+            parts.push("stale, recapture".to_owned());
+        }
+        parts.join(" · ")
+    }
 }
 
 /// One implementation or verification step recorded on a fix.
@@ -189,6 +215,10 @@ fn fix_of(fix: Fix) -> FixRecord {
             .into_iter()
             .map(|pair| ComparisonPair {
                 label: pair.label,
+                view: pair.view,
+                base_revision: pair.base_revision,
+                revision: pair.revision,
+                stale: pair.stale,
                 before_url: media::url(&pair.before),
                 after_url: media::url(&pair.after),
                 diff_url: pair.diff.as_deref().map(media::url),
@@ -357,6 +387,7 @@ mod tests {
                 after: OTHER_ARTIFACT.to_owned(),
                 diff: None,
                 changed_ratio: None,
+                ..Comparison::default()
             }],
             selections: vec![],
             steps: vec![Step {
@@ -386,5 +417,27 @@ mod tests {
         assert_eq!(shaped.steps[0].evidence_url, Some(media::url(ARTIFACT)));
         assert_eq!(shaped.reviews[0].action, "approved");
         assert_eq!(shaped.reviews[0].author, "ada");
+    }
+
+    #[test]
+    fn a_comparison_caption_names_its_view_revisions_and_staleness() {
+        let pair = |view, stale, revisions: (&str, &str)| ComparisonPair {
+            label: "home".to_owned(),
+            view,
+            base_revision: revisions.0.to_owned(),
+            revision: revisions.1.to_owned(),
+            stale,
+            before_url: String::new(),
+            after_url: String::new(),
+            diff_url: None,
+        };
+        assert_eq!(
+            pair(ComparisonView::Isolated, false, ("", "")).caption(),
+            "Isolated · home"
+        );
+        assert_eq!(
+            pair(ComparisonView::Integrated, true, ("a1b2c3d", "e4f5a6b")).caption(),
+            "Integrated · home · a1b2c3d → e4f5a6b · stale, recapture"
+        );
     }
 }
