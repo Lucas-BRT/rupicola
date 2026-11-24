@@ -31,7 +31,7 @@ enum ProjectsAction {
 }
 
 impl ProjectsArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         block_on(async {
             match self.action.unwrap_or(ProjectsAction::List(self.client)) {
                 ProjectsAction::List(client) => {

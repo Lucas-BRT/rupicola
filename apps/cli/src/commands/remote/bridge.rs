@@ -12,7 +12,7 @@ pub struct McpBridgeArgs {
 }
 
 impl McpBridgeArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         block_on(mcp_bridge::serve(self.server.connect()?))??;
         Ok(EXIT_CLEAN)
     }
@@ -30,7 +30,7 @@ pub struct PublishArgs {
 }
 
 impl PublishArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         block_on(async {
             let bundle = Bundle::open(&self.dir).await?;
             let project = self.project.as_deref().unwrap_or_else(|| bundle.project());

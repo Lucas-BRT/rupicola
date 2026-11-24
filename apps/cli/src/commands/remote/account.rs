@@ -30,7 +30,7 @@ pub struct LoginArgs {
 impl LoginArgs {
     /// Signs in with the password, asks the backend for a machine token, stores it with the
     /// backend's address, and ends the session the password opened.
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         let url = self.server.require_url()?;
         let handle = match self.handle {
             Some(handle) => handle,
@@ -90,7 +90,7 @@ pub struct Logout;
 impl Logout {
     /// Forgets the stored token and backend. The token stays valid on the backend until it
     /// is revoked there, because only a signed-in session may revoke tokens.
-    pub(super) fn run() -> Result<u8> {
+    pub(crate) fn run() -> Result<u8> {
         if Store::open()?.clear()? {
             println!("Removed the stored token and backend.");
         } else {
@@ -109,7 +109,7 @@ pub struct WhoamiArgs {
 }
 
 impl WhoamiArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         let url = self.server.require_url()?;
         block_on(async {
             let remote = self.server.connect()?;

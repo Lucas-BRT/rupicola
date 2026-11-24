@@ -1,27 +1,16 @@
-//! Subcommands: each takes its own argument struct and runs itself.
+//! Subcommands: separated into offline static-analysis tools (`offline`) and backend
+//! HTTP/MCP client commands (`remote`).
 
-mod account;
-mod analysis;
-mod captures;
-mod client;
-mod design;
-mod fixes;
-mod panel;
-mod problems;
-mod projects;
+mod offline;
 mod remote;
 
 use crate::{AuthAction, EXIT_CLEAN, Result, service};
-use account::{LoginArgs, Logout, WhoamiArgs};
-use analysis::{CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs};
-use captures::CapturesArgs;
 use clap::Subcommand;
-use design::DesignArgs;
-use fixes::FixesArgs;
-use panel::ServeArgs;
-use problems::ProblemsArgs;
-use projects::ProjectsArgs;
-use remote::{McpBridgeArgs, PublishArgs};
+use offline::{CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs, ServeArgs};
+use remote::{
+    CapturesArgs, DesignArgs, FixesArgs, LoginArgs, Logout, McpBridgeArgs, ProblemsArgs,
+    ProjectsArgs, PublishArgs, WhoamiArgs,
+};
 
 #[derive(Subcommand)]
 pub enum Command {
@@ -81,7 +70,7 @@ impl Command {
             Self::Design(args) => args.run(),
             Self::Auth {
                 action: AuthAction::SetToken { token },
-            } => account::set_token(token).map(|()| EXIT_CLEAN),
+            } => remote::set_token(token).map(|()| EXIT_CLEAN),
             Self::Discover(args) => args.run(),
             Self::Scan(args) => args.run(),
             Self::Check(args) => args.run(),

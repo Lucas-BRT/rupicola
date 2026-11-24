@@ -11,7 +11,7 @@ pub struct ServeArgs {
 }
 
 impl ServeArgs {
-    pub(super) fn run(self) -> Result<u8> {
+    pub(crate) fn run(self) -> Result<u8> {
         let ServeArgs { options } = self;
         let status = std::process::Command::new("rupicola-panel")
                 .args(options)
