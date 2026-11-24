@@ -626,3 +626,56 @@
 .fix-job-badge { display: inline-flex; align-items: center; padding: 0.15rem 0.45rem; border: 1px solid var(--copper); border-radius: var(--r-inner); font-family: var(--mono); font-size: 0.72rem; color: var(--copper); }
 .checkbox-row { display: inline-flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; }
 .checkbox-row input[type="checkbox"] { inline-size: 1.05rem; block-size: 1.05rem; min-block-size: auto; padding: 0; margin-block-start: 0.15rem; flex: none; accent-color: var(--bird-crest); }
+
+.sr-only {
+  position: absolute; inline-size: 1px; block-size: 1px;
+  padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.project-shell {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1rem; align-items: start;
+  margin-block-start: 0.85rem;
+}
+.project-stage { min-inline-size: 0; }
+.project-stage > :first-child { margin-block-start: 0; }
+.project-rail {
+  position: sticky; top: 4rem; z-index: 25;
+  display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+  padding: 0.42rem; border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.35), var(--top-edge);
+}
+.project-rail a {
+  position: relative; display: grid; place-items: center;
+  inline-size: 2.5rem; block-size: 2.5rem; border-radius: 999px;
+  color: var(--muted); text-decoration: none;
+  transition: color 140ms var(--ease), background-color 140ms var(--ease), transform 120ms var(--ease);
+}
+.project-rail a:hover, .project-rail a:focus-visible {
+  color: var(--ink); background: var(--rail);
+}
+.project-rail a[aria-current="page"] {
+  background: var(--bird-crest); color: #111113;
+  box-shadow: 0 4px 12px -2px color-mix(in srgb, var(--bird-crest) 55%, transparent);
+}
+.rail-icon { inline-size: 1.15rem; block-size: 1.15rem; }
+.rail-tooltip {
+  position: absolute; inset-inline-start: calc(100% + 0.6rem); inset-block-start: 50%; translate: 0 -50%;
+  padding: 0.25rem 0.55rem; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink); font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.35);
+  opacity: 0; pointer-events: none; transition: opacity 120ms var(--ease);
+}
+.project-rail a:hover .rail-tooltip, .project-rail a:focus-visible .rail-tooltip { opacity: 1; }
+@media (width < 49rem) {
+  .project-shell { grid-template-columns: minmax(0, 1fr); }
+  .project-stage { padding-block-end: 4.75rem; }
+  .project-rail {
+    position: fixed; inset-block-end: 0.75rem; inset-inline-start: 50%; top: auto; translate: -50% 0;
+    flex-direction: row; z-index: 35;
+    max-inline-size: calc(100vw - 1.5rem); overflow-x: auto;
+  }
+  .rail-tooltip { display: none; }
+}

@@ -12,7 +12,7 @@ pub use fixes::fixes_tab;
 pub use problems::problems_tab;
 
 use crate::components::badge::{BadgeVariant, badge};
-use crate::components::layout::{breadcrumbs, tab_link, tabs};
+use crate::components::layout::breadcrumbs;
 use crate::project::AssetOption;
 use crate::records::{FixRecord, Problem};
 use crate::{Run, auth};
@@ -118,6 +118,44 @@ impl Tab {
     }
 }
 
+#[component]
+async fn tab_icon(cx: &Cx, tab: Tab) -> Result<impl View> {
+    Ok(view! {
+        <svg class="rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            match tab {
+                Tab::Overview => {
+                    <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                    <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+                    <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+                }
+                Tab::Captures => {
+                    <path d="M4 8a2 2 0 0 1 2-2h2l1.5-2h5L16 6h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8Z"/>
+                    <circle cx="12" cy="13" r="3.5"/>
+                }
+                Tab::Problems => {
+                    <path d="M12 3.5 2.8 19.5a1.2 1.2 0 0 0 1.04 1.8h16.32a1.2 1.2 0 0 0 1.04-1.8L12 3.5Z"/>
+                    <path d="M12 9.5v4.5"/>
+                    <circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none"/>
+                }
+                Tab::Fixes => {
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.1-3.1a5.5 5.5 0 0 1-7.4 7.4l-6.6 6.6a2 2 0 0 1-2.8-2.8l6.6-6.6a5.5 5.5 0 0 1 7.4-7.4l-3.3 2.9Z"/>
+                }
+                Tab::Design => {
+                    <path d="M12 3a9 9 0 0 0 0 18 1.5 1.5 0 0 0 1.5-1.5c0-.4-.15-.76-.4-1.04-.24-.28-.39-.64-.39-1.04a1.5 1.5 0 0 1 1.5-1.5h1.8A5 5 0 0 0 21 11c0-4.42-4.03-8-9-8Z"/>
+                    <circle cx="7.5" cy="11.5" r="1" fill="currentColor" stroke="none"/>
+                    <circle cx="10.5" cy="7.5" r="1" fill="currentColor" stroke="none"/>
+                    <circle cx="15" cy="8" r="1" fill="currentColor" stroke="none"/>
+                }
+                Tab::Settings => {
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+                }
+            }
+        </svg>
+    })
+}
+
 /// The project page around one tab: breadcrumbs, heading and tabs; `child` is the tab.
 #[component]
 pub async fn project_frame(
@@ -154,17 +192,26 @@ pub async fn project_frame(
             </div>
             <div class="jobs-indicator" role="status" aria-live="polite" data-jobs-url=(jobs_url) if open_jobs.is_empty() { hidden="" }>(jobs_summary)</div>
         </header>
-        tabs(label: "Project",
-            for each in Tab::ALL {
-                if each != Tab::Settings || role == Role::Owner {
-                    tab_link(
-                        href: if each == Tab::Overview { base.clone() } else { format!("{base}/{}", each.slug()) },
-                        current: tab == each,
-                        (each.label())
-                    )
+        <div class="project-shell">
+            <nav class="project-rail" aria-label="Project">
+                for each in Tab::ALL {
+                    if each != Tab::Settings || role == Role::Owner {
+                        let href = if each == Tab::Overview {
+                            base.clone()
+                        } else {
+                            format!("{base}/{}", each.slug())
+                        };
+                        <a href=(href) aria-label=(each.label()) title=(each.label()) if tab == each { aria-current="page" }>
+                            tab_icon(tab: each)
+                            <span class="sr-only">(each.label())</span>
+                            <span class="rail-tooltip" aria-hidden="true">(each.label())</span>
+                        </a>
+                    }
                 }
-            }
-        )
-        (child)
+            </nav>
+            <div class="project-stage">
+                (child)
+            </div>
+        </div>
     })
 }
