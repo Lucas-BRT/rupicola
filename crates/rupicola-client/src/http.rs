@@ -7,7 +7,8 @@ use rupicola_api::{
     Member, Missing, MissingQuery, NewCapture, NewComment, NewCredential, NewDesignEntry,
     NewFinding, NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PREFIX,
     PasswordChange, Problem, ProblemPatch, ProblemSummary, Project, Redeem, Register, RunCapture,
-    SessionToken, Setup, SetupStatus, Step, SystemActionForm, SystemList, SystemVersion,
+    Scenario, ScenarioSummary, ScenarioVersion, SessionToken, Setup, SetupStatus, Step,
+    SystemActionForm, SystemList, SystemVersion,
 };
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -515,6 +516,45 @@ impl Api for HttpApi {
                 Some(token),
             )
             .json(form),
+        )
+        .await
+    }
+
+    async fn scenarios(&self, token: &str, project: &str) -> Result<Vec<ScenarioSummary>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{}/scenarios", encode_segment(project)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn scenario(&self, token: &str, project: &str, name: &str) -> Result<ScenarioVersion> {
+        Self::read(self.request(
+            Method::GET,
+            &format!(
+                "/projects/{}/scenarios/{}",
+                encode_segment(project),
+                encode_segment(name)
+            ),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn push_scenario(
+        &self,
+        token: &str,
+        project: &str,
+        scenario: &Scenario,
+    ) -> Result<ScenarioVersion> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{}/scenarios", encode_segment(project)),
+                Some(token),
+            )
+            .json(scenario),
         )
         .await
     }

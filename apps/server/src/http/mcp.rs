@@ -6,7 +6,7 @@
 
 use crate::{
     domain::{ApiError, Principal},
-    services::{capture_runner, captures, design, fixes, problems, projects},
+    services::{capture_runner, captures, design, fixes, problems, projects, scenarios},
     state::Shared,
 };
 use axum::{
@@ -18,6 +18,7 @@ use axum::{
 use base64::Engine as _;
 use rupicola_api::{
     NewFinding, NewFix, NewProblem, NewProject, NewReview, NewStep, ProblemPatch, RunCapture,
+    Scenario,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -125,6 +126,20 @@ enum Call {
         #[serde(flatten)]
         review: NewReview,
     },
+    ScenarioList {
+        project: String,
+    },
+    ScenarioGet {
+        project: String,
+        name: String,
+        /// One exact version; the latest when absent.
+        #[serde(default)]
+        hash: Option<String>,
+    },
+    ScenarioPut {
+        project: String,
+        scenario: Scenario,
+    },
 }
 
 /// A handler's JSON body, as a value.
@@ -184,6 +199,24 @@ impl Call {
             Self::FixReview { id, review } => {
                 value(&fixes::review(&state, &principal, &id, &review).await?)
             }
+            Self::ScenarioList { project } => {
+                value(&scenarios::list(&state, &principal, &project).await?)
+            }
+            Self::ScenarioGet {
+                project,
+                name,
+                hash,
+            } => match hash {
+                Some(hash) => {
+                    value(&scenarios::version(&state, &principal, &project, &name, &hash).await?)
+                }
+                None => value(&scenarios::latest(&state, &principal, &project, &name).await?),
+            },
+            Self::ScenarioPut { project, scenario } => value(
+                &scenarios::put(&state, &principal, &project, &scenario)
+                    .await?
+                    .0,
+            ),
         }
     }
 }
@@ -513,6 +546,31 @@ const TOOLS: &[Tool] = &[
         },
     },
     Tool {
+        name: "scenario_list",
+        description: "List a project's scenarios, the capture definitions its repository owns, latest version of each",
+        required: &["project"],
+        properties: || json!({"project": text()}),
+    },
+    Tool {
+        name: "scenario_get",
+        description: "One scenario definition: its latest version, or the exact version with `hash`",
+        required: &["project", "name"],
+        properties: || json!({"project": text(), "name": text(), "hash": text()}),
+    },
+    Tool {
+        name: "scenario_put",
+        description: "Push a scenario definition. The repository's TOML file is the source of truth; this keeps a copy under the hash of the parsed definition. Same definition twice is a no-op",
+        required: &["project", "scenario"],
+        properties: || {
+            json!({"project": text(),
+                "scenario": {"type": "object", "required": ["name", "url"],
+                    "description": "The parsed .rupicola/scenarios/*.toml: name, url, environment, matrix {viewports, themes}, themes, steps, checks.",
+                    "properties": {"name": text(), "url": text(), "environment": {"type": "object"},
+                        "matrix": {"type": "object"}, "themes": {"type": "object"},
+                        "steps": {"type": "array"}, "checks": {"type": "object"}}}})
+        },
+    },
+    Tool {
         name: "fix_step",
         description: "Record one more verified step of a fix",
         required: &["id", "title"],
@@ -710,6 +768,58 @@ mod tests {
             .await,
         );
         assert_eq!(resolved["status"], "resolved");
+    }
+
+    #[tokio::test]
+    async fn an_agent_pushes_and_reads_a_scenario_through_mcp() {
+        let (port, [ana, bruno, _]) = demo_with_artifacts().await;
+        let scenario = json!({"name": "home", "url": "/",
+            "matrix": {"viewports": ["390x844@2"], "themes": ["dark", "light"]}});
+        let put = payload(
+            &rpc(
+                port,
+                &ana,
+                &tool(
+                    "scenario_put",
+                    &json!({"project": "demo", "scenario": scenario}),
+                ),
+            )
+            .await,
+        );
+        let hash = put["hash"].as_str().unwrap().to_owned();
+        let listed = payload(
+            &rpc(
+                port,
+                &bruno,
+                &tool("scenario_list", &json!({"project": "demo"})),
+            )
+            .await,
+        );
+        assert_eq!(
+            (listed[0]["name"].as_str(), listed[0]["cells"].as_u64()),
+            (Some("home"), Some(2))
+        );
+        let exact = payload(
+            &rpc(
+                port,
+                &bruno,
+                &tool(
+                    "scenario_get",
+                    &json!({"project": "demo", "name": "home", "hash": hash}),
+                ),
+            )
+            .await,
+        );
+        assert_eq!(exact["scenario"]["url"], "/");
+        let latest = payload(
+            &rpc(
+                port,
+                &bruno,
+                &tool("scenario_get", &json!({"project": "demo", "name": "home"})),
+            )
+            .await,
+        );
+        assert_eq!(latest["hash"], exact["hash"]);
     }
 
     #[tokio::test]

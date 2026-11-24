@@ -387,6 +387,42 @@ fn build_environment(
     Ok(env)
 }
 
+/// Checks a scenario's steps as `capture_run` would: bounded, with distinct checkpoint and clip
+/// ids and at least one of them.
+///
+/// # Errors
+///
+/// [`ApiError::Invalid`] when the steps would not make a valid run.
+pub fn check_steps(steps: &[CaptureStep]) -> Result<(), ApiError> {
+    build_steps(steps).map(|_| ())
+}
+
+/// Checks the steps that put a page in a theme: actions only, since a theme's setup captures
+/// nothing.
+///
+/// # Errors
+///
+/// [`ApiError::Invalid`] for a checkpoint or clip, or an action that would not run.
+pub fn check_setup_steps(steps: &[CaptureStep]) -> Result<(), ApiError> {
+    if steps.len() > MAX_STEPS {
+        return Err(ApiError::invalid(format!(
+            "a theme's setup takes at most {MAX_STEPS} steps"
+        )));
+    }
+    for step in steps {
+        if matches!(
+            step,
+            CaptureStep::Checkpoint { .. } | CaptureStep::Clip { .. }
+        ) {
+            return Err(ApiError::invalid(
+                "a theme's setup takes actions only, not checkpoints or clips",
+            ));
+        }
+        step_into_plan(step)?;
+    }
+    Ok(())
+}
+
 fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiError> {
     let default_steps;
     let raw_steps = if steps.is_empty() {

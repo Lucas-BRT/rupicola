@@ -1,6 +1,7 @@
 target
 /dist/
-/.rupicola/
+/.rupicola/*
+!/.rupicola/scenarios/
 *.swp
 .DS_Store
 evals/results/

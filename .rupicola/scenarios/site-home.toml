@@ -1,0 +1,31 @@
+# The landing page's home, at the widths the audit looked at, in both themes.
+name = "site-home"
+url = "/"
+
+[environment]
+reduced_motion = true
+locale = "en-US"
+
+[matrix]
+viewports = ["390x844@2", "820x1180", "1280x800"]
+themes = ["dark", "light"]
+
+# The site chooses its own theme (it pins data-theme="dark"), so light is one click on the toggle.
+[themes.light]
+steps = [{ kind = "click", selector = "[data-theme-toggle]" }]
+
+[[steps]]
+kind = "ready"
+selector = "h1"
+
+[[steps]]
+kind = "checkpoint"
+id = "full-page"
+full_page = true
+
+[checks]
+no_horizontal_overflow = true
+min_target_size = 24
+no_overlap = [".diff-side > div"]
+accessible_names = true
+contrast = "aa"

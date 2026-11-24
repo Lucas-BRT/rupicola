@@ -13,6 +13,7 @@ pub mod problems;
 pub mod projects;
 pub mod publish;
 pub mod removal;
+pub mod scenarios;
 pub mod search;
 pub mod selections;
 pub mod settings;

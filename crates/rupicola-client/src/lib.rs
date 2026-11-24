@@ -12,8 +12,9 @@ use rupicola_api::{
     DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
     Member, Missing, MissingQuery, NewCapture, NewComment, NewCredential, NewDesignEntry,
     NewFinding, NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PasswordChange,
-    Problem, ProblemPatch, ProblemSummary, Project, Redeem, Register, RunCapture, SessionToken,
-    Setup, Step, SystemActionForm, SystemList, SystemVersion,
+    Problem, ProblemPatch, ProblemSummary, Project, Redeem, Register, RunCapture, Scenario,
+    ScenarioSummary, ScenarioVersion, SessionToken, Setup, Step, SystemActionForm, SystemList,
+    SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -206,6 +207,20 @@ pub trait Api: Send + Sync {
 
     /// Records a fix for one or more problems of `project`.
     async fn create_fix(&self, token: &str, project: &str, form: &NewFix) -> Result<Fix>;
+
+    /// The latest version of each scenario of `project`.
+    async fn scenarios(&self, token: &str, project: &str) -> Result<Vec<ScenarioSummary>>;
+
+    /// The latest version of one scenario of `project`.
+    async fn scenario(&self, token: &str, project: &str, name: &str) -> Result<ScenarioVersion>;
+
+    /// Pushes a scenario definition; the same definition twice changes nothing.
+    async fn push_scenario(
+        &self,
+        token: &str,
+        project: &str,
+        scenario: &Scenario,
+    ) -> Result<ScenarioVersion>;
 
     /// Appends a step to a fix.
     async fn add_step(&self, token: &str, id: &str, form: &NewStep) -> Result<Step>;

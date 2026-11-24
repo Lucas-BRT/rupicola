@@ -9,7 +9,7 @@ use clap::Subcommand;
 use offline::{CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs, ServeArgs};
 use remote::{
     CapturesArgs, DesignArgs, FixesArgs, LoginArgs, Logout, McpBridgeArgs, ProblemsArgs,
-    ProjectsArgs, PublishArgs, WhoamiArgs,
+    ProjectsArgs, PublishArgs, ScenariosArgs, WhoamiArgs,
 };
 
 #[derive(Subcommand)]
@@ -34,6 +34,8 @@ pub enum Command {
     Fixes(FixesArgs),
     /// Read and record a project's design records.
     Design(DesignArgs),
+    /// Push and list the capture definitions a repository owns.
+    Scenarios(ScenariosArgs),
     /// Manage the stored token by hand.
     Auth {
         #[command(subcommand)]
@@ -68,6 +70,7 @@ impl Command {
             Self::Problems(args) => args.run(),
             Self::Fixes(args) => args.run(),
             Self::Design(args) => args.run(),
+            Self::Scenarios(args) => args.run(),
             Self::Auth {
                 action: AuthAction::SetToken { token },
             } => remote::set_token(token).map(|()| EXIT_CLEAN),

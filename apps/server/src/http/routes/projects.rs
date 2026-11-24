@@ -3,7 +3,7 @@
 
 use super::super::handlers::{
     captures, credentials, design, design_systems as design_system_handlers, fixes, limits,
-    problems, projects, publish, removal, search, selections, settings, topics,
+    problems, projects, publish, removal, scenarios, search, selections, settings, topics,
 };
 use crate::state::Shared;
 use axum::{Router, routing};
@@ -37,6 +37,12 @@ fn project() -> Router<Shared> {
         .route("/problems/details", routing::get(problems::list_details))
         .route("/fixes", routing::get(fixes::list).post(fixes::create))
         .route("/fixes/details", routing::get(fixes::list_details))
+        .route(
+            "/scenarios",
+            routing::get(scenarios::list).post(scenarios::put),
+        )
+        .route("/scenarios/{name}", routing::get(scenarios::latest))
+        .route("/scenarios/{name}/{hash}", routing::get(scenarios::version))
         .route("/design", routing::get(design::list).post(design::create))
         .route("/selections", routing::post(selections::create))
         .route("/topics", routing::get(topics::tree).post(topics::create))

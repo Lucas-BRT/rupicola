@@ -18,6 +18,7 @@ pub mod problem;
 pub mod project;
 pub mod record;
 pub mod removal;
+pub mod scenario;
 pub mod search;
 pub mod secret;
 pub mod selection;
