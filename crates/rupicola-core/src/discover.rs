@@ -63,20 +63,23 @@ fn workspace_dependencies(path: &Path, doc: &Value) -> Result<Value> {
             .cloned()
             .unwrap_or(Value::Table(Table::default())));
     }
+    let parent = path
+        .parent()
+        .with_context(|| format!("manifest has no parent directory: {}", path.display()))?;
     // An explicit workspace path wins over ancestor discovery.
     if let Some(relative) = doc
         .get("package")
         .and_then(|p| p.get("workspace"))
         .and_then(Value::as_str)
     {
-        let manifest = path.parent().unwrap().join(relative).join("Cargo.toml");
+        let manifest = parent.join(relative).join("Cargo.toml");
         return Ok(parse(&manifest)?
             .get("workspace")
             .and_then(|w| w.get("dependencies"))
             .cloned()
             .unwrap_or(Value::Table(Table::default())));
     }
-    for dir in path.parent().unwrap().ancestors().skip(1) {
+    for dir in parent.ancestors().skip(1) {
         let manifest = dir.join("Cargo.toml");
         if manifest.is_file() {
             let parent = parse(&manifest)?;

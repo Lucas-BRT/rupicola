@@ -1,19 +1,25 @@
-use super::*;
+use crate::{CONFIDENCE_TAIL_DIVISOR, F1_WEIGHT, TWO_SIDED, XORSHIFT_A, XORSHIFT_B, XORSHIFT_C};
+use anyhow::{Context as _, Result, bail};
+use serde_json::Value;
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+use std::fs;
+use std::path::Path;
 
 /// Reads a boolean outcome, falling back to `skill_invoked` for results written before `skill_engaged` existed.
 pub(crate) fn hit(r: &Value, key: &str) -> bool {
     r.get(key).unwrap_or(&r["skill_invoked"]) == true
 }
 
-pub(crate) fn parse_conds(conds: &[String]) -> R<Vec<(String, String)>> {
+pub(crate) fn parse_conds(conds: &[String]) -> Result<Vec<(String, String)>> {
     conds
         .iter()
         .map(|c| {
             c.split_once('=')
                 .map(|(a, b)| (a.to_owned(), b.to_owned()))
-                .ok_or(format!(
-                    "bad --cond {c}; use name=none, name=worktree or name=<rev>"
-                ))
+                .with_context(|| {
+                    format!("bad --cond {c}; use name=none, name=worktree or name=<rev>")
+                })
         })
         .collect()
 }
@@ -43,7 +49,7 @@ pub(crate) fn prf(rows: &[(bool, f64)]) -> (f64, f64, f64, f64) {
     )
 }
 
-pub(crate) fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> R<()> {
+pub(crate) fn trigger_analyze(out: &Path, base: &str, cand: &str, resamples: usize) -> Result<()> {
     for (key, label) in [
         ("skill_invoked", "Skill tool called"),
         ("skill_engaged", "engaged (tool called or skill files read)"),
@@ -107,20 +113,14 @@ pub(crate) fn group_prompts(rows: &[Value], key: &str) -> BTreeMap<String, Promp
 
 /// Reads every `trig__*.json` result in `out`, warning about and dropping runs
 /// whose setup did not match their condition.
-pub(crate) fn load_trigger_rows(out: &Path) -> R<Vec<Value>> {
+pub(crate) fn load_trigger_rows(out: &Path) -> Result<Vec<Value>> {
     let mut rows: Vec<Value> = Vec::new();
-    for entry in fs::read_dir(out)
-        .map_err(|error| error.to_string())?
-        .flatten()
-    {
-        let p = entry.path();
+    for entry in fs::read_dir(out)? {
+        let p = entry?.path();
         if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
             n.starts_with("trig__") && matches!(n.rsplit_once('.'), Some((_, "json")))
         }) {
-            rows.push(
-                serde_json::from_str(&fs::read_to_string(&p).map_err(|error| error.to_string())?)
-                    .map_err(|error| error.to_string())?,
-            );
+            rows.push(serde_json::from_str(&fs::read_to_string(&p)?)?);
         }
     }
     let bad = rows.iter().filter(|r| r["config_error"] == true).count();
@@ -141,9 +141,9 @@ pub(crate) fn trigger_metric(
     cand: &str,
     resamples: usize,
     key: &str,
-) -> R<()> {
+) -> Result<()> {
     if resamples == 0 {
-        return Err("provide at least one bootstrap resample".into());
+        bail!("provide at least one bootstrap resample");
     }
     let rows = load_trigger_rows(out)?;
     let prompts = group_prompts(&rows, key);
@@ -155,13 +155,17 @@ pub(crate) fn trigger_metric(
         .map(|(k, _)| k)
         .collect();
     if ids.is_empty() {
-        return Err("no prompt has both conditions".into());
+        bail!("no prompt has both conditions");
     }
     let subset = |ids: &[&String], cat: Option<&str>, c: &str| -> Vec<(bool, f64)> {
         ids.iter()
             .filter_map(|id| {
                 let p = &prompts[*id];
-                (cat.is_none_or(|x| p.0 == x)).then(|| (p.1, rate(p, c).unwrap()))
+                if cat.is_none_or(|x| p.0 == x) {
+                    rate(p, c).map(|r| (p.1, r))
+                } else {
+                    None
+                }
             })
             .collect()
     };
@@ -289,27 +293,21 @@ impl Rng {
 }
 
 /// Reads every result file in `out` (all `.json` except the manifest).
-pub(crate) fn load_result_rows(out: &Path) -> R<Vec<Value>> {
+pub(crate) fn load_result_rows(out: &Path) -> Result<Vec<Value>> {
     let mut rows: Vec<Value> = Vec::new();
-    for entry in fs::read_dir(out)
-        .map_err(|error| error.to_string())?
-        .flatten()
-    {
-        let p = entry.path();
+    for entry in fs::read_dir(out)? {
+        let p = entry?.path();
         if p.extension().is_some_and(|x| x == "json")
             && p.file_name().is_some_and(|n| n != "manifest.json")
         {
-            rows.push(
-                serde_json::from_str(&fs::read_to_string(&p).map_err(|error| error.to_string())?)
-                    .map_err(|error| error.to_string())?,
-            );
+            rows.push(serde_json::from_str(&fs::read_to_string(&p)?)?);
         }
     }
     Ok(rows)
 }
 
 /// Writes `rows.csv` for external mixed-effects modelling.
-pub(crate) fn write_rows_csv(out: &Path, rows: &[Value]) -> R<()> {
+pub(crate) fn write_rows_csv(out: &Path, rows: &[Value]) -> Result<()> {
     let mut s = String::from(
         "task,cond,rep,kind,framework,pass,false_verified,skill_invoked,cost_usd,turns,input_tokens,output_tokens\n",
     );
@@ -333,7 +331,7 @@ pub(crate) fn write_rows_csv(out: &Path, rows: &[Value]) -> R<()> {
         )
         .expect("writing to a String cannot fail");
     }
-    fs::write(out.join("rows.csv"), s).map_err(|error| error.to_string())?;
+    fs::write(out.join("rows.csv"), s)?;
 
     Ok(())
 }
@@ -453,9 +451,15 @@ pub(crate) fn print_condition_line(cond: &str, rows: &[Value]) {
     );
 }
 
-pub(crate) fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv: bool) -> R<()> {
+pub(crate) fn analyze(
+    out: &Path,
+    base: &str,
+    cand: &str,
+    resamples: usize,
+    csv: bool,
+) -> Result<()> {
     if resamples == 0 {
-        return Err("provide at least one bootstrap resample".into());
+        bail!("provide at least one bootstrap resample");
     }
     let rows = load_result_rows(out)?;
     let mut models: Vec<String> = rows
@@ -465,9 +469,7 @@ pub(crate) fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv:
     models.sort();
     models.dedup();
     if models.len() > 1 {
-        return Err(format!(
-            "results mix models {models:?}; analyze one model per directory"
-        ));
+        bail!("results mix models {models:?}; analyze one model per directory");
     }
     if csv {
         write_rows_csv(out, &rows)?;
@@ -484,7 +486,7 @@ pub(crate) fn analyze(out: &Path, base: &str, cand: &str, resamples: usize, csv:
         .map(|(x, y)| mean(y) - mean(x))
         .collect();
     if diffs.is_empty() {
-        return Err("no task has both conditions".into());
+        bail!("no task has both conditions");
     }
     let [low, high] = bootstrap_mean_ci(&diffs, resamples);
     println!(

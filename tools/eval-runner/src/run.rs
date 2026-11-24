@@ -1,8 +1,14 @@
-use super::{
-    AGENT_POLL, Command, Duration, File, GIT_TIMEOUT, Instant, Matrix, Path, PathBuf, R, Stdio,
-    Task, VERIFIER_TIMEOUT, Value, analyze_trajectory, copy_dir, fs, install_skill, json, matrix,
-    order, run_id, setup_config, sh,
+use crate::harness::{
+    analyze_trajectory, copy_dir, install_skill, matrix, order, run_id, setup_config, sh,
 };
+use crate::{AGENT_POLL, GIT_TIMEOUT, Matrix, VERIFIER_TIMEOUT};
+use anyhow::{Context as _, Result, bail};
+use rupicola_core::evals::Task;
+use serde_json::{Value, json};
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// Flags shared by the `run` and `trigger` commands.
 pub(crate) struct RunOptions<'a> {
@@ -34,13 +40,13 @@ pub(crate) fn prepare_workspace(
     id: &str,
     repo: &Path,
     skill_rev: Option<&str>,
-) -> R<(PathBuf, PathBuf)> {
+) -> Result<(PathBuf, PathBuf)> {
     // Each run gets its own root so files the agent writes next to the working directory
     // (`../x`) cannot reach another run; the whole root is deleted afterwards.
     let root = std::env::temp_dir().join("rupicola-eval").join(id);
     let _ = fs::remove_dir_all(&root);
     let work = root.join("w");
-    fs::create_dir_all(&work).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&work)?;
     let fixture = task_dir.join("fixture");
     if fixture.is_dir() {
         copy_dir(&fixture, &work)?;
@@ -59,7 +65,7 @@ pub(crate) fn prepare_workspace(
 
 /// Runs the agent on `prompt` in `work`, streaming its trajectory to `traj`.
 /// Returns whether it was killed for exceeding the time limit.
-pub(crate) fn run_agent(prompt: &str, work: &Path, traj: &Path, env: &RunEnv) -> R<bool> {
+pub(crate) fn run_agent(prompt: &str, work: &Path, traj: &Path, env: &RunEnv) -> Result<bool> {
     let mut cmd = Command::new("claude");
     if let Some(dir) = env.config_dir {
         cmd.env("CLAUDE_CONFIG_DIR", dir);
@@ -83,13 +89,13 @@ pub(crate) fn run_agent(prompt: &str, work: &Path, traj: &Path, env: &RunEnv) ->
         .args(["--max-budget-usd", &env.run_usd.to_string()])
         .current_dir(work)
         .stdin(Stdio::null())
-        .stdout(File::create(traj).map_err(|error| error.to_string())?)
+        .stdout(File::create(traj)?)
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|x| format!("cannot start `claude`: {x}"))?;
+        .context("cannot start `claude`")?;
     let start = Instant::now();
     loop {
-        match child.try_wait().map_err(|error| error.to_string())? {
+        match child.try_wait()? {
             Some(_) => return Ok(false),
             None if start.elapsed() > env.timeout => {
                 let _ = child.kill();
@@ -125,7 +131,7 @@ pub(crate) fn execute_one(
     cond: &(String, String),
     rep: usize,
     env: &RunEnv,
-) -> R<Value> {
+) -> Result<Value> {
     let skill_rev = (cond.1 != "none").then_some(cond.1.as_str());
     let id = run_id(&task.id, &cond.0, rep);
     let (root, work) = prepare_workspace(task_dir, &id, env.repo, skill_rev)?;
@@ -158,7 +164,9 @@ pub(crate) fn execute_one(
         "git add -A && git diff --cached --name-only",
         GIT_TIMEOUT,
     );
-    let o = record.as_object_mut().unwrap();
+    let o = record
+        .as_object_mut()
+        .context("trajectory record must be a JSON object")?;
     o.insert("task".into(), json!(task.id));
     o.insert("cond".into(), json!(cond.0));
     o.insert("rep".into(), json!(rep));
@@ -190,7 +198,7 @@ pub(crate) fn execute_one(
     clippy::cast_precision_loss,
     reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
 )]
-pub(crate) fn run(m: &Matrix, opts: &RunOptions) -> R<()> {
+pub(crate) fn run(m: &Matrix, opts: &RunOptions) -> Result<()> {
     let RunOptions {
         execute,
         model,
@@ -213,12 +221,20 @@ pub(crate) fn run(m: &Matrix, opts: &RunOptions) -> R<()> {
         );
         return Ok(());
     }
-    let (config, _cleanup) = setup_config(no_isolate)?;
-    fs::create_dir_all(out).map_err(|error| error.to_string())?;
-    fs::write(out.join("manifest.json"), serde_json::to_string_pretty(&json!({"model": model, "conditions": m.conds, "split": m.split, "k": m.k, "run_usd": run_usd, "max_usd": max_usd})).unwrap()).map_err(|error| error.to_string())?;
+    let config = setup_config(no_isolate)?;
+    fs::create_dir_all(out)?;
+    let manifest = serde_json::to_string_pretty(&json!({
+        "model": model,
+        "conditions": m.conds,
+        "split": m.split,
+        "k": m.k,
+        "run_usd": run_usd,
+        "max_usd": max_usd
+    }))?;
+    fs::write(out.join("manifest.json"), manifest)?;
     let env = RunEnv {
         repo: &m.root,
-        config_dir: config.as_deref(),
+        config_dir: config.as_ref().map(tempfile::TempDir::path),
         model,
         out,
         run_usd,
@@ -236,9 +252,7 @@ pub(crate) fn run(m: &Matrix, opts: &RunOptions) -> R<()> {
             continue;
         }
         if spent >= max_usd {
-            return Err(format!(
-                "stopped: reported cost {spent:.2} reached --max-usd; rerun to resume"
-            ));
+            bail!("stopped: reported cost {spent:.2} reached --max-usd; rerun to resume");
         }
         let task_dir = m.root.join("evals/tasks").join(&task.id);
         let rec = execute_one(task, &task_dir, cond, rep, &env)?;
@@ -248,15 +262,18 @@ pub(crate) fn run(m: &Matrix, opts: &RunOptions) -> R<()> {
                 "warning: skill presence did not match the condition in this run; it counts as a failure and the setup needs fixing"
             );
         }
+        let file_label = file
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_default();
         println!(
             "[{}] {} pass={} cost={:.3}",
             n + 1,
-            file.file_name().unwrap().to_string_lossy(),
+            file_label,
             rec["pass"],
             rec["cost_usd"].as_f64().unwrap_or(0.0)
         );
-        fs::write(&file, serde_json::to_string_pretty(&rec).unwrap())
-            .map_err(|error| error.to_string())?;
+        fs::write(&file, serde_json::to_string_pretty(&rec)?)?;
     }
     Ok(())
 }

@@ -118,12 +118,14 @@ fn validate_triggers(root: &Path, out: &mut Vec<Diagnostic>) {
 /// Returns an error if the task directory cannot be opened or a task file cannot be read or decoded.
 pub fn load(root: &Path) -> Result<Vec<Task>> {
     let dir = root.join("evals/tasks");
-    let mut paths: Vec<_> = std::fs::read_dir(&dir)
-        .with_context(|| format!("{}", dir.display()))?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
+    let mut paths = Vec::new();
+    for entry in std::fs::read_dir(&dir).with_context(|| format!("{}", dir.display()))? {
+        let entry = entry.with_context(|| format!("{}", dir.display()))?;
+        let path = entry.path();
+        if path.is_dir() {
+            paths.push(path);
+        }
+    }
     paths.sort();
     paths
         .into_iter()
@@ -131,16 +133,39 @@ pub fn load(root: &Path) -> Result<Vec<Task>> {
         .collect()
 }
 
+fn read_task_entries(dir: &Path, out: &mut Vec<Diagnostic>) -> Option<Vec<std::path::PathBuf>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(err) => {
+            out.push(Diagnostic {
+                path: dir.to_path_buf(),
+                message: format!("{err}"),
+            });
+            return None;
+        }
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(e) => names.push(e.path()),
+            Err(err) => out.push(Diagnostic {
+                path: dir.to_path_buf(),
+                message: format!("{err}"),
+            }),
+        }
+    }
+    names.sort();
+    Some(names)
+}
+
 /// Validates every task under `<root>/evals/tasks`; an absent directory is not an error.
 /// Returns the number of tasks inspected.
 pub fn validate(root: &Path, out: &mut Vec<Diagnostic>) -> usize {
     validate_triggers(root, out);
-    let dir = root.join("evals/tasks");
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+    let Some(names) = read_task_entries(&root.join("evals/tasks"), out) else {
         return 0;
     };
-    let mut names: Vec<_> = entries.flatten().map(|e| e.path()).collect();
-    names.sort();
     let mut seen = BTreeSet::new();
     let mut count = 0;
     for path in names.into_iter().filter(|p| p.is_dir()) {

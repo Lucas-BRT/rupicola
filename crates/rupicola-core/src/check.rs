@@ -7,6 +7,29 @@ use std::path::{Path, PathBuf};
 /// Longest skill description the Agent Skills format accepts.
 const MAX_SKILL_DESCRIPTION_CHARS: usize = 1024;
 
+/// Default relative paths of non-Rust scripts permitted in the repository.
+pub const DEFAULT_ALLOWED_SCRIPTS: &[&str] = &[
+    "apps/panel/assets/panel.js",
+    "apps/panel/dev.sh",
+    "apps/site/assets/site.js",
+    "apps/site/assets/install.sh",
+];
+
+/// Options controlling repository checks.
+#[derive(Clone, Debug)]
+pub struct CheckOptions<'a> {
+    /// Relative paths of non-Rust scripts allowed in the repository.
+    pub allowed_scripts: &'a [&'a str],
+}
+
+impl Default for CheckOptions<'_> {
+    fn default() -> Self {
+        Self {
+            allowed_scripts: DEFAULT_ALLOWED_SCRIPTS,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Check {
     pub schema_version: u8,
@@ -14,10 +37,18 @@ pub struct Check {
     pub eval_tasks: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
+
 /// # Errors
 ///
 /// Returns an error if the skill directory cannot be resolved or traversed, or a required file cannot be read.
 pub fn check(root: &Path) -> Result<Check> {
+    check_with_options(root, &CheckOptions::default())
+}
+
+/// # Errors
+///
+/// Returns an error if the skill directory cannot be resolved or traversed, or a required file cannot be read.
+pub fn check_with_options(root: &Path, options: &CheckOptions<'_>) -> Result<Check> {
     let root = root.canonicalize()?;
     if !root.is_dir() {
         bail!("check expects the skill directory");
@@ -103,7 +134,7 @@ pub fn check(root: &Path) -> Result<Check> {
             error(skill_path.clone(), format!("missing direct module link: {relative}"));
         }
     }
-    result.markdown_files = check_documents(&root, &mut error)?;
+    result.markdown_files = check_documents(&root, options.allowed_scripts, &mut error)?;
     check_sources(&root, &mut error);
     let mut eval_diagnostics = Vec::new();
     result.eval_tasks = crate::evals::validate(&root, &mut eval_diagnostics);
@@ -111,19 +142,18 @@ pub fn check(root: &Path) -> Result<Check> {
     Ok(result)
 }
 
-fn check_documents(root: &Path, mut error: impl FnMut(PathBuf, String)) -> Result<usize> {
+fn check_documents(
+    root: &Path,
+    allowed_scripts: &[&str],
+    mut error: impl FnMut(PathBuf, String),
+) -> Result<usize> {
     let mut markdown_files = 0;
     for path in files(root, true)? {
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         if matches!(extension, "js" | "mjs" | "cjs" | "ts" | "sh" | "py")
-            && ![
-                "apps/panel/assets/panel.js",
-                "apps/panel/dev.sh",
-                "apps/site/assets/site.js",
-                "apps/site/assets/install.sh",
-            ]
-            .iter()
-            .any(|allowed| path == root.join(allowed))
+            && !allowed_scripts
+                .iter()
+                .any(|allowed| path == root.join(allowed))
         {
             error(
                 path.clone(),

@@ -12,6 +12,25 @@ const MAX_EXCERPT_CHARS: usize = 160;
 /// Largest source file scanned, in bytes.
 const MAX_SOURCE_BYTES: usize = 1_000_000;
 
+#[derive(Clone, Copy)]
+enum RuleId {
+    TransitionAll,
+    GradientText,
+    FocusOutline,
+    HardcodedColor,
+    BlockingUi,
+}
+
+impl RuleId {
+    const fn as_str(self) -> &'static str {
+        RULES[self as usize].0
+    }
+
+    const fn message(self) -> &'static str {
+        RULES[self as usize].1
+    }
+}
+
 pub const RULES: &[(&str, &str)] = &[
     (
         "transition-all",
@@ -63,7 +82,8 @@ struct Config {
 
 fn config(root: &Path) -> anyhow::Result<(Config, PathBuf)> {
     let start = if root.is_file() {
-        root.parent().unwrap()
+        root.parent()
+            .ok_or_else(|| anyhow::anyhow!("file has no parent directory: {}", root.display()))?
     } else {
         root
     };
@@ -104,7 +124,8 @@ struct Inspector<'a> {
     ui_depth: usize,
 }
 impl Inspector<'_> {
-    fn hit(&mut self, id: &str, span: Span) {
+    fn hit(&mut self, rule: RuleId, span: Span) {
+        let id = rule.as_str();
         if self.ignored.iter().any(|r| r == id) {
             return;
         }
@@ -139,7 +160,7 @@ impl Inspector<'_> {
                 .chars()
                 .take(MAX_EXCERPT_CHARS)
                 .collect(),
-            message: RULES.iter().find(|(r, _)| *r == id).unwrap().1.to_owned(),
+            message: rule.message().to_owned(),
             status: "candidate: verify in context",
         });
     }
@@ -150,13 +171,25 @@ impl Inspector<'_> {
         for class in value.value().split_whitespace() {
             let base = class.rsplit(':').next().unwrap_or(class);
             match base {
-                "transition-all" => self.hit("transition-all", literal.span()),
-                "bg-clip-text" => self.hit("gradient-text", literal.span()),
-                "outline-none" | "outline-hidden" => self.hit("focus-outline", literal.span()),
+                "transition-all" => self.hit(RuleId::TransitionAll, literal.span()),
+                "bg-clip-text" => self.hit(RuleId::GradientText, literal.span()),
+                "outline-none" | "outline-hidden" => self.hit(RuleId::FocusOutline, literal.span()),
                 _ => {}
             }
         }
     }
+    fn is_ui_fn(ident: &syn::Ident, attrs: &[syn::Attribute]) -> bool {
+        matches!(
+            ident.to_string().as_str(),
+            "view" | "render" | "update" | "ui"
+        ) || attrs.iter().any(|attr| {
+            attr.path()
+                .segments
+                .last()
+                .is_some_and(|seg| matches!(seg.ident.to_string().as_str(), "component" | "page"))
+        })
+    }
+
     fn markup(&mut self, stream: TokenStream, class_macro: bool) {
         let tokens: Vec<_> = stream.into_iter().collect();
         for (i, token) in tokens.iter().enumerate() {
@@ -201,19 +234,13 @@ impl<'ast> Visit<'ast> for Inspector<'_> {
         }
     }
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
-        let ui = matches!(
-            node.sig.ident.to_string().as_str(),
-            "view" | "render" | "update" | "ui"
-        );
+        let ui = Self::is_ui_fn(&node.sig.ident, &node.attrs);
         self.ui_depth += usize::from(ui);
         visit::visit_item_fn(self, node);
         self.ui_depth -= usize::from(ui);
     }
     fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
-        let ui = matches!(
-            node.sig.ident.to_string().as_str(),
-            "view" | "render" | "update" | "ui"
-        );
+        let ui = Self::is_ui_fn(&node.sig.ident, &node.attrs);
         self.ui_depth += usize::from(ui);
         visit::visit_impl_item_fn(self, node);
         self.ui_depth -= usize::from(ui);
@@ -239,7 +266,7 @@ impl<'ast> Visit<'ast> for Inspector<'_> {
                     | "fs::read_to_string"
             ) {
                 use syn::spanned::Spanned;
-                self.hit("blocking-ui", path.span());
+                self.hit(RuleId::BlockingUi, path.span());
             }
             // Color::from_rgb8(0x12, 0x34, 0x56) and similar: all-literal arguments.
             let segments: Vec<String> = path
@@ -274,7 +301,7 @@ impl<'ast> Visit<'ast> for Inspector<'_> {
                     && node.args.iter().all(literal)
                 {
                     use syn::spanned::Spanned;
-                    self.hit("hardcoded-color", path.span());
+                    self.hit(RuleId::HardcodedColor, path.span());
                 }
             }
         }

@@ -1,7 +1,13 @@
-use super::{
-    Command, Duration, File, Instant, Matrix, Path, R, RUN_POLL, RunOptions, Stdio, Value,
-    analyze_trajectory, fs, install_skill, json, parse_conds, setup_config,
-};
+use crate::harness::{analyze_trajectory, install_skill, setup_config};
+use crate::run::RunOptions;
+use crate::stats::parse_conds;
+use crate::{Matrix, RUN_POLL};
+use anyhow::{Context as _, Result, bail};
+use serde_json::{Value, json};
+use std::fs::{self, File};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// One `trigger` command: the matrix, the shared flags and the agent setup.
 pub(crate) struct TriggerRun<'a> {
@@ -20,20 +26,19 @@ impl TriggerRun<'_> {
         name: &str,
         rev: &str,
         rep: usize,
-    ) -> R<Value> {
+    ) -> Result<Value> {
         let id = format!("trig__{}__{name}__{rep}", t.id);
         let root = std::env::temp_dir().join("rupicola-eval").join(&id);
         let _ = fs::remove_dir_all(&root);
         let work = root.join("w");
-        fs::create_dir_all(&work).map_err(|error| error.to_string())?;
+        fs::create_dir_all(&work)?;
         // A stub project, so "my app" prompts do not become a hunt for missing code.
-        fs::create_dir_all(work.join("src")).map_err(|error| error.to_string())?;
+        fs::create_dir_all(work.join("src"))?;
         fs::write(
             work.join("Cargo.toml"),
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-        )
-        .map_err(|error| error.to_string())?;
-        fs::write(work.join("src/main.rs"), "fn main() {}\n").map_err(|error| error.to_string())?;
+        )?;
+        fs::write(work.join("src/main.rs"), "fn main() {}\n")?;
         let with_skill = rev != "none";
         if with_skill {
             install_skill(&self.m.root, rev, &work.join(".claude/skills/rupicola"))?;
@@ -44,7 +49,9 @@ impl TriggerRun<'_> {
         let loaded = rec["skills_loaded"]
             .as_array()
             .is_some_and(|a| a.iter().any(|x| x == "rupicola"));
-        let o = rec.as_object_mut().unwrap();
+        let o = rec
+            .as_object_mut()
+            .context("trajectory record must be a JSON object")?;
         o.remove("final_text");
         o.insert("prompt_id".into(), json!(t.id));
         o.insert("category".into(), json!(t.category));
@@ -62,7 +69,7 @@ impl TriggerRun<'_> {
 
     /// Runs the agent read-only on `prompt`, streaming its trajectory to `traj`,
     /// and kills it when the time limit passes.
-    fn run_agent(&self, prompt: &str, work: &Path, traj: &Path) -> R<()> {
+    fn run_agent(&self, prompt: &str, work: &Path, traj: &Path) -> Result<()> {
         let mut cmd = Command::new("claude");
         if let Some(dir) = self.config {
             cmd.env("CLAUDE_CONFIG_DIR", dir);
@@ -88,17 +95,13 @@ impl TriggerRun<'_> {
             .args(["--max-budget-usd", &self.opts.run_usd.to_string()])
             .current_dir(work)
             .stdin(Stdio::null())
-            .stdout(File::create(traj).map_err(|error| error.to_string())?)
+            .stdout(File::create(traj)?)
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|x| format!("cannot start `claude`: {x}"))?;
+            .context("cannot start `claude`")?;
         let start = Instant::now();
         loop {
-            if child
-                .try_wait()
-                .map_err(|error| error.to_string())?
-                .is_some()
-            {
+            if child.try_wait()?.is_some() {
                 return Ok(());
             }
             if start.elapsed() > Duration::from_secs(self.opts.timeout_secs) {
@@ -115,9 +118,8 @@ impl TriggerRun<'_> {
     clippy::cast_precision_loss,
     reason = "the dry-run cost is a displayed estimate based on a floating-point unit price"
 )]
-pub(crate) fn trigger_run(m: &Matrix, opts: &RunOptions, max_turns: u32, keep: bool) -> R<()> {
-    let prompts: Vec<_> = rupicola_core::evals::load_triggers(&m.root)
-        .map_err(|e| format!("{e:#}"))?
+pub(crate) fn trigger_run(m: &Matrix, opts: &RunOptions, max_turns: u32, keep: bool) -> Result<()> {
+    let prompts: Vec<_> = rupicola_core::evals::load_triggers(&m.root)?
         .into_iter()
         .filter(|t| t.split == m.split && (m.tasks.is_empty() || m.tasks.contains(&t.id)))
         .collect();
@@ -133,20 +135,19 @@ pub(crate) fn trigger_run(m: &Matrix, opts: &RunOptions, max_turns: u32, keep: b
         );
         return Ok(());
     }
-    let (config, _cleanup) = setup_config(opts.no_isolate)?;
-    fs::create_dir_all(opts.out).map_err(|error| error.to_string())?;
-    fs::write(
-        opts.out.join("manifest.json"),
-        serde_json::to_string_pretty(
-            &json!({"model": opts.model, "conditions": m.conds, "split": m.split, "k": m.k}),
-        )
-        .unwrap(),
-    )
-    .map_err(|error| error.to_string())?;
+    let config = setup_config(opts.no_isolate)?;
+    fs::create_dir_all(opts.out)?;
+    let manifest = serde_json::to_string_pretty(&json!({
+        "model": opts.model,
+        "conditions": m.conds,
+        "split": m.split,
+        "k": m.k
+    }))?;
+    fs::write(opts.out.join("manifest.json"), manifest)?;
     let run = TriggerRun {
         m,
         opts,
-        config: config.as_deref(),
+        config: config.as_ref().map(tempfile::TempDir::path),
         max_turns,
         keep,
     };
@@ -164,9 +165,7 @@ pub(crate) fn trigger_run(m: &Matrix, opts: &RunOptions, max_turns: u32, keep: b
                     continue;
                 }
                 if spent >= opts.max_usd {
-                    return Err(format!(
-                        "stopped: reported cost {spent:.2} reached --max-usd; rerun to resume"
-                    ));
+                    bail!("stopped: reported cost {spent:.2} reached --max-usd; rerun to resume");
                 }
                 let rec = run.once(t, name, rev, rep)?;
                 spent += rec["cost_usd"].as_f64().unwrap_or(0.0);
@@ -176,8 +175,7 @@ pub(crate) fn trigger_run(m: &Matrix, opts: &RunOptions, max_turns: u32, keep: b
                     t.expect,
                     rec["cost_usd"].as_f64().unwrap_or(0.0)
                 );
-                fs::write(&file, serde_json::to_string_pretty(&rec).unwrap())
-                    .map_err(|error| error.to_string())?;
+                fs::write(&file, serde_json::to_string_pretty(&rec)?)?;
             }
         }
     }
