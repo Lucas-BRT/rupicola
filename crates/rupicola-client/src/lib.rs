@@ -10,10 +10,10 @@ use async_trait::async_trait;
 use rupicola_api::{
     AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
     DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
-    Member, NewCapture, NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite,
-    NewProblem, NewProject, NewReview, NewStep, PasswordChange, Problem, ProblemPatch,
-    ProblemSummary, Project, Redeem, Register, RunCapture, SessionToken, Setup, Step,
-    SystemActionForm, SystemList, SystemVersion,
+    Member, Missing, MissingQuery, NewCapture, NewComment, NewCredential, NewDesignEntry,
+    NewFinding, NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PasswordChange,
+    Problem, ProblemPatch, ProblemSummary, Project, Redeem, Register, RunCapture, SessionToken,
+    Setup, Step, SystemActionForm, SystemList, SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -220,7 +220,26 @@ pub trait Api: Send + Sync {
     /// Uploads `data` unless the backend already has it; returns its SHA-256.
     async fn put_blob(&self, token: &str, data: &[u8]) -> Result<String>;
 
-    /// Publishes a capture whose files were uploaded with [`Api::put_blob`].
+    /// Queries which of `query.sha256` blobs are not yet stored for `project`.
+    async fn missing_blobs(
+        &self,
+        token: &str,
+        project: &str,
+        query: &MissingQuery,
+    ) -> Result<Missing>;
+
+    /// Uploads a blob for `project` at its precomputed `sha256` digest, taking ownership of
+    /// `data` to avoid copying it in memory.
+    async fn upload_project_blob(
+        &self,
+        token: &str,
+        project: &str,
+        sha256: &str,
+        data: Vec<u8>,
+    ) -> Result<()>;
+
+    /// Publishes a capture whose files were uploaded with [`Api::put_blob`] or
+    /// [`Api::upload_project_blob`].
     async fn publish_capture(
         &self,
         token: &str,

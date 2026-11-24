@@ -73,7 +73,8 @@ pub fn link(project: String) -> Result<()> {
     let cwd = env::current_dir()?;
     let root = cwd.ancestors().find(|p| git_boundary(p)).unwrap_or(&cwd);
     let path = root.join(LINK);
-    fs::create_dir_all(path.parent().unwrap())?;
+    let parent = path.parent().context("link path has no parent directory")?;
+    fs::create_dir_all(parent)?;
     let contents = toml::to_string(&Link { project })?;
     match fs::OpenOptions::new()
         .write(true)
