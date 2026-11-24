@@ -8,7 +8,7 @@ use crate::{AuthAction, EXIT_CLEAN, Result, service};
 use clap::Subcommand;
 use offline::{CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs, ServeArgs};
 use remote::{
-    CapturesArgs, DesignArgs, FixesArgs, LoginArgs, Logout, McpBridgeArgs, ProblemsArgs,
+    CapturesArgs, DesignArgs, FixesArgs, JobsArgs, LoginArgs, Logout, McpBridgeArgs, ProblemsArgs,
     ProjectsArgs, PublishArgs, ScenariosArgs, WhoamiArgs,
 };
 
@@ -34,6 +34,8 @@ pub enum Command {
     Fixes(FixesArgs),
     /// Read and record a project's design records.
     Design(DesignArgs),
+    /// Ask a runner to capture a scenario, and watch it.
+    Jobs(JobsArgs),
     /// Push and list the capture definitions a repository owns.
     Scenarios(ScenariosArgs),
     /// Manage the stored token by hand.
@@ -70,6 +72,7 @@ impl Command {
             Self::Problems(args) => args.run(),
             Self::Fixes(args) => args.run(),
             Self::Design(args) => args.run(),
+            Self::Jobs(args) => args.run(),
             Self::Scenarios(args) => args.run(),
             Self::Auth {
                 action: AuthAction::SetToken { token },

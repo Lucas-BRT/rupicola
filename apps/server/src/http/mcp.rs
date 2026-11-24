@@ -6,7 +6,7 @@
 
 use crate::{
     domain::{ApiError, Principal},
-    services::{capture_runner, captures, design, fixes, problems, projects, scenarios},
+    services::{capture_runner, captures, design, fixes, jobs, problems, projects, scenarios},
     state::Shared,
 };
 use axum::{
@@ -17,8 +17,8 @@ use axum::{
 };
 use base64::Engine as _;
 use rupicola_api::{
-    NewFinding, NewFix, NewProblem, NewProject, NewReview, NewStep, ProblemPatch, RunCapture,
-    Scenario,
+    NewFinding, NewFix, NewJob, NewProblem, NewProject, NewReview, NewStep, ProblemPatch,
+    RunCapture, Scenario,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -126,6 +126,23 @@ enum Call {
         #[serde(flatten)]
         review: NewReview,
     },
+    JobList {
+        project: String,
+        /// Only the jobs still waiting or running.
+        #[serde(default)]
+        open: bool,
+    },
+    JobGet {
+        id: String,
+    },
+    JobCreate {
+        project: String,
+        #[serde(flatten)]
+        job: NewJob,
+    },
+    JobCancel {
+        id: String,
+    },
     ScenarioList {
         project: String,
     },
@@ -199,6 +216,14 @@ impl Call {
             Self::FixReview { id, review } => {
                 value(&fixes::review(&state, &principal, &id, &review).await?)
             }
+            Self::JobList { project, open } => {
+                value(&jobs::list(&state, &principal, &project, open).await?)
+            }
+            Self::JobGet { id } => value(&jobs::get(&state, &principal, &id).await?),
+            Self::JobCreate { project, job } => {
+                value(&jobs::create(&state, &principal, &project, &job).await?)
+            }
+            Self::JobCancel { id } => value(&jobs::cancel(&state, &principal, &id).await?),
             Self::ScenarioList { project } => {
                 value(&scenarios::list(&state, &principal, &project).await?)
             }
@@ -546,6 +571,37 @@ const TOOLS: &[Tool] = &[
         },
     },
     Tool {
+        name: "job_create",
+        description: "Queue a capture job: run a scenario on one or more trees of the code. A runner takes it, builds each tree (a git ref with other refs merged on top), captures the scenario's matrix and uploads the captures. Poll job_get for cells_done of cells_total",
+        required: &["project", "scenario", "trees"],
+        properties: || {
+            json!({"project": text(), "scenario": text(),
+                "hash": {"type": "string", "description": "Exact scenario version; the latest when absent."},
+                "fix": {"type": "string", "description": "The fix the captures are for."},
+                "trees": {"type": "array", "items": {"type": "object", "required": ["name", "base"],
+                    "properties": {"name": text(), "base": {"type": "string", "description": "Git ref to check out."},
+                        "merge": string_list(), "fixes": string_list()}}}})
+        },
+    },
+    Tool {
+        name: "job_list",
+        description: "List a project's capture jobs, newest first; open=true keeps the ones waiting or running",
+        required: &["project"],
+        properties: || json!({"project": text(), "open": {"type": "boolean"}}),
+    },
+    Tool {
+        name: "job_get",
+        description: "One capture job: status, cells_done of cells_total, the runner, and the captures it made",
+        required: &["id"],
+        properties: || json!({"id": text()}),
+    },
+    Tool {
+        name: "job_cancel",
+        description: "Cancel a capture job that has not finished; a runner holding it stops at its next report",
+        required: &["id"],
+        properties: || json!({"id": text()}),
+    },
+    Tool {
         name: "scenario_list",
         description: "List a project's scenarios, the capture definitions its repository owns, latest version of each",
         required: &["project"],
@@ -768,6 +824,53 @@ mod tests {
             .await,
         );
         assert_eq!(resolved["status"], "resolved");
+    }
+
+    #[tokio::test]
+    async fn an_agent_queues_watches_and_cancels_a_capture_job_through_mcp() {
+        let (port, [ana, bruno, _]) = demo_with_artifacts().await;
+        payload(
+            &rpc(
+                port,
+                &ana,
+                &tool(
+                    "scenario_put",
+                    &json!({"project": "demo", "scenario": {"name": "home", "url": "/"}}),
+                ),
+            )
+            .await,
+        );
+        let job = payload(
+            &rpc(
+                port,
+                &ana,
+                &tool(
+                    "job_create",
+                    &json!({"project": "demo", "scenario": "home",
+                        "trees": [{"name": "base", "base": "develop"}]}),
+                ),
+            )
+            .await,
+        );
+        assert_eq!(
+            (job["status"].as_str(), job["cells_total"].as_u64()),
+            (Some("queued"), Some(1))
+        );
+        let open = payload(
+            &rpc(
+                port,
+                &bruno,
+                &tool("job_list", &json!({"project": "demo", "open": true})),
+            )
+            .await,
+        );
+        assert_eq!(open.as_array().unwrap().len(), 1);
+        let cancelled =
+            payload(&rpc(port, &ana, &tool("job_cancel", &json!({"id": job["id"]}))).await);
+        assert_eq!(cancelled["status"], "cancelled");
+        let fetched =
+            payload(&rpc(port, &bruno, &tool("job_get", &json!({"id": job["id"]}))).await);
+        assert_eq!(fetched["status"], "cancelled");
     }
 
     #[tokio::test]

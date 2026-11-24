@@ -11,6 +11,7 @@ pub mod design;
 pub mod design_system;
 pub mod error;
 pub mod fix;
+pub mod job;
 pub mod limits;
 pub mod lineage;
 pub mod principal;

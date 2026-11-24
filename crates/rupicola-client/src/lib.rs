@@ -9,12 +9,12 @@ mod http;
 use async_trait::async_trait;
 use rupicola_api::{
     AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
-    DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
-    Member, Missing, MissingQuery, NewCapture, NewComment, NewCredential, NewDesignEntry,
-    NewFinding, NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PasswordChange,
-    Problem, ProblemPatch, ProblemSummary, Project, Redeem, Register, RunCapture, Scenario,
-    ScenarioSummary, ScenarioVersion, SessionToken, Setup, Step, SystemActionForm, SystemList,
-    SystemVersion,
+    DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Job,
+    JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewCapture, NewComment,
+    NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem, NewProject,
+    NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project, Redeem,
+    Register, RunCapture, Scenario, ScenarioSummary, ScenarioVersion, SessionToken, Setup, Step,
+    SystemActionForm, SystemList, SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -207,6 +207,31 @@ pub trait Api: Send + Sync {
 
     /// Records a fix for one or more problems of `project`.
     async fn create_fix(&self, token: &str, project: &str, form: &NewFix) -> Result<Fix>;
+
+    /// The jobs of `project`, newest first; `open_only` keeps the ones waiting or running.
+    async fn jobs(&self, token: &str, project: &str, open_only: bool) -> Result<Vec<Job>>;
+
+    /// One job.
+    async fn job(&self, token: &str, id: &str) -> Result<Job>;
+
+    /// Queues a job to run a scenario of `project`.
+    async fn create_job(&self, token: &str, project: &str, form: &NewJob) -> Result<Job>;
+
+    /// Takes the oldest job the caller can run; none when there is nothing to do.
+    async fn claim_job(&self, token: &str, project: &str) -> Result<Option<Job>>;
+
+    /// Reports how far a held job is, which also keeps it held. A cancelled job comes back as
+    /// such.
+    async fn job_progress(&self, token: &str, id: &str, progress: &JobProgress) -> Result<Job>;
+
+    /// Finishes a held job with the captures it made.
+    async fn complete_job(&self, token: &str, id: &str, result: &JobResult) -> Result<Job>;
+
+    /// Gives up on a held job.
+    async fn fail_job(&self, token: &str, id: &str, failure: &JobFailure) -> Result<Job>;
+
+    /// Cancels a job that has not finished.
+    async fn cancel_job(&self, token: &str, id: &str) -> Result<Job>;
 
     /// The latest version of each scenario of `project`.
     async fn scenarios(&self, token: &str, project: &str) -> Result<Vec<ScenarioSummary>>;

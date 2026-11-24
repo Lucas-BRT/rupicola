@@ -29,6 +29,11 @@ impl Principal {
         }
     }
 
+    /// Identifies the credential, which tells two callers with the same name apart.
+    pub fn key(&self) -> &str {
+        &self.digest
+    }
+
     /// The name written in the audit trail for what this caller does.
     pub fn actor(&self) -> &str {
         self.handle.as_deref().unwrap_or("device")

@@ -2,7 +2,7 @@
 //! `/projects/{id}`.
 
 use super::super::handlers::{
-    captures, credentials, design, design_systems as design_system_handlers, fixes, limits,
+    captures, credentials, design, design_systems as design_system_handlers, fixes, jobs, limits,
     problems, projects, publish, removal, scenarios, search, selections, settings, topics,
 };
 use crate::state::Shared;
@@ -37,6 +37,8 @@ fn project() -> Router<Shared> {
         .route("/problems/details", routing::get(problems::list_details))
         .route("/fixes", routing::get(fixes::list).post(fixes::create))
         .route("/fixes/details", routing::get(fixes::list_details))
+        .route("/jobs", routing::get(jobs::list).post(jobs::create))
+        .route("/jobs/claim", routing::post(jobs::claim))
         .route(
             "/scenarios",
             routing::get(scenarios::list).post(scenarios::put),

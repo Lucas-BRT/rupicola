@@ -3,12 +3,12 @@ use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
     AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
-    DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
-    Member, Missing, MissingQuery, NewCapture, NewComment, NewCredential, NewDesignEntry,
-    NewFinding, NewFix, NewInvite, NewProblem, NewProject, NewReview, NewStep, PREFIX,
-    PasswordChange, Problem, ProblemPatch, ProblemSummary, Project, Redeem, Register, RunCapture,
-    Scenario, ScenarioSummary, ScenarioVersion, SessionToken, Setup, SetupStatus, Step,
-    SystemActionForm, SystemList, SystemVersion,
+    DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Job,
+    JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewCapture, NewComment,
+    NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem, NewProject,
+    NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
+    Redeem, Register, RunCapture, Scenario, ScenarioSummary, ScenarioVersion, SessionToken, Setup,
+    SetupStatus, Step, SystemActionForm, SystemList, SystemVersion,
 };
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -517,6 +517,101 @@ impl Api for HttpApi {
             )
             .json(form),
         )
+        .await
+    }
+
+    async fn jobs(&self, token: &str, project: &str, open_only: bool) -> Result<Vec<Job>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!(
+                "/projects/{}/jobs?open={open_only}",
+                encode_segment(project)
+            ),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn job(&self, token: &str, id: &str) -> Result<Job> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/jobs/{}", encode_segment(id)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn create_job(&self, token: &str, project: &str, form: &NewJob) -> Result<Job> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{}/jobs", encode_segment(project)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn claim_job(&self, token: &str, project: &str) -> Result<Option<Job>> {
+        let response = Self::send(self.request(
+            Method::POST,
+            &format!("/projects/{}/jobs/claim", encode_segment(project)),
+            Some(token),
+        ))
+        .await?;
+        if response.status() == reqwest::StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+        response
+            .json()
+            .await
+            .map(Some)
+            .map_err(|e| ClientError::Malformed(e.to_string()))
+    }
+
+    async fn job_progress(&self, token: &str, id: &str, progress: &JobProgress) -> Result<Job> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/jobs/{}/progress", encode_segment(id)),
+                Some(token),
+            )
+            .json(progress),
+        )
+        .await
+    }
+
+    async fn complete_job(&self, token: &str, id: &str, result: &JobResult) -> Result<Job> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/jobs/{}/complete", encode_segment(id)),
+                Some(token),
+            )
+            .json(result),
+        )
+        .await
+    }
+
+    async fn fail_job(&self, token: &str, id: &str, failure: &JobFailure) -> Result<Job> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/jobs/{}/fail", encode_segment(id)),
+                Some(token),
+            )
+            .json(failure),
+        )
+        .await
+    }
+
+    async fn cancel_job(&self, token: &str, id: &str) -> Result<Job> {
+        Self::read(self.request(
+            Method::POST,
+            &format!("/jobs/{}/cancel", encode_segment(id)),
+            Some(token),
+        ))
         .await
     }
 

@@ -10,6 +10,7 @@ pub mod credentials;
 pub mod design;
 pub mod design_systems;
 pub mod fixes;
+pub mod jobs;
 pub mod limits;
 pub mod lineage;
 pub mod passwords;

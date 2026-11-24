@@ -8,6 +8,7 @@ mod artifacts;
 mod blobs;
 mod captures;
 mod fixes;
+mod jobs;
 mod problems;
 mod projects;
 mod selections;
@@ -74,6 +75,7 @@ fn v1(settings: &security::Security) -> anyhow::Result<Router<Shared>> {
         .nest("/artifacts", artifacts::routes())
         .nest("/problems", problems::routes())
         .nest("/fixes", fixes::routes())
+        .nest("/jobs", jobs::routes())
         .nest("/topics", topics::routes())
         .nest("/selections", selections::routes())
         .nest("/settings", settings::routes())
