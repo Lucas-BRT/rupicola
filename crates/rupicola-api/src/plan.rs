@@ -1,9 +1,10 @@
 //! Validation and translation of [`CaptureStep`] sequences and [`Scenario`] matrix cells
 //! into declarative `rupicola_capture::session::Plan` plans.
 
-use crate::{CaptureAction, CaptureStep, Scenario, Viewport};
+use crate::{CaptureAction, CaptureStep, Checks, Scenario, Viewport};
 use rupicola_capture::session::{
-    ColorScheme, Environment, NetworkPolicy, Plan, Step, Target, WaitCondition, valid_id,
+    ColorScheme, Environment, NetworkPolicy, Plan, Step, Target, UiTreeMode, WaitCondition,
+    valid_id,
 };
 use rupicola_protocol::UiAction;
 use std::collections::HashSet;
@@ -334,6 +335,14 @@ fn color_scheme_for_theme(theme: &str) -> Option<ColorScheme> {
     }
 }
 
+fn has_checks(checks: &Checks) -> bool {
+    checks.no_horizontal_overflow
+        || checks.min_target_size.is_some()
+        || !checks.no_overlap.is_empty()
+        || checks.accessible_names
+        || checks.contrast.is_some()
+}
+
 /// Builds a [`Plan`] for one `(viewport, theme)` cell of `scenario` against `base_url`.
 ///
 /// A theme with non-empty setup steps runs those steps right after any leading `Ready` steps
@@ -363,6 +372,11 @@ pub fn scenario_cell_plan(
         .filter(|l| !l.is_empty())
         .map(str::to_owned);
     env.network_policy = NetworkPolicy::Unrestricted;
+    env.ui_tree = if has_checks(&scenario.checks) {
+        UiTreeMode::Full
+    } else {
+        UiTreeMode::Off
+    };
 
     let mut theme_plan_steps = Vec::new();
     if let Some(theme_name) = theme {
@@ -522,5 +536,21 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn ui_tree_is_full_when_checks_are_configured_and_off_otherwise() {
+        let plain = Scenario::from_toml("name = \"a\"\nurl = \"/\"").unwrap();
+        let plain_plan =
+            scenario_cell_plan(&plain, "http://127.0.0.1:5000", DEFAULT_VIEWPORT, None).unwrap();
+        assert_eq!(plain_plan.environment.ui_tree, UiTreeMode::Off);
+
+        let checked = Scenario::from_toml(
+            "name = \"b\"\nurl = \"/\"\n[checks]\nno_horizontal_overflow = true",
+        )
+        .unwrap();
+        let checked_plan =
+            scenario_cell_plan(&checked, "http://127.0.0.1:5000", DEFAULT_VIEWPORT, None).unwrap();
+        assert_eq!(checked_plan.environment.ui_tree, UiTreeMode::Full);
     }
 }

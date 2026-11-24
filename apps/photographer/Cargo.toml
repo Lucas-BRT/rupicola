@@ -16,6 +16,7 @@ reqwest.workspace = true
 rupicola-api = { workspace = true, features = ["capture"] }
 rupicola-capture.workspace = true
 rupicola-client.workspace = true
+rupicola-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

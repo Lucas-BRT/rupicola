@@ -1,6 +1,7 @@
 //! Executing one matrix cell plan with `rupicola-capture`, uploading its blobs, and
 //! publishing an immutable [`CaptureRecord`].
 
+use crate::checks::evaluate_checks;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use rupicola_api::{
@@ -38,6 +39,7 @@ const MILLI_SCALE: u32 = 1000;
 pub struct CapturedFile {
     pub id: String,
     pub path: PathBuf,
+    pub snapshot: Option<rupicola_protocol::UiSnapshot>,
 }
 
 /// Output of running one matrix cell [`Plan`].
@@ -112,6 +114,7 @@ impl CellCapturer for ProtocolCapturer {
                 .map(|c| CapturedFile {
                     id: c.id,
                     path: c.png,
+                    snapshot: c.snapshot,
                 })
                 .collect(),
             clips: bundle
@@ -120,6 +123,7 @@ impl CellCapturer for ProtocolCapturer {
                 .map(|c| CapturedFile {
                     id: c.id,
                     path: c.mp4,
+                    snapshot: None,
                 })
                 .collect(),
         })
@@ -324,6 +328,30 @@ pub async fn capture_and_publish<A: Api>(
     let capture = api
         .publish_record(token, ctx.project, &record.id, &record)
         .await?;
+
+    for cp in &outcome.checkpoints {
+        let Some(snapshot) = &cp.snapshot else {
+            continue;
+        };
+        let evidence_artifact_id = capture
+            .checkpoints
+            .iter()
+            .find(|c| c.id == cp.id)
+            .map(|c| c.artifact.id.clone());
+        for note in evaluate_checks(&ctx.scenario.checks, &cp.id, snapshot) {
+            let _ = api
+                .add_finding(
+                    token,
+                    &capture.id,
+                    &NewFinding {
+                        note,
+                        evidence_artifact_id: evidence_artifact_id.clone(),
+                    },
+                )
+                .await;
+        }
+    }
+
     Ok((capture, checkpoint_hashes))
 }
 

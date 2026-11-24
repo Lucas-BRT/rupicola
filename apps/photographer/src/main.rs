@@ -1,6 +1,7 @@
 //! `rupicola-photographer`: standalone capture runner binary.
 
 mod capture;
+mod checks;
 mod config;
 mod preview;
 mod runner;

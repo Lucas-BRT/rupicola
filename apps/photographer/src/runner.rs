@@ -316,6 +316,7 @@ mod tests {
                 checkpoints: vec![CapturedFile {
                     id: "full-page".to_owned(),
                     path: png_path,
+                    snapshot: None,
                 }],
                 clips: Vec::new(),
             })
