@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
-use serde::{Deserialize, Serialize};
+use rupicola_api::ProjectConfig;
 use std::{
     env, fs,
     io::Write,
@@ -9,45 +9,6 @@ use std::{
 
 const LINK: &str = ".rupicola/project.toml";
 const MAX_IDENTIFIER_LEN: usize = 64;
-/// Default seconds a preview command is given to start and pass its readiness check.
-pub const DEFAULT_PREVIEW_TIMEOUT_SECS: u64 = 180;
-
-const fn default_preview_timeout_secs() -> u64 {
-    DEFAULT_PREVIEW_TIMEOUT_SECS
-}
-
-/// How the runner builds and waits for a preview of a repository tree.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct PreviewConfig {
-    pub command: String,
-    pub ready: String,
-    #[serde(default = "default_preview_timeout_secs")]
-    pub timeout_secs: u64,
-}
-
-/// Repository configuration in `.rupicola/project.toml`.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProjectConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preview: Option<PreviewConfig>,
-}
-
-impl ProjectConfig {
-    /// Parses `.rupicola/project.toml` text.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the text is invalid TOML or contains unknown fields.
-    pub fn from_toml(text: &str) -> Result<Self, toml::de::Error> {
-        toml::from_str(text)
-    }
-}
 
 fn valid_identifier(value: &str) -> bool {
     !value.is_empty()
@@ -102,23 +63,6 @@ pub fn project_config() -> Result<Option<(PathBuf, ProjectConfig)>> {
         }
     }
     Ok(None)
-}
-
-/// Returns the root directory of the current Git checkout.
-///
-/// # Errors
-///
-/// Fails when not inside a Git checkout.
-pub fn repo_root() -> Result<PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .context("Locate Git repository root")?;
-    if !output.status.success() {
-        bail!("Run inside a Git checkout");
-    }
-    let root = String::from_utf8(output.stdout)?.trim().to_owned();
-    Ok(PathBuf::from(root))
 }
 
 pub fn link(project: String) -> Result<()> {
@@ -194,36 +138,4 @@ pub fn detect_project() -> Result<ProjectName> {
     project()?.ok_or_else(|| {
         anyhow!("Run inside a Git checkout, pass --project, or set a project with rupicola link")
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn project_config_parses_minimal_link_and_full_preview() {
-        let minimal = ProjectConfig::from_toml(r#"project = "demo""#).unwrap();
-        assert_eq!(minimal.project.as_deref(), Some("demo"));
-        assert_eq!(minimal.base, None);
-        assert_eq!(minimal.preview, None);
-
-        let full = ProjectConfig::from_toml(
-            r#"
-            project = "rupicola-site"
-            base = "develop"
-            [preview]
-            command = "cargo run -q -p rupicola-site -- --port {port}"
-            ready = "http://127.0.0.1:{port}/healthz"
-            "#,
-        )
-        .unwrap();
-        let preview = full.preview.unwrap();
-        assert_eq!(preview.timeout_secs, DEFAULT_PREVIEW_TIMEOUT_SECS);
-        assert_eq!(full.base.as_deref(), Some("develop"));
-    }
-
-    #[test]
-    fn project_config_rejects_unknown_fields() {
-        assert!(ProjectConfig::from_toml(r#"unknown = "value""#).is_err());
-    }
 }

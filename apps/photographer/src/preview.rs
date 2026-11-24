@@ -1,7 +1,7 @@
 //! Spawns a worktree's preview server on a free port and waits until it answers `ready`.
 
-use crate::service::PreviewConfig;
 use anyhow::{Context, Result, bail};
+use rupicola_api::PreviewConfig;
 use std::{
     net::{Ipv4Addr, SocketAddr},
     path::Path,

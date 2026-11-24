@@ -1,23 +1,15 @@
-//! `rupicola runner`: claims capture jobs, builds Git worktrees, runs previews, captures
-//! matrices with `rupicola-capture`, and uploads results.
-
-mod capture;
-mod preview;
-mod worktree;
+//! Job execution loop: claims queued jobs, builds worktrees, starts previews, captures
+//! matrices, checks determinism, and reports progress/completion.
 
 use crate::{
-    EXIT_CLEAN, Result, block_on,
-    commands::remote::Scoped,
-    service::{self, DEFAULT_PREVIEW_TIMEOUT_SECS, PreviewConfig},
+    capture::{CellCapturer, CellContext, capture_and_publish, check_determinism},
+    preview::PreviewProcess,
+    worktree::Worktree,
 };
-use anyhow::{Context, bail};
-use capture::{
-    CellCapturer, CellContext, ProtocolCapturer, capture_and_publish, check_determinism,
-};
-use preview::PreviewProcess;
+use anyhow::{Context, Result, bail};
 use rupicola_api::{
-    DEFAULT_VIEWPORT, Job, JobCapture, JobFailure, JobProgress, JobResult, JobStatus, Scenario,
-    Viewport,
+    DEFAULT_VIEWPORT, Job, JobCapture, JobFailure, JobProgress, JobResult, JobStatus,
+    PreviewConfig, Scenario, Viewport,
 };
 use rupicola_client::Api;
 use std::{
@@ -29,90 +21,9 @@ use std::{
     time::Duration,
 };
 use tracing::{info, warn};
-use worktree::Worktree;
 
-const DEFAULT_POLL_SECS: u64 = 5;
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_JOB_ERROR_CHARS: usize = 2000;
-
-#[derive(clap::Args)]
-pub struct RunnerArgs {
-    /// Claim and run at most one job, then exit.
-    #[arg(long)]
-    once: bool,
-    /// Seconds to wait between polling for queued jobs when idle.
-    #[arg(long, default_value_t = DEFAULT_POLL_SECS)]
-    poll_secs: u64,
-    /// Override `[preview].command` from `.rupicola/project.toml`.
-    #[arg(long)]
-    preview_command: Option<String>,
-    /// Override `[preview].ready` from `.rupicola/project.toml`.
-    #[arg(long)]
-    preview_ready: Option<String>,
-    /// Override `[preview].timeout_secs` from `.rupicola/project.toml`.
-    #[arg(long)]
-    preview_timeout_secs: Option<u64>,
-    #[command(flatten)]
-    scope: Scoped,
-}
-
-impl RunnerArgs {
-    pub(crate) fn run(self) -> Result<u8> {
-        init_tracing();
-        let remote = self.scope.client().remote()?;
-        let project = self.scope.project()?;
-        let repo_root = service::repo_root()?;
-        let preview = resolve_preview_config(&self)?;
-
-        block_on(async move {
-            let capturer = ProtocolCapturer::discover().await?;
-            run_loop(
-                &remote.api,
-                &remote.token,
-                &project,
-                &repo_root,
-                &preview,
-                &capturer,
-                self.once,
-                Duration::from_secs(self.poll_secs.max(1)),
-            )
-            .await?;
-            Ok(EXIT_CLEAN)
-        })?
-    }
-}
-
-fn init_tracing() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .try_init();
-}
-
-fn resolve_preview_config(args: &RunnerArgs) -> Result<PreviewConfig> {
-    let file_preview = service::project_config()?.and_then(|(_, cfg)| cfg.preview);
-    let command = args
-        .preview_command
-        .clone()
-        .or_else(|| file_preview.as_ref().map(|p| p.command.clone()))
-        .context("missing `[preview].command` in .rupicola/project.toml or --preview-command")?;
-    let ready = args
-        .preview_ready
-        .clone()
-        .or_else(|| file_preview.as_ref().map(|p| p.ready.clone()))
-        .context("missing `[preview].ready` in .rupicola/project.toml or --preview-ready")?;
-    let timeout_secs = args
-        .preview_timeout_secs
-        .or_else(|| file_preview.map(|p| p.timeout_secs))
-        .unwrap_or(DEFAULT_PREVIEW_TIMEOUT_SECS);
-    Ok(PreviewConfig {
-        command,
-        ready,
-        timeout_secs,
-    })
-}
 
 fn matrix_cells(scenario: &Scenario) -> Vec<(Viewport, Option<String>)> {
     let viewports: Vec<Viewport> = if scenario.matrix.viewports.is_empty() {
@@ -138,8 +49,13 @@ fn truncate_error(msg: &str) -> String {
     msg.chars().take(MAX_JOB_ERROR_CHARS).collect()
 }
 
+/// Polls for queued jobs in `project` and runs them until stopped (or once if `once` is set).
+///
+/// # Errors
+///
+/// Fails when `claim_job` itself fails. Job execution errors are reported via `fail_job`.
 #[allow(clippy::too_many_arguments)]
-async fn run_loop<A: Api + 'static>(
+pub async fn run_loop<A: Api + 'static>(
     api: &A,
     token: &str,
     project: &str,
@@ -149,7 +65,7 @@ async fn run_loop<A: Api + 'static>(
     once: bool,
     poll_interval: Duration,
 ) -> Result<()> {
-    info!(project, "runner listening for capture jobs");
+    info!(project, "photographer listening for capture jobs");
     loop {
         if let Some(job) = api.claim_job(token, project).await? {
             info!(job_id = %job.id, scenario = %job.scenario, "claimed job");
@@ -178,7 +94,7 @@ async fn run_loop<A: Api + 'static>(
             tokio::select! {
                 () = tokio::time::sleep(poll_interval) => {}
                 _ = tokio::signal::ctrl_c() => {
-                    info!("shutting down runner");
+                    info!("shutting down photographer");
                     break;
                 }
             }
@@ -369,8 +285,9 @@ async fn run_job_trees<A: Api>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capture::{CapturedFile, CellOutcome};
     use rupicola_api::{
-        Artifact, Capture, CaptureStatus, Checkpoint, Environment, Inspection, NewFinding,
+        Artifact, Capture, CaptureStatus, Checkpoint, Environment, Inspection, Limits, NewFinding,
         ScenarioVersion, TreeSpec,
     };
     use rupicola_capture::session::Plan;
@@ -384,7 +301,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl CellCapturer for StubCapturer {
-        async fn capture_cell(&self, _plan: &Plan, out_dir: &Path) -> Result<capture::CellOutcome> {
+        async fn capture_cell(&self, _plan: &Plan, out_dir: &Path) -> Result<CellOutcome> {
             tokio::fs::create_dir_all(out_dir).await?;
             let n = self.counter.fetch_add(1, Ordering::Relaxed);
             let png_path = out_dir.join("full-page.png");
@@ -394,9 +311,9 @@ mod tests {
                 "png-same".to_owned()
             };
             tokio::fs::write(&png_path, bytes.as_bytes()).await?;
-            Ok(capture::CellOutcome {
+            Ok(CellOutcome {
                 backend_id: "stub".to_owned(),
-                checkpoints: vec![capture::CapturedFile {
+                checkpoints: vec![CapturedFile {
                     id: "full-page".to_owned(),
                     path: png_path,
                 }],
@@ -541,7 +458,7 @@ mod tests {
         mock.expect_missing_blobs().returning(|_, _, q| {
             Ok(rupicola_api::Missing {
                 missing: q.sha256.clone(),
-                limits: rupicola_api::Limits {
+                limits: Limits {
                     max_blob_bytes: 1_000_000,
                     max_image_bytes: 1_000_000,
                     max_video_bytes: 1_000_000,

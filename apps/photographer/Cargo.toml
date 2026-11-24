@@ -1,0 +1,33 @@
+[package]
+name = "rupicola-photographer"
+description = "Rupicola capture runner: claims jobs, builds worktrees, captures matrices, and uploads records"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+clap = { workspace = true, features = ["env"] }
+reqwest.workspace = true
+rupicola-api = { workspace = true, features = ["capture"] }
+rupicola-capture.workspace = true
+rupicola-client.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "time"] }
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+rupicola-client = { path = "../../crates/rupicola-client", features = ["mock"] }
+
+[lints]
+workspace = true

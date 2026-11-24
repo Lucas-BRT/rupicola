@@ -5,11 +5,12 @@ members = [
     "crates/rupicola-client",
     "apps/server",
     "apps/cli",
+    "apps/photographer",
     "apps/panel",
     "apps/site",
     "tools/eval-runner",
 ]
-default-members = ["crates/rupicola-core", "crates/rupicola-api", "crates/rupicola-client", "apps/server", "apps/cli", "tools/eval-runner"]
+default-members = ["crates/rupicola-core", "crates/rupicola-api", "crates/rupicola-client", "apps/server", "apps/cli", "apps/photographer", "tools/eval-runner"]
 exclude = ["evals", "examples"]
 resolver = "2"
 

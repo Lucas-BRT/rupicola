@@ -2,9 +2,9 @@
 //! HTTP/MCP client commands (`remote`).
 
 mod offline;
-pub(crate) mod remote;
+mod remote;
 
-use crate::{AuthAction, EXIT_CLEAN, Result, runner::RunnerArgs, service};
+use crate::{AuthAction, EXIT_CLEAN, Result, service};
 use clap::Subcommand;
 use offline::{CheckArgs, DiscoverArgs, ModulesArgs, RulesArgs, ScanArgs, ServeArgs};
 use remote::{
@@ -36,8 +36,6 @@ pub enum Command {
     Design(DesignArgs),
     /// Ask a runner to capture a scenario, and watch it.
     Jobs(JobsArgs),
-    /// Claim capture jobs, build worktrees, capture matrices, and upload results.
-    Runner(RunnerArgs),
     /// Push and list the capture definitions a repository owns.
     Scenarios(ScenariosArgs),
     /// Manage the stored token by hand.
@@ -75,7 +73,6 @@ impl Command {
             Self::Fixes(args) => args.run(),
             Self::Design(args) => args.run(),
             Self::Jobs(args) => args.run(),
-            Self::Runner(args) => args.run(),
             Self::Scenarios(args) => args.run(),
             Self::Auth {
                 action: AuthAction::SetToken { token },

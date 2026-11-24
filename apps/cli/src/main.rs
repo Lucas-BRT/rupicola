@@ -2,7 +2,6 @@ mod commands;
 use commands::Command;
 mod mcp_bridge;
 mod publish;
-mod runner;
 mod service;
 mod session;
 use anyhow::{Result, anyhow};
