@@ -47,11 +47,12 @@ async fn submit(cx: &Cx, project: String, form: ActionForm) -> PageResult<Respon
     if !safe_name(&project) {
         return Err(StatusCode::NOT_FOUND);
     }
-    if auth::role_of(cx, &project).await? != Role::Owner {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    let role = auth::role_of(cx, &project).await?;
     let session = &account.session;
     if form.action == "create" {
+        if role != Role::Owner {
+            return Err(StatusCode::FORBIDDEN);
+        }
         let draft = panel
             .api
             .create_design_system(session, &project)
@@ -63,6 +64,18 @@ async fn submit(cx: &Cx, project: String, form: ActionForm) -> PageResult<Respon
         .action
         .parse()
         .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    let allowed = match action {
+        SystemAction::Comment | SystemAction::Approve | SystemAction::Changes => {
+            matches!(role, Role::Owner | Role::Reviewer)
+        }
+        SystemAction::Validate
+        | SystemAction::Submit
+        | SystemAction::Adopt
+        | SystemAction::Variation => role == Role::Owner,
+    };
+    if !allowed {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let done = panel
         .api
         .act_on_design_system(
@@ -83,8 +96,9 @@ async fn submit(cx: &Cx, project: String, form: ActionForm) -> PageResult<Respon
         SystemAction::Submit
         | SystemAction::Comment
         | SystemAction::Approve
-        | SystemAction::Changes => "proposals",
-        SystemAction::Adopt | SystemAction::Variation => "system",
+        | SystemAction::Changes
+        | SystemAction::Adopt
+        | SystemAction::Variation => "system",
     };
     Ok(location(&project, view, &done.id))
 }

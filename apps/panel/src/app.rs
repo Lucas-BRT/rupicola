@@ -21,9 +21,13 @@ use topcoat::{
 };
 
 pub fn router(panel: Arc<Panel>) -> Router {
+    let mut origins = vec![panel.origin.clone()];
+    if !panel.secure {
+        origins.push(panel.localhost_origin.clone());
+    }
     module_router!()
         .discover()
-        .with(OriginPolicy::trust_origins([panel.origin.clone()]))
+        .with(OriginPolicy::trust_origins(origins))
         .with(panel)
         .build()
 }
@@ -48,13 +52,17 @@ pub(crate) fn respond(cx: &Cx, result: PageResult<impl IntoResponse>) -> Result<
 /// The error a failed read or action becomes: the router answers with its page for that status.
 pub(crate) fn fail(status: StatusCode) -> topcoat::Error {
     use topcoat::router::error::{
-        bad_request, forbidden, internal_server_error, not_found, too_many_requests, unauthorized,
+        bad_request, forbidden, internal_server_error, not_found, service_unavailable,
+        too_many_requests, unauthorized,
     };
     match status {
         StatusCode::UNAUTHORIZED => unauthorized().into(),
         StatusCode::FORBIDDEN => forbidden().into(),
         StatusCode::NOT_FOUND => not_found().into(),
         StatusCode::TOO_MANY_REQUESTS => too_many_requests(RETRY_AFTER_SECS).into(),
+        StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE => {
+            service_unavailable(RETRY_AFTER_SECS).into()
+        }
         StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY | StatusCode::CONFLICT => {
             bad_request(status.to_string()).into()
         }
@@ -95,7 +103,12 @@ async fn workspace(cx: &Cx, body: Body, next: Next<'_>) -> Result<Response> {
     }
     headers.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
     headers.insert(header::REFERRER_POLICY, "same-origin".parse().unwrap());
-    headers.insert(header::CACHE_CONTROL, "private, no-store".parse().unwrap());
+    if !headers.contains_key(header::CACHE_CONTROL)
+        && !path.starts_with("/media/a/")
+        && !matches!(path, "/panel.css" | "/panel.js")
+    {
+        headers.insert(header::CACHE_CONTROL, "private, no-store".parse().unwrap());
+    }
     if panel.secure {
         headers.insert(
             header::STRICT_TRANSPORT_SECURITY,

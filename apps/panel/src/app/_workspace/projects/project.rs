@@ -14,7 +14,7 @@ mod videos;
 use crate::app::{_workspace::title, fail};
 use crate::{
     backend::Failure,
-    project::{Context, Proof},
+    project::{Context, ProjectMeta, Proof},
     records,
     views::project::{
         Tab,
@@ -32,8 +32,13 @@ use topcoat::{
 
 module_param!(pub project);
 
-/// The project the request is about, loaded once and shared by the layout, the metadata and
-/// the page.
+/// Lightweight metadata for the project, loaded once and shared by the layout and metadata.
+#[memoize]
+pub async fn current_meta(cx: &Cx) -> Result<ProjectMeta, Failure> {
+    ProjectMeta::load(cx, project(cx)).await
+}
+
+/// The project the request is about, loaded once and shared by pages that need its captures.
 #[memoize]
 pub async fn current(cx: &Cx) -> Result<Context, Failure> {
     Context::load(cx, project(cx)).await
@@ -46,7 +51,7 @@ pub async fn current(cx: &Cx) -> Result<Context, Failure> {
 ///
 /// The error of failing to load the project.
 pub async fn tab_metadata(cx: &Cx, tab: Tab) -> Result<Metadata> {
-    let project = current(cx).await.as_ref().map_err(|e| fail(*e))?;
+    let project = current_meta(cx).await.as_ref().map_err(|e| fail(*e))?;
     Ok(Metadata::new().title(title(&if tab == Tab::Overview {
         project.label.clone()
     } else {
@@ -56,7 +61,7 @@ pub async fn tab_metadata(cx: &Cx, tab: Tab) -> Result<Metadata> {
 
 #[layout]
 async fn frame(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
-    let project = current(cx).await.as_ref().map_err(|e| fail(*e))?;
+    let project = current_meta(cx).await.as_ref().map_err(|e| fail(*e))?;
     let tab = Tab::of(request::uri(cx).path(), &project.base);
     Ok(view! { project_frame(project: project, tab: tab, (slot)) })
 }

@@ -2,7 +2,7 @@
 
 use crate::app::_workspace::projects::project::project as project_param;
 use crate::app::{account, panel, respond};
-use crate::{Account, Arc, PageResult, Panel, StatusCode, auth, auth::Role, redirect};
+use crate::{Account, Arc, PageResult, Panel, StatusCode, auth, redirect, safe_name};
 use serde::Deserialize;
 use topcoat::{
     Result,
@@ -44,8 +44,8 @@ pub async fn create_fix_action(
     form: CreateFixForm,
 ) -> PageResult<Response> {
     auth::check_csrf(&account, &form.csrf)?;
-    if auth::role(&panel, &account, &project_id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
+    if !safe_name(&project_id) {
+        return Err(StatusCode::NOT_FOUND);
     }
     let title = form.title.trim();
     let summary = form.summary.trim();

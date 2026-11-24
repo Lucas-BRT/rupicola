@@ -2324,6 +2324,8 @@ dependencies = [
  "subtle",
  "tokio",
  "topcoat",
+ "tracing",
+ "tracing-subscriber",
  "url",
 ]
 

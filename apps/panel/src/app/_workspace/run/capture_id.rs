@@ -105,9 +105,6 @@ async fn review(cx: &Cx, id: String, form: Review) -> PageResult<Response> {
     let (panel, account) = (panel(cx), account(cx));
     auth::check_csrf(&account, &form.csrf)?;
     let run = runs::find(cx, &id).await?;
-    if auth::role(&panel, &account, &run.project_id).await? == Role::Reader {
-        return Err(StatusCode::FORBIDDEN);
-    }
     record_inspection(&panel, &account, &run, &form.note, form.evidence.as_deref()).await?;
     Ok(redirect(&format!("/run/{id}#review")))
 }

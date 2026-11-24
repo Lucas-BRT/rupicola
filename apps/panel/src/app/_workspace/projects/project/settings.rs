@@ -1,6 +1,6 @@
 //! `GET` and `POST /projects/{project}/settings`
 
-use super::{current, tab_metadata};
+use super::{current_meta, tab_metadata};
 use crate::app::{_workspace::title, account, fail, panel};
 use crate::{
     Account, Deserialize, PageResult, Panel, StatusCode, auth,
@@ -21,7 +21,7 @@ use topcoat::{
 
 #[page(with(Metadata::from_fn(async |cx| tab_metadata(cx, Tab::Settings).await)))]
 async fn page(cx: &Cx) -> Result<impl View> {
-    let project = current(cx).await.as_ref().map_err(|e| fail(*e))?;
+    let project = current_meta(cx).await.as_ref().map_err(|e| fail(*e))?;
     let (members, audit) = if project.role == Role::Owner {
         access_lists(&panel(cx), &account(cx), &project.id)
             .await
@@ -37,13 +37,13 @@ async fn page(cx: &Cx) -> Result<impl View> {
 /// Changes who can reach the project; a new invitation's code is shown once.
 #[page(POST, with(Metadata::new().title(title("Invitation created"))))]
 async fn change_access(cx: &Cx, Form(form): Form<ProjectAction>) -> Result<impl View> {
-    let project = current(cx).await.as_ref().map_err(|e| fail(*e))?;
+    let project = current_meta(cx).await.as_ref().map_err(|e| fail(*e))?;
     let (panel, account) = (panel(cx), account(cx));
     auth::check_csrf(&account, &form.csrf).map_err(fail)?;
     if !safe_name(&project.id) {
         return Err(fail(StatusCode::NOT_FOUND));
     }
-    if !account.owner {
+    if project.role != Role::Owner {
         return Err(fail(StatusCode::FORBIDDEN));
     }
     let url = format!("{}/settings", project.base);
