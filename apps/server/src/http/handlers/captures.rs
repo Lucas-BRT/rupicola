@@ -151,6 +151,12 @@ mod tests {
 
     /// Ana owns `demo`; Bruno reads it; Carla is an outsider. Returns their tokens.
     async fn demo() -> (u16, [String; USERS]) {
+        let (port, _state, tokens) = demo_with_state().await;
+        (port, tokens)
+    }
+
+    /// [`demo`], also handing back the server state so a test can change its settings.
+    async fn demo_with_state() -> (u16, crate::state::Shared, [String; USERS]) {
         let (port, state) = start_custom(settings(), None, true).await;
         for handle in ["ana", "bruno", "carla"] {
             seed_account(&state, handle, false).await;
@@ -176,7 +182,7 @@ mod tests {
             Some(r#"{"role":"reader"}"#),
         )
         .await;
-        (port, [ana, bruno, carla])
+        (port, state, [ana, bruno, carla])
     }
 
     /// Ana (owner), Bruno (reader) and Carla (outsider).
@@ -652,7 +658,7 @@ mod tests {
 
     #[tokio::test]
     async fn running_a_capture_validates_target_and_enforces_access() {
-        let (port, [ana, bruno, carla]) = demo().await;
+        let (port, state, [ana, bruno, carla]) = demo_with_state().await;
         let denied = call(
             port,
             "POST",
@@ -701,12 +707,21 @@ mod tests {
             "{local_blocked}"
         );
 
+        // Capture the test server itself: it answers at once and needs no outside network,
+        // so the run ends quickly whether or not the host has a browser.
+        state
+            .allow_local_captures
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let local_page = format!(
+            r#"{{"scenario":"Home","url":"http://127.0.0.1:{port}{}"}}"#,
+            crate::http::routes::HEALTH_PATH
+        );
         let ran = call(
             port,
             "POST",
             "/v1/projects/demo/captures/run",
             Some(&ana),
-            Some(r#"{"scenario":"Home","url":"http://93.184.216.34:9/"}"#),
+            Some(&local_page),
         )
         .await;
         assert_eq!(status(&ran), StatusCode::CREATED, "{ran}");
