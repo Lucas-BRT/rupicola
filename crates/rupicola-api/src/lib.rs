@@ -28,6 +28,9 @@ pub use selections::*;
 pub use text_enum::UnknownValue;
 pub use topics::*;
 
+/// Placeholder used when formatting secret fields in `Debug` output.
+const REDACTED: &str = "[redacted]";
+
 /// Path prefix of every versioned API route.
 pub const PREFIX: &str = "/v1";
 
@@ -454,10 +457,19 @@ pub struct Invite {
 }
 
 /// A new invitation: give `code` to the invitee.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct IssuedInvite {
     pub code: String,
     pub invite: Invite,
+}
+
+impl std::fmt::Debug for IssuedInvite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IssuedInvite")
+            .field("code", &REDACTED)
+            .field("invite", &self.invite)
+            .finish()
+    }
 }
 
 /// `POST /v1/register`: create an account with an invitation code.
@@ -494,10 +506,41 @@ pub struct Credential {
 }
 
 /// A new credential: `token` is the bearer secret, shown only this once.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct IssuedCredential {
     pub token: String,
     pub credential: Credential,
+}
+
+impl std::fmt::Debug for IssuedCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IssuedCredential")
+            .field("token", &REDACTED)
+            .field("credential", &self.credential)
+            .finish()
+    }
+}
+
+/// Availability and OS install guidance for one capture backend on the host.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub struct CaptureBackendStatus {
+    /// Backend identifier (for example `web` or `desktop`).
+    pub id: String,
+    /// Human-readable backend name.
+    pub label: String,
+    /// Whether a compatible driver or package is detected on the host OS.
+    pub available: bool,
+    /// Detected binary, browser, or package name when available.
+    pub detected: Option<String>,
+    /// OS-specific installation guidance shown when absent.
+    pub install_hint: Option<String>,
+}
+
+/// Detected capture capabilities on the host OS (zero-install default).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub struct CaptureCapabilities {
+    /// Individual capture backends probed on the host.
+    pub backends: Vec<CaptureBackendStatus>,
 }
 
 /// Body of every non-2xx API response.
@@ -522,5 +565,46 @@ mod tests {
         let json = serde_json::to_string(&health).unwrap();
         assert_eq!(json, r#"{"status":"ok","version":"0.1.1"}"#);
         assert_eq!(serde_json::from_str::<Health>(&json).unwrap(), health);
+    }
+
+    #[test]
+    fn issued_invite_debug_redacts_code() {
+        const SECRET_CODE: &str = "invite-secret-code-12345";
+        const SAMPLE_EXPIRY_MS: i64 = 1_700_000_000_000;
+
+        let issued = IssuedInvite {
+            code: SECRET_CODE.into(),
+            invite: Invite {
+                id: "inv-id".into(),
+                role: Role::Reviewer,
+                created_by: Some("owner".into()),
+                expires_at: SAMPLE_EXPIRY_MS,
+            },
+        };
+        let debug = format!("{issued:?}");
+        assert!(!debug.contains(SECRET_CODE));
+        assert!(debug.contains(REDACTED));
+    }
+
+    #[test]
+    fn issued_credential_debug_redacts_token() {
+        const SECRET_TOKEN: &str = "rupicola-secret-token-67890";
+        const SAMPLE_CREATED_MS: i64 = 1_700_000_000_000;
+
+        let issued = IssuedCredential {
+            token: SECRET_TOKEN.into(),
+            credential: Credential {
+                id: "cred-id".into(),
+                kind: TokenKind::Machine,
+                label: "ci".into(),
+                project_id: None,
+                created_at: SAMPLE_CREATED_MS,
+                expires_at: None,
+                last_used_at: None,
+            },
+        };
+        let debug = format!("{issued:?}");
+        assert!(!debug.contains(SECRET_TOKEN));
+        assert!(debug.contains(REDACTED));
     }
 }
