@@ -1,13 +1,11 @@
-use super::{
-    AssetOption, ComparisonPair, Cx, FixRecord, FixStatus, Problem, Role, badge,
-    effective_after_url, fix_status_badge, is_video_url, view,
-};
+use super::{AssetOption, Cx, FixRecord, FixStatus, Problem, Role, badge, fix_status_badge, view};
 use crate::Account;
 use crate::components::{
     display::{chip, counts, kind_label, metric, moment},
     form::{csrf, field, select_field, stack_form, text_area},
 };
 use crate::project::Filter;
+use crate::records::ComparisonPair;
 use topcoat::{
     Result,
     context::context,
@@ -222,6 +220,46 @@ async fn fix_card(
             }
         </article>
     })
+}
+
+fn is_video_url(url: &str) -> bool {
+    let path = url.split('?').next().unwrap_or(url);
+    matches!(path.rsplit_once('.'), Some((_, "mp4" | "webm")))
+}
+
+fn extract_media_url_from_text(text: &str) -> Option<String> {
+    let idx = text.find("/media/")?;
+    let token: String = text[idx..]
+        .chars()
+        .take_while(|ch| !ch.is_whitespace())
+        .collect();
+    let clean = token.trim_end_matches(['.', ',', ';', ')']);
+    if matches!(clean.rsplit_once('.'), Some((_, "mp4" | "webm" | "png"))) {
+        Some(clean.to_string())
+    } else {
+        None
+    }
+}
+
+fn effective_after_url(fix: &FixRecord, pair: &ComparisonPair) -> String {
+    if is_video_url(&pair.after_url) {
+        return pair.after_url.clone();
+    }
+    for rev in fix.reviews.iter().rev() {
+        if let Some(u) = extract_media_url_from_text(&rev.comment)
+            && is_video_url(&u)
+        {
+            return u;
+        }
+    }
+    for st in fix.steps.iter().rev() {
+        if let Some(ev) = &st.evidence_url
+            && is_video_url(ev)
+        {
+            return ev.clone();
+        }
+    }
+    pair.after_url.clone()
 }
 
 /// The before and after of a fix, in the modes the capture supports.

@@ -1,106 +1,23 @@
-//! Who is signed in, and what they may do. The backend owns accounts, sessions and
-//! membership; the panel keeps the backend's session token in a cookie and asks the backend
-//! on every request.
-
 use super::{
-    Arc, Cx, Deserialize, Html, IntoResponse, PageResult, Panel, Response, StatusCode, ViewExt,
-    db_error, header, redirect, status, view,
+    Account, Role,
+    csrf::{
+        FORM_AGE, FORM_COOKIE, SESSION_COOKIE, cookie, cookie_header, csrf_for, equal, now, token,
+    },
+    errors::{
+        BAD_LOGIN, BAD_SETUP_CODE, LOGIN_LIMITED, REGISTER_LIMITED, SETUP_REFUSED, api_error,
+    },
+    same_origin,
 };
 use crate::views::auth::sign_in_sheet;
-use http::{HeaderMap, HeaderValue, Method};
+use crate::{
+    Arc, Cx, Deserialize, Html, IntoResponse, PageResult, Panel, Response, StatusCode, ViewExt,
+    db_error, redirect, status, view,
+};
+use http::{HeaderMap, Method, header};
 use rupicola_api::{Credentials as SignIn, Me, PasswordChange, Register, Setup, TokenKind};
 use rupicola_client::{Api, ClientError};
-use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 
-/// Cookie that holds the backend's session token.
-const SESSION_COOKIE: &str = "rp_session";
-/// Cookie that ties a sign-in or registration form to the browser that loaded it.
-const FORM_COOKIE: &str = "rp_form";
-/// How long a loaded sign-in form stays valid, in seconds.
-const FORM_AGE: i64 = 1800;
-/// Mixed into a session token to derive the CSRF token of its forms.
-const CSRF_SEED: &str = "rupicola-csrf:";
 const MS_PER_SEC: i64 = 1000;
-const BAD_LOGIN: &str = "The username or password is incorrect.";
-const LOGIN_LIMITED: &str = "Too many failed sign-in attempts. Wait 5 minutes before trying again.";
-const REGISTER_LIMITED: &str =
-    "Too many registration attempts. Wait 5 minutes before trying again.";
-const BAD_SETUP_CODE: &str = "The setup or invitation code is invalid.";
-const SETUP_REFUSED: &str =
-    "This setup or invitation could not be used. Check the code and username.";
-
-/// A signed-in person, as the panel sees them for one request.
-#[derive(Clone)]
-pub struct Account {
-    pub handle: String,
-    /// Administers the whole backend.
-    pub owner: bool,
-    /// The backend's session token.
-    pub session: String,
-    pub csrf: String,
-}
-
-pub fn token() -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).expect("the operating system provides random bytes");
-    let mut token = String::with_capacity(2 * bytes.len());
-    for byte in bytes {
-        token.push(char::from(HEX[usize::from(byte >> 4)]));
-        token.push(char::from(HEX[usize::from(byte & 0xf)]));
-    }
-    token
-}
-
-pub fn digest(secret: &str) -> String {
-    format!("{:x}", Sha256::digest(secret.as_bytes()))
-}
-
-pub fn now() -> i64 {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    i64::try_from(secs).unwrap_or(i64::MAX)
-}
-
-/// The CSRF token of the forms of `session`: stable for the session and unguessable
-/// without it, so the panel keeps no state.
-fn csrf_for(session: &str) -> String {
-    digest(&format!("{CSRF_SEED}{session}"))
-}
-
-fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
-    let (_, value) = headers
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(';'))
-        .filter_map(|value| value.trim().split_once('='))
-        .find(|(key, _)| *key == name)?;
-    (value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())).then(|| value.to_owned())
-}
-
-pub fn cookie_header(panel: &Panel, name: &str, value: &str, age: i64) -> HeaderValue {
-    let secure = if panel.secure { "; Secure" } else { "" };
-    format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={age}{secure}")
-        .parse()
-        .unwrap()
-}
-
-/// The status a failed call to the backend becomes.
-pub fn api_error(error: &ClientError) -> StatusCode {
-    match error {
-        ClientError::Unauthorized => StatusCode::UNAUTHORIZED,
-        ClientError::Forbidden => StatusCode::FORBIDDEN,
-        ClientError::NotFound => StatusCode::NOT_FOUND,
-        ClientError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
-        ClientError::Conflict(_) => StatusCode::CONFLICT,
-        ClientError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
-        ClientError::Unavailable(_) | ClientError::Malformed(_) => StatusCode::BAD_GATEWAY,
-    }
-}
 
 /// The account a session token belongs to.
 ///
@@ -151,32 +68,6 @@ pub fn unauthenticated(path: &str) -> Response {
         status(StatusCode::NOT_FOUND)
     } else {
         redirect("/login")
-    }
-}
-
-pub fn same_origin(panel: &Panel, headers: &HeaderMap) -> bool {
-    headers
-        .get(header::ORIGIN)
-        .and_then(|s| s.to_str().ok())
-        .is_some_and(|origin| {
-            origin == panel.origin || (!panel.secure && origin == panel.localhost_origin)
-        })
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Role {
-    Owner,
-    Reviewer,
-    Reader,
-}
-
-impl From<rupicola_api::Role> for Role {
-    fn from(role: rupicola_api::Role) -> Self {
-        match role {
-            rupicola_api::Role::Owner => Self::Owner,
-            rupicola_api::Role::Reviewer => Self::Reviewer,
-            rupicola_api::Role::Reader => Self::Reader,
-        }
     }
 }
 
@@ -269,18 +160,6 @@ fn check_form(panel: &Panel, headers: &HeaderMap, form: &Credentials) -> PageRes
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
-}
-
-pub fn equal(a: &str, b: &str) -> bool {
-    bool::from(a.as_bytes().ct_eq(b.as_bytes()))
-}
-
-pub fn check_csrf(account: &Account, csrf: &str) -> PageResult<()> {
-    if equal(&account.csrf, csrf) {
-        Ok(())
-    } else {
-        Err(StatusCode::FORBIDDEN)
-    }
 }
 
 pub async fn login(
@@ -383,7 +262,7 @@ pub struct Csrf {
 }
 
 pub async fn logout(panel: Arc<Panel>, account: Account, form: Csrf) -> PageResult<Response> {
-    check_csrf(&account, &form.csrf)?;
+    super::check_csrf(&account, &form.csrf)?;
     // A session the backend already ended is the outcome asked for.
     let _ = panel.api.sign_out(&account.session).await;
     let mut response = redirect("/login");
@@ -446,111 +325,4 @@ async fn render(
         .headers_mut()
         .insert(header::SET_COOKIE, form_cookie);
     Ok(response)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rupicola_api::Project;
-    use rupicola_client::MockApi;
-
-    const SESSION: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    const OTHER_SESSION: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
-    const HANDLE: &str = "ada";
-    const PROJECT: &str = "demo";
-    const OTHER_PROJECT: &str = "elsewhere";
-
-    fn me(kind: TokenKind, admin: bool) -> Me {
-        Me {
-            kind,
-            handle: Some(HANDLE.to_owned()),
-            admin,
-            project: None,
-        }
-    }
-
-    fn account(owner: bool) -> Account {
-        Account {
-            handle: HANDLE.to_owned(),
-            owner,
-            session: SESSION.to_owned(),
-            csrf: csrf_for(SESSION),
-        }
-    }
-
-    fn project(id: &str, role: rupicola_api::Role) -> Project {
-        Project {
-            id: id.to_owned(),
-            label: id.to_owned(),
-            created_at: 0,
-            role: Some(role),
-        }
-    }
-
-    #[tokio::test]
-    async fn a_session_becomes_an_account_with_a_csrf_token_of_its_own() {
-        let mut api = MockApi::new();
-        api.expect_me()
-            .times(1)
-            .returning(|_| Ok(me(TokenKind::Session, true)));
-        let account = identify(&api, SESSION).await.unwrap();
-        assert_eq!(account.handle, HANDLE);
-        assert!(account.owner);
-        assert_eq!(account.session, SESSION);
-        assert_eq!(account.csrf, csrf_for(SESSION));
-        assert_ne!(csrf_for(SESSION), csrf_for(OTHER_SESSION));
-        assert!(check_csrf(&account, &csrf_for(SESSION)).is_ok());
-        assert_eq!(
-            check_csrf(&account, &csrf_for(OTHER_SESSION)),
-            Err(StatusCode::FORBIDDEN)
-        );
-    }
-
-    #[tokio::test]
-    async fn only_a_persons_session_is_an_account() {
-        for kind in [TokenKind::Machine, TokenKind::Device] {
-            let mut api = MockApi::new();
-            api.expect_me().returning(move |_| Ok(me(kind, false)));
-            assert_eq!(
-                identify(&api, SESSION).await.err(),
-                Some(StatusCode::UNAUTHORIZED)
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn what_the_backend_says_becomes_a_status() {
-        let mut api = MockApi::new();
-        api.expect_me()
-            .returning(|_| Err(ClientError::Unauthorized));
-        assert_eq!(
-            identify(&api, SESSION).await.err(),
-            Some(StatusCode::UNAUTHORIZED)
-        );
-        let mut api = MockApi::new();
-        api.expect_me()
-            .returning(|_| Err(ClientError::Unavailable("down".to_owned())));
-        assert_eq!(
-            identify(&api, SESSION).await.err(),
-            Some(StatusCode::BAD_GATEWAY)
-        );
-    }
-
-    #[test]
-    fn an_administrator_owns_every_project_without_membership() {
-        assert_eq!(role_in(&[], &account(true), PROJECT), Ok(Role::Owner));
-    }
-
-    #[test]
-    fn a_member_has_the_role_the_backend_gives_and_a_stranger_finds_nothing() {
-        let projects = [project(PROJECT, rupicola_api::Role::Reviewer)];
-        assert_eq!(
-            role_in(&projects, &account(false), PROJECT),
-            Ok(Role::Reviewer)
-        );
-        assert_eq!(
-            role_in(&projects, &account(false), OTHER_PROJECT),
-            Err(StatusCode::NOT_FOUND)
-        );
-    }
 }
