@@ -5,6 +5,8 @@ use rupicola_api::{CaptureStatus, Inspection};
 /// Captures in a page unless the search asks for another number, and the most it may ask.
 pub const DEFAULT_LIMIT: u32 = 50;
 pub const MAX_LIMIT: u32 = 200;
+/// Maximum number of `facet` filters a single search query may request.
+pub const MAX_FACETS: usize = 16;
 /// What separates the instant from the id in a cursor.
 pub const CURSOR_SEPARATOR: char = '.';
 

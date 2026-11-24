@@ -52,7 +52,7 @@ pub async fn head_blob(
     _principal: Principal,
     Path(sha256): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    if captures::has_blob(&state, &sha256)? {
+    if captures::has_blob(&state, sha256).await? {
         Ok(StatusCode::OK)
     } else {
         Err(ApiError::NotFound)
@@ -159,7 +159,7 @@ pub async fn artifact(
     request: Request,
 ) -> Result<Response, ApiError> {
     let blob = captures::artifact(&state, &principal, &id).await?;
-    crate::http::blob::respond(&state.blobs, &blob.sha256, &blob.mime, request).await
+    crate::http::blob::respond(&state, blob.sha256, &blob.mime, request).await
 }
 
 #[cfg(test)]

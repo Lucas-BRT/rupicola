@@ -11,14 +11,19 @@ struct AuditRow {
     actor: String,
     event: String,
     occurred_at: i64,
+    detail: Option<String>,
 }
 
 impl From<AuditRow> for AuditEvent {
     fn from(row: AuditRow) -> Self {
+        let event = match row.detail.as_deref().filter(|d| !d.is_empty()) {
+            Some(detail) => format!("{} ({detail})", row.event),
+            None => row.event,
+        };
         Self {
             id: row.id,
             actor: row.actor,
-            event: row.event,
+            event,
             occurred_at: row.occurred_at,
         }
     }
@@ -64,7 +69,7 @@ pub async fn latest(
     limit: i64,
 ) -> sqlx::Result<Vec<AuditEvent>> {
     let rows: Vec<AuditRow> = sqlx::query_as(
-        "SELECT id, actor, event, occurred_at FROM audit_events
+        "SELECT id, actor, event, occurred_at, detail FROM audit_events
          WHERE project_id = ?1 ORDER BY occurred_at DESC, id DESC LIMIT ?2",
     )
     .bind(project)

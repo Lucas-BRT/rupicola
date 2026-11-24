@@ -43,12 +43,18 @@ pub async fn put_project_blob(
 }
 
 /// Whether a file is stored under `sha256`.
-pub fn has_blob(state: &AppState, sha256: &str) -> Result<bool, ApiError> {
-    Ok(state
-        .blobs
-        .size(sha256)
-        .map_err(anyhow::Error::from)?
-        .is_some())
+pub async fn has_blob(state: &Shared, sha256: String) -> Result<bool, ApiError> {
+    let shared = state.clone();
+    tokio::task::spawn_blocking(move || {
+        shared
+            .blobs
+            .size(&sha256)
+            .map(|size| size.is_some())
+            .map_err(anyhow::Error::from)
+    })
+    .await
+    .map_err(anyhow::Error::from)?
+    .map_err(ApiError::Internal)
 }
 
 /// Which of these files the project does not have yet, so a client uploads only those,
@@ -69,7 +75,7 @@ pub async fn missing(
 
 /// Devices and reviewers publish a capture whose files are already stored.
 pub async fn create(
-    state: &AppState,
+    state: &Shared,
     principal: &Principal,
     project: &str,
     form: NewCapture,
@@ -79,17 +85,27 @@ pub async fn create(
     let limits = limits::effective(state, project).await?;
     let max_artifacts = usize::try_from(limits.max_artifacts_per_capture).unwrap_or(usize::MAX);
     let planned = plan(&form, max_artifacts)?;
-    let mut sizes = Vec::with_capacity(planned.len());
-    for item in &planned {
-        let size = state
-            .blobs
-            .size(&item.file.sha256)
-            .map_err(anyhow::Error::from)?
-            .ok_or(ApiError::invalid(
-                "upload every file with PUT /v1/blobs/{sha256} first",
-            ))?;
-        sizes.push(size);
-    }
+    let hashes: Vec<String> = planned
+        .iter()
+        .map(|item| item.file.sha256.clone())
+        .collect();
+    let shared = state.clone();
+    let sizes = tokio::task::spawn_blocking(move || {
+        hashes
+            .into_iter()
+            .map(|sha256| {
+                shared
+                    .blobs
+                    .size(&sha256)
+                    .map_err(anyhow::Error::from)?
+                    .ok_or_else(|| {
+                        ApiError::invalid("upload every file with PUT /v1/blobs/{sha256} first")
+                    })
+            })
+            .collect::<Result<Vec<u64>, ApiError>>()
+    })
+    .await
+    .map_err(anyhow::Error::from)??;
     let id = uuid::Uuid::now_v7().to_string();
     let mut tx = state.db.begin().await?;
     captures::insert(&mut *tx, &id, project, &form, now_ms()).await?;

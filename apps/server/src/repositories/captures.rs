@@ -111,9 +111,10 @@ pub async fn of_project(
     let rows: Vec<SummaryRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {SUMMARY_COLUMNS}
          FROM captures c WHERE c.project_id = ?1 AND c.deleted_at IS NULL
-         ORDER BY c.created_at DESC, c.id DESC"
+         ORDER BY c.created_at DESC, c.id DESC LIMIT ?2"
     )))
     .bind(project)
+    .bind(super::MAX_LIST_ITEMS)
     .fetch_all(db)
     .await?;
     rows.into_iter().map(CaptureSummary::try_from).collect()
@@ -321,6 +322,41 @@ fn arrange(artifacts: Vec<ArtifactRow>) -> (Vec<Checkpoint>, Vec<Clip>) {
     (checkpoints, clips)
 }
 
+fn build_capture(
+    id: String,
+    capture: CaptureRow,
+    artifacts: Vec<ArtifactRow>,
+    findings: Vec<FindingRow>,
+) -> Result<Capture, ApiError> {
+    let (checkpoints, clips) = arrange(artifacts);
+    let deleted = capture.deleted_at.map(|at| Tombstone {
+        at,
+        by: capture.deleted_by.clone().unwrap_or_default(),
+        reason: capture.delete_reason.clone().unwrap_or_default(),
+    });
+    Ok(Capture {
+        id,
+        project_id: capture.project_id,
+        scenario: capture.scenario,
+        revision: capture.revision,
+        status: capture.status.parse().map_err(super::corrupt)?,
+        blocker: capture.blocker,
+        inspection: capture.inspection.parse().map_err(super::corrupt)?,
+        environment: if capture.digest.is_some() {
+            let recorded: rupicola_api::record::Environment =
+                serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?;
+            rupicola_api::Environment::from(&recorded)
+        } else {
+            serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?
+        },
+        created_at: capture.created_at,
+        checkpoints,
+        clips,
+        findings: findings.into_iter().map(Finding::from).collect(),
+        deleted,
+    })
+}
+
 /// A capture with its files and findings, removed or not.
 pub async fn load(db: &sqlx::SqlitePool, id: &str) -> Result<Capture, ApiError> {
     let capture: CaptureRow = sqlx::query_as(
@@ -346,31 +382,83 @@ pub async fn load(db: &sqlx::SqlitePool, id: &str) -> Result<Capture, ApiError> 
     .bind(id)
     .fetch_all(db)
     .await?;
-    let (checkpoints, clips) = arrange(artifacts);
-    let deleted = capture.deleted_at.map(|at| Tombstone {
-        at,
-        by: capture.deleted_by.clone().unwrap_or_default(),
-        reason: capture.delete_reason.clone().unwrap_or_default(),
-    });
-    Ok(Capture {
-        id: id.to_owned(),
-        project_id: capture.project_id,
-        scenario: capture.scenario,
-        revision: capture.revision,
-        status: capture.status.parse().map_err(super::corrupt)?,
-        blocker: capture.blocker,
-        inspection: capture.inspection.parse().map_err(super::corrupt)?,
-        environment: if capture.digest.is_some() {
-            let recorded: rupicola_api::record::Environment =
-                serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?;
-            rupicola_api::Environment::from(&recorded)
-        } else {
-            serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?
-        },
-        created_at: capture.created_at,
-        checkpoints,
-        clips,
-        findings: findings.into_iter().map(Finding::from).collect(),
-        deleted,
-    })
+    build_capture(id.to_owned(), capture, artifacts, findings)
+}
+
+#[derive(sqlx::FromRow)]
+struct KeyedCaptureRow {
+    id: String,
+    #[sqlx(flatten)]
+    row: CaptureRow,
+}
+
+#[derive(sqlx::FromRow)]
+struct KeyedArtifactRow {
+    capture_id: String,
+    #[sqlx(flatten)]
+    row: ArtifactRow,
+}
+
+#[derive(sqlx::FromRow)]
+struct KeyedFindingRow {
+    capture_id: String,
+    #[sqlx(flatten)]
+    row: FindingRow,
+}
+
+/// Batch-loads captures with their files and findings in O(1) queries, preserving `ids` order.
+pub async fn load_many(db: &sqlx::SqlitePool, ids: &[String]) -> Result<Vec<Capture>, ApiError> {
+    use std::collections::HashMap;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT id, project_id, scenario, revision, status, blocker, inspection, environment,
+                created_at, digest, deleted_at, deleted_by, delete_reason
+         FROM captures WHERE id",
+    );
+    super::push_in(&mut qb, ids);
+    let capture_rows: Vec<KeyedCaptureRow> = qb.build_query_as().fetch_all(db).await?;
+    let mut by_id: HashMap<String, CaptureRow> =
+        capture_rows.into_iter().map(|r| (r.id, r.row)).collect();
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT capture_id, id, role, owner_id, path, sha256, bytes, mime, target_ms, video_ms
+         FROM artifacts WHERE capture_id",
+    );
+    super::push_in(&mut qb, ids);
+    qb.push(" ORDER BY capture_id, position");
+    let artifact_rows: Vec<KeyedArtifactRow> = qb.build_query_as().fetch_all(db).await?;
+    let mut artifacts_by_id: HashMap<String, Vec<ArtifactRow>> = HashMap::new();
+    for item in artifact_rows {
+        artifacts_by_id
+            .entry(item.capture_id)
+            .or_default()
+            .push(item.row);
+    }
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT capture_id, id, note, evidence_artifact_id, author, created_at
+         FROM capture_findings WHERE capture_id",
+    );
+    super::push_in(&mut qb, ids);
+    qb.push(" ORDER BY capture_id, created_at, id");
+    let finding_rows: Vec<KeyedFindingRow> = qb.build_query_as().fetch_all(db).await?;
+    let mut findings_by_id: HashMap<String, Vec<FindingRow>> = HashMap::new();
+    for item in finding_rows {
+        findings_by_id
+            .entry(item.capture_id)
+            .or_default()
+            .push(item.row);
+    }
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(capture) = by_id.remove(id) {
+            let artifacts = artifacts_by_id.remove(id).unwrap_or_default();
+            let findings = findings_by_id.remove(id).unwrap_or_default();
+            out.push(build_capture(id.clone(), capture, artifacts, findings)?);
+        }
+    }
+    Ok(out)
 }

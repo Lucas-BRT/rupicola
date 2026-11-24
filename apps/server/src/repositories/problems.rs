@@ -198,25 +198,125 @@ pub async fn insert_with_status(
 pub async fn list(db: &SqlitePool, project: &str) -> Result<Vec<ProblemSummary>, ApiError> {
     let rows: Vec<SummaryRow> = sqlx::query_as(
         "SELECT id, title, status, severity, origin, route, updated_at
-         FROM problems WHERE project_id = ?1 ORDER BY updated_at DESC, id DESC",
+         FROM problems WHERE project_id = ?1 ORDER BY updated_at DESC, id DESC LIMIT ?2",
     )
     .bind(project)
+    .bind(super::MAX_LIST_ITEMS)
     .fetch_all(db)
     .await?;
     rows.into_iter().map(ProblemSummary::try_from).collect()
 }
 
-/// Lists every problem of `project` in full, newest first.
+#[derive(sqlx::FromRow)]
+struct KeyedRuleRow {
+    problem_id: String,
+    #[sqlx(flatten)]
+    row: RuleRow,
+}
+
+#[derive(sqlx::FromRow)]
+struct KeyedSelectionRow {
+    problem_id: String,
+    selection_id: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct KeyedCommentRow {
+    problem_id: String,
+    #[sqlx(flatten)]
+    row: CommentRow,
+}
+
+/// Lists every problem of `project` in full, newest first, in bounded batch queries.
 pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Problem>, ApiError> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "SELECT id FROM problems WHERE project_id = ?1 ORDER BY updated_at DESC, id DESC",
+    use std::collections::{HashMap, HashSet};
+    let rows: Vec<ProblemRow> = sqlx::query_as(
+        "SELECT id, project_id, title, status, severity, origin, route, viewport, theme, diagnosis,
+           proposed_solution, author, created_at, updated_at
+         FROM problems WHERE project_id = ?1 ORDER BY updated_at DESC, id DESC LIMIT ?2",
     )
     .bind(project)
+    .bind(super::MAX_LIST_ITEMS)
     .fetch_all(db)
     .await?;
-    let mut detailed = Vec::with_capacity(ids.len());
-    for id in ids {
-        detailed.push(load(db, &id).await?);
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT problem_id, scope, code, title FROM problem_rules WHERE problem_id",
+    );
+    super::push_in(&mut qb, &ids);
+    qb.push(" ORDER BY problem_id, scope, code");
+    let rule_rows: Vec<KeyedRuleRow> = qb.build_query_as().fetch_all(db).await?;
+    let mut rules_by_id: HashMap<String, Vec<RuleRow>> = HashMap::new();
+    for item in rule_rows {
+        rules_by_id
+            .entry(item.problem_id)
+            .or_default()
+            .push(item.row);
+    }
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT problem_id, selection_id FROM problem_selections WHERE problem_id",
+    );
+    super::push_in(&mut qb, &ids);
+    qb.push(" ORDER BY problem_id, position");
+    let sel_rows: Vec<KeyedSelectionRow> = qb.build_query_as().fetch_all(db).await?;
+    let mut sel_ids_by_problem: HashMap<String, Vec<String>> = HashMap::new();
+    let mut unique_sel_ids = HashSet::new();
+    let mut all_sel_ids = Vec::new();
+    for item in sel_rows {
+        if unique_sel_ids.insert(item.selection_id.clone()) {
+            all_sel_ids.push(item.selection_id.clone());
+        }
+        sel_ids_by_problem
+            .entry(item.problem_id)
+            .or_default()
+            .push(item.selection_id);
+    }
+    let selections_by_id: HashMap<String, Selection> = if all_sel_ids.is_empty() {
+        HashMap::new()
+    } else {
+        selections::load(db, &all_sel_ids)
+            .await?
+            .into_iter()
+            .map(|s| (s.id.clone(), s))
+            .collect()
+    };
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT problem_id, id, author, text, created_at FROM problem_comments WHERE problem_id",
+    );
+    super::push_in(&mut qb, &ids);
+    qb.push(" ORDER BY problem_id, created_at, id");
+    let comment_rows: Vec<KeyedCommentRow> = qb.build_query_as().fetch_all(db).await?;
+    let mut comments_by_id: HashMap<String, Vec<CommentRow>> = HashMap::new();
+    for item in comment_rows {
+        comments_by_id
+            .entry(item.problem_id)
+            .or_default()
+            .push(item.row);
+    }
+
+    let mut detailed = Vec::with_capacity(rows.len());
+    for row in rows {
+        let rules = rules_by_id.remove(&row.id).unwrap_or_default();
+        let comments = comments_by_id.remove(&row.id).unwrap_or_default();
+        let cited = sel_ids_by_problem.remove(&row.id).unwrap_or_default();
+        let problem_selections: Vec<Selection> = cited
+            .into_iter()
+            .filter_map(|sid| selections_by_id.get(&sid).cloned())
+            .collect();
+        let mut evidence: Vec<String> = problem_selections
+            .iter()
+            .flat_map(Selection::proof)
+            .map(str::to_owned)
+            .collect();
+        evidence.sort();
+        evidence.dedup();
+        detailed.push(row.into_problem(rules, evidence, problem_selections, comments)?);
     }
     Ok(detailed)
 }

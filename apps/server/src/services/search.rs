@@ -29,12 +29,11 @@ pub async fn find(
     });
     let ids: Vec<String> = rows.into_iter().map(|(id, _)| id).collect();
     let items = captures::summaries(&state.db, &ids).await?;
-    let mut details = Vec::new();
-    if parsed.details {
-        for id in &ids {
-            details.push(captures::load(&state.db, id).await?);
-        }
-    }
+    let details = if parsed.details {
+        captures::load_many(&state.db, &ids).await?
+    } else {
+        Vec::new()
+    };
     Ok(CapturePage {
         items,
         details,

@@ -3,7 +3,7 @@
 use crate::{
     domain::{
         ApiError, Principal,
-        search::{CURSOR_SEPARATOR, DEFAULT_LIMIT, MAX_LIMIT, Search},
+        search::{CURSOR_SEPARATOR, DEFAULT_LIMIT, MAX_FACETS, MAX_LIMIT, Search},
     },
     services::search,
     state::Shared,
@@ -68,6 +68,9 @@ fn parse_query(query: Option<&str>) -> Result<Search, ApiError> {
             "series" => search.series = Some(value),
             "surface" => search.surface = Some(value),
             "facet" => {
+                if search.facets.len() >= MAX_FACETS {
+                    return Err(bad(&format!("cannot repeat more than {MAX_FACETS} times")));
+                }
                 let (facet, wanted) = value
                     .split_once('=')
                     .ok_or_else(|| bad("must be key=value"))?;
@@ -362,5 +365,10 @@ mod tests {
             assert!(super::parse_query(Some(bad)).is_err(), "{bad}");
         }
         assert_eq!(super::decode("a+b%2Fc").unwrap(), "a b/c");
+        let too_many_facets = (0..=super::MAX_FACETS)
+            .map(|i| format!("facet=k{i}=v{i}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        assert!(super::parse_query(Some(&too_many_facets)).is_err());
     }
 }
