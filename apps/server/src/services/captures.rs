@@ -11,19 +11,18 @@ use crate::{
         captures::{self, ArtifactBlob},
     },
     services::{
-        access::{access, require, require_publisher},
+        access::{require_publisher, require_reader},
         limits,
     },
     state::{AppState, Shared},
 };
-use axum::body::Bytes;
 use rupicola_api::{
     Capture, CaptureSummary, Finding, Missing, MissingQuery, NewCapture, NewFinding, Role,
 };
 
 /// Stores a file under its digest, for any signed-in caller; blobs nobody references are
 /// pruned later. Returns whether it was new.
-pub async fn put_blob(state: Shared, sha256: String, data: Bytes) -> Result<bool, ApiError> {
+pub async fn put_blob(state: Shared, sha256: String, data: Vec<u8>) -> Result<bool, ApiError> {
     tokio::task::spawn_blocking(move || state.blobs.put(&sha256, &data))
         .await
         .map_err(anyhow::Error::from)?
@@ -34,7 +33,7 @@ pub async fn put_project_blob(
     state: &Shared,
     project: &str,
     sha256: String,
-    data: Bytes,
+    data: Vec<u8>,
 ) -> Result<bool, ApiError> {
     let bytes = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
     let created = put_blob(state.clone(), sha256.clone(), data).await?;
@@ -116,8 +115,8 @@ pub async fn list(
     principal: &Principal,
     project: &str,
 ) -> Result<Vec<CaptureSummary>, ApiError> {
-    require(state, principal, project, Role::Reader).await?;
-    Ok(captures::of_project(&state.db, project).await?)
+    require_reader(state, principal, project).await?;
+    captures::of_project(&state.db, project).await
 }
 
 /// Checks the caller's access to the project of `capture`.
@@ -130,7 +129,7 @@ pub async fn require_capture(
     let project = captures::project_of(&state.db, capture)
         .await?
         .ok_or(ApiError::NotFound)?;
-    require(state, principal, &project, role).await
+    require_publisher(state, principal, &project, role).await
 }
 
 /// Fails unless `artifact` is a file of one of `project`'s captures.
@@ -192,9 +191,7 @@ pub async fn artifact(
     let blob = captures::artifact_blob(&state.db, id)
         .await?
         .ok_or(ApiError::NotFound)?;
-    access(state, principal, &blob.project_id)
-        .await?
-        .require(Role::Reader)?;
+    require_reader(state, principal, &blob.project_id).await?;
     Ok(blob)
 }
 

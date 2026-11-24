@@ -87,7 +87,7 @@ pub async fn list_tokens(
     principal: &Principal,
 ) -> Result<Vec<Credential>, ApiError> {
     let handle = principal.session_person()?;
-    Ok(credentials::of_person(&state.db, handle, now_ms()).await?)
+    credentials::of_person(&state.db, handle, now_ms()).await
 }
 
 /// Revokes one of the caller's sessions or machine tokens.
@@ -139,7 +139,7 @@ pub async fn list_devices(
     project: &str,
 ) -> Result<Vec<Credential>, ApiError> {
     require(state, principal, project, Role::Owner).await?;
-    Ok(credentials::devices(&state.db, project).await?)
+    credentials::devices(&state.db, project).await
 }
 
 pub async fn delete_device(
@@ -203,7 +203,7 @@ pub async fn list_invites(
     project: &str,
 ) -> Result<Vec<Invite>, ApiError> {
     require(state, principal, project, Role::Owner).await?;
-    Ok(credentials::invites(&state.db, project, now_ms()).await?)
+    credentials::invites(&state.db, project, now_ms()).await
 }
 
 pub async fn delete_invite(

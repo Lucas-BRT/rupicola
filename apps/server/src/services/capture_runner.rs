@@ -135,7 +135,7 @@ async fn store_artifact(
         .await
         .map_err(anyhow::Error::from)?;
     let sha256 = format!("{:x}", Sha256::digest(&data));
-    captures::put_project_blob(state, project, sha256.clone(), data.into()).await?;
+    captures::put_project_blob(state, project, sha256.clone(), data).await?;
     Ok(BlobRef {
         path: rel_path,
         sha256,

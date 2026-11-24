@@ -1,5 +1,6 @@
 //! The `projects` and `members` tables.
 
+use crate::{domain::ApiError, repositories::corrupt};
 use rupicola_api::{Member, Project, Role};
 use sqlx::SqliteExecutor;
 
@@ -12,14 +13,21 @@ struct ProjectRow {
     role: Option<String>,
 }
 
-impl From<ProjectRow> for Project {
-    fn from(row: ProjectRow) -> Self {
-        Self {
+impl TryFrom<ProjectRow> for Project {
+    type Error = ApiError;
+
+    fn try_from(row: ProjectRow) -> Result<Self, Self::Error> {
+        Ok(Self {
             id: row.id,
             label: row.label,
             created_at: row.created_at,
-            role: row.role.as_deref().and_then(|text| text.parse().ok()),
-        }
+            role: row
+                .role
+                .as_deref()
+                .map(str::parse)
+                .transpose()
+                .map_err(corrupt)?,
+        })
     }
 }
 
@@ -38,11 +46,10 @@ struct MemberRow {
 }
 
 impl MemberRow {
-    /// `None` when the stored role is unknown.
-    fn into_member(self) -> Option<Member> {
-        Some(Member {
+    fn into_member(self) -> Result<Member, ApiError> {
+        Ok(Member {
             handle: self.handle,
-            role: self.role.parse().ok()?,
+            role: self.role.parse().map_err(corrupt)?,
         })
     }
 }
@@ -66,30 +73,30 @@ pub async fn head(db: impl SqliteExecutor<'_>, id: &str) -> sqlx::Result<Project
 pub async fn of_device(
     db: impl SqliteExecutor<'_>,
     project: Option<&str>,
-) -> sqlx::Result<Vec<Project>> {
+) -> Result<Vec<Project>, ApiError> {
     let rows: Vec<ProjectRow> =
         sqlx::query_as("SELECT id, label, created_at, NULL AS role FROM projects WHERE id = ?1")
             .bind(project)
             .fetch_all(db)
             .await?;
-    Ok(rows.into_iter().map(Project::from).collect())
+    rows.into_iter().map(Project::try_from).collect()
 }
 
 /// Every project, which an administrator owns.
-pub async fn all_owned(db: impl SqliteExecutor<'_>) -> sqlx::Result<Vec<Project>> {
+pub async fn all_owned(db: impl SqliteExecutor<'_>) -> Result<Vec<Project>, ApiError> {
     let rows: Vec<ProjectRow> = sqlx::query_as(
         "SELECT id, label, created_at, 'owner' AS role FROM projects ORDER BY label, id",
     )
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(Project::from).collect())
+    rows.into_iter().map(Project::try_from).collect()
 }
 
 /// The projects `handle` is a member of, with their role.
 pub async fn of_member(
     db: impl SqliteExecutor<'_>,
     handle: Option<&str>,
-) -> sqlx::Result<Vec<Project>> {
+) -> Result<Vec<Project>, ApiError> {
     let rows: Vec<ProjectRow> = sqlx::query_as(
         "SELECT p.id, p.label, p.created_at, m.role AS role FROM projects p
          JOIN members m ON m.project_id = p.id
@@ -98,7 +105,7 @@ pub async fn of_member(
     .bind(handle)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(Project::from).collect())
+    rows.into_iter().map(Project::try_from).collect()
 }
 
 /// Inserts a project; `false` when the id is taken.
@@ -151,16 +158,13 @@ pub async fn role(
         .await
 }
 
-pub async fn members(db: impl SqliteExecutor<'_>, project: &str) -> sqlx::Result<Vec<Member>> {
+pub async fn members(db: impl SqliteExecutor<'_>, project: &str) -> Result<Vec<Member>, ApiError> {
     let rows: Vec<MemberRow> =
         sqlx::query_as("SELECT handle, role FROM members WHERE project_id = ?1 ORDER BY handle")
             .bind(project)
             .fetch_all(db)
             .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(MemberRow::into_member)
-        .collect())
+    rows.into_iter().map(MemberRow::into_member).collect()
 }
 
 pub async fn put_member(

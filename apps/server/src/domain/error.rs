@@ -34,9 +34,3 @@ impl ApiError {
         Self::Invalid(message.into())
     }
 }
-
-impl From<sqlx::Error> for ApiError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Internal(error.into())
-    }
-}

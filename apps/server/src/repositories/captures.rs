@@ -5,8 +5,7 @@ use crate::domain::{
     capture::{Planned, status_text},
 };
 use rupicola_api::{
-    Artifact, Capture, CaptureStatus, CaptureSummary, Checkpoint, Clip, Finding, Frame, Inspection,
-    NewCapture, Tombstone,
+    Artifact, Capture, CaptureSummary, Checkpoint, Clip, Finding, Frame, NewCapture, Tombstone,
 };
 use sqlx::SqliteExecutor;
 
@@ -21,16 +20,18 @@ struct SummaryRow {
     preview: Option<String>,
 }
 
-impl From<SummaryRow> for CaptureSummary {
-    fn from(row: SummaryRow) -> Self {
-        Self {
+impl TryFrom<SummaryRow> for CaptureSummary {
+    type Error = ApiError;
+
+    fn try_from(row: SummaryRow) -> Result<Self, Self::Error> {
+        Ok(Self {
             id: row.id,
             scenario: row.scenario,
-            status: row.status.parse().unwrap_or(CaptureStatus::Complete),
-            inspection: row.inspection.parse().unwrap_or(Inspection::Pending),
+            status: row.status.parse().map_err(super::corrupt)?,
+            inspection: row.inspection.parse().map_err(super::corrupt)?,
             created_at: row.created_at,
             preview: row.preview,
-        }
+        })
     }
 }
 
@@ -106,7 +107,7 @@ const SUMMARY_COLUMNS: &str = "c.id, c.scenario, c.status, c.inspection, c.creat
 pub async fn of_project(
     db: impl SqliteExecutor<'_>,
     project: &str,
-) -> sqlx::Result<Vec<CaptureSummary>> {
+) -> Result<Vec<CaptureSummary>, ApiError> {
     let rows: Vec<SummaryRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {SUMMARY_COLUMNS}
          FROM captures c WHERE c.project_id = ?1 AND c.deleted_at IS NULL
@@ -115,7 +116,7 @@ pub async fn of_project(
     .bind(project)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(CaptureSummary::from).collect())
+    rows.into_iter().map(CaptureSummary::try_from).collect()
 }
 
 /// The summaries of the live captures named in `ids`, newest first.
@@ -132,7 +133,7 @@ pub async fn summaries(
     .bind(serde_json::to_string(ids).map_err(anyhow::Error::from)?)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(CaptureSummary::from).collect())
+    rows.into_iter().map(CaptureSummary::try_from).collect()
 }
 
 /// The project a capture belongs to.
@@ -356,9 +357,9 @@ pub async fn load(db: &sqlx::SqlitePool, id: &str) -> Result<Capture, ApiError> 
         project_id: capture.project_id,
         scenario: capture.scenario,
         revision: capture.revision,
-        status: capture.status.parse().unwrap_or(CaptureStatus::Complete),
+        status: capture.status.parse().map_err(super::corrupt)?,
         blocker: capture.blocker,
-        inspection: capture.inspection.parse().unwrap_or(Inspection::Pending),
+        inspection: capture.inspection.parse().map_err(super::corrupt)?,
         environment: if capture.digest.is_some() {
             let recorded: rupicola_api::record::Environment =
                 serde_json::from_str(&capture.environment).map_err(anyhow::Error::from)?;

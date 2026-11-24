@@ -12,8 +12,8 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 
-const DEFAULT_WIDTH: u32 = 1440;
-const DEFAULT_HEIGHT: u32 = 900;
+pub const DEFAULT_WIDTH: u32 = 1440;
+pub const DEFAULT_HEIGHT: u32 = 900;
 const DEFAULT_SCALE: f64 = 1.0;
 const MAX_URL_CHARS: usize = 2048;
 const HTTP_DEFAULT_PORT: u16 = 80;

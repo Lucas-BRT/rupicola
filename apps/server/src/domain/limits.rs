@@ -2,30 +2,17 @@
 //! server, and what an owner tightened for the project.
 
 use super::ApiError;
-use crate::config::UploadLimits;
-use rupicola_api::{LimitSetting, LimitValue, Limits, MAX_MISSING_BATCH};
+use rupicola_api::{LimitSetting, LimitValue, Limits};
 
 /// The limits the server starts from, before any setting.
 #[derive(Clone, Debug)]
 pub struct LimitDefaults(Limits);
 
 impl LimitDefaults {
-    /// The defaults from the largest file and body the server accepts, and the upload flags.
-    pub fn new(blob_limit: usize, body_limit: usize, uploads: &UploadLimits) -> Self {
-        let bytes = |limit: usize| u64::try_from(limit).unwrap_or(u64::MAX);
-        Self(
-            Limits {
-                max_blob_bytes: bytes(blob_limit),
-                max_image_bytes: uploads.image_limit,
-                max_video_bytes: uploads.video_limit,
-                max_artifacts_per_capture: uploads.max_artifacts,
-                max_body_bytes: bytes(body_limit),
-                max_missing_batch: u32::try_from(MAX_MISSING_BATCH).unwrap_or(u32::MAX),
-                upload_timeout_secs: uploads.upload_timeout,
-                upload_idle_secs: uploads.upload_idle,
-            }
-            .clamped(),
-        )
+    /// Builds defaults from an already-configured [`Limits`] ceiling.
+    #[must_use]
+    pub fn new(limits: Limits) -> Self {
+        Self(limits.clamped())
     }
 
     /// The limits the server allows: the defaults, then what an administrator set.

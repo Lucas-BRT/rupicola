@@ -41,7 +41,9 @@ pub async fn put_blob(
     Path(sha256): Path<String>,
     data: Bytes,
 ) -> Result<StatusCode, ApiError> {
-    captures::put_blob(state, sha256, data).await.map(stored)
+    captures::put_blob(state, sha256, data.to_vec())
+        .await
+        .map(stored)
 }
 
 /// `HEAD /v1/blobs/{sha256}`: 200 when stored, so clients skip the upload.

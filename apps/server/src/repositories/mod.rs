@@ -25,7 +25,19 @@ pub mod settings;
 pub mod tokens;
 pub mod topics;
 
+use crate::domain::ApiError;
 use anyhow::Context;
+
+impl From<sqlx::Error> for ApiError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Internal(error.into())
+    }
+}
+
+/// Turns a corrupt enum or JSON column into an internal server error.
+pub fn corrupt(error: impl Into<anyhow::Error>) -> ApiError {
+    ApiError::Internal(error.into())
+}
 use sqlx::{
     SqlitePool,
     migrate::Migrator,

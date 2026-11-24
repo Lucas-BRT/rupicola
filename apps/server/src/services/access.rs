@@ -62,3 +62,13 @@ pub async fn require_publisher(
         person @ Access::Person(_) => person.require(role),
     }
 }
+
+/// Requires a caller who may read `project`: its capture device, or a person holding at
+/// least [`Role::Reader`].
+pub async fn require_reader(
+    state: &AppState,
+    principal: &Principal,
+    project: &str,
+) -> Result<(), ApiError> {
+    require_publisher(state, principal, project, Role::Reader).await
+}

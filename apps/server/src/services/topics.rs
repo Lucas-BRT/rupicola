@@ -3,11 +3,12 @@
 
 use crate::{
     domain::{
-        Access, ApiError, Principal,
+        ApiError, Principal,
         secret::now_ms,
         topic::{self, NAME_TAKEN_MESSAGE, check_name, names},
     },
     repositories::{audit, captures, lineage, topics},
+    services::access::{require, require_publisher},
     state::AppState,
 };
 use rupicola_api::{CaptureSummary, NewTopic, Role, Topic, TopicMove, TopicTree};
@@ -20,10 +21,10 @@ async fn allow(
     role: Role,
     device: bool,
 ) -> Result<(), ApiError> {
-    match crate::services::access::access(state, principal, project).await? {
-        Access::Device if device => Ok(()),
-        Access::Device => Err(ApiError::Forbidden),
-        person @ Access::Person(_) => person.require(role),
+    if device {
+        require_publisher(state, principal, project, role).await
+    } else {
+        require(state, principal, project, role).await
     }
 }
 
@@ -69,21 +70,22 @@ pub async fn create(
     form: &NewTopic,
 ) -> Result<(Topic, bool), ApiError> {
     allow(state, principal, project, Role::Reviewer, true).await?;
+    let path_names = names(&form.path)?;
+    let mut tx = state.db.begin().await?;
     let mut parent: Option<String> = None;
     let mut made = false;
-    for name in names(&form.path)? {
-        let id = if let Some(id) =
-            topics::child(&state.db, project, parent.as_deref(), name).await?
+    for name in path_names {
+        let id = if let Some(id) = topics::child(&mut *tx, project, parent.as_deref(), name).await?
         {
             id
         } else {
             let id = uuid::Uuid::now_v7().to_string();
-            if topics::insert(&state.db, &id, project, parent.as_deref(), name, now_ms()).await? {
+            if topics::insert(&mut *tx, &id, project, parent.as_deref(), name, now_ms()).await? {
                 made = true;
                 id
             } else {
                 // Someone made the same topic at the same moment; use theirs.
-                topics::child(&state.db, project, parent.as_deref(), name)
+                topics::child(&mut *tx, project, parent.as_deref(), name)
                     .await?
                     .ok_or(ApiError::Conflict(NAME_TAKEN_MESSAGE))?
             }
@@ -91,6 +93,16 @@ pub async fn create(
         parent = Some(id);
     }
     let leaf = parent.ok_or_else(|| ApiError::invalid("name at least one topic"))?;
+    if made {
+        audit::record(
+            &mut *tx,
+            Some(project),
+            principal.actor(),
+            &format!("Created topic {}", form.path.trim()),
+        )
+        .await?;
+    }
+    tx.commit().await?;
     Ok((one(state, &leaf).await?, made))
 }
 
@@ -105,16 +117,18 @@ pub async fn rename(
     let project = topic_project(state, principal, topic, Role::Reviewer, false).await?;
     let actor = principal.person()?;
     check_name(name)?;
-    topics::rename(&state.db, topic, name, generation)
+    let mut tx = state.db.begin().await?;
+    topics::rename(&mut *tx, topic, name, generation)
         .await?
         .done()?;
     audit::record(
-        &state.db,
+        &mut *tx,
         Some(&project),
         actor,
         &format!("Renamed a topic to {name}"),
     )
     .await?;
+    tx.commit().await?;
     one(state, topic).await
 }
 
@@ -128,17 +142,19 @@ pub async fn move_to(
 ) -> Result<Topic, ApiError> {
     let project = topic_project(state, principal, topic, Role::Reviewer, false).await?;
     let actor = principal.person()?;
+    let mut tx = state.db.begin().await?;
     if let Some(parent) = &form.parent_id
-        && topics::project_of(&state.db, parent).await?.as_deref() != Some(project.as_str())
+        && topics::project_of(&mut *tx, parent).await?.as_deref() != Some(project.as_str())
     {
         return Err(ApiError::invalid(
             "the new parent is not a topic of this project",
         ));
     }
-    topics::move_to(&state.db, topic, form.parent_id.as_deref(), form.generation)
+    topics::move_to(&mut *tx, topic, form.parent_id.as_deref(), form.generation)
         .await?
         .done()?;
-    audit::record(&state.db, Some(&project), actor, "Moved a topic").await?;
+    audit::record(&mut *tx, Some(&project), actor, "Moved a topic").await?;
+    tx.commit().await?;
     one(state, topic).await
 }
 
@@ -152,13 +168,15 @@ pub async fn remove(
 ) -> Result<(), ApiError> {
     let project = topic_project(state, principal, topic, Role::Reviewer, false).await?;
     let actor = principal.person()?;
-    if topics::children(&state.db, topic).await? > 0 && !recursive {
+    let mut tx = state.db.begin().await?;
+    if topics::children(&mut *tx, topic).await? > 0 && !recursive {
         return Err(ApiError::Conflict(
             "the topic has subtopics; remove them first or ask for a recursive removal",
         ));
     }
-    topics::delete_tree(&state.db, topic).await?;
-    audit::record(&state.db, Some(&project), actor, "Removed a topic").await?;
+    topics::delete_tree(&mut *tx, topic).await?;
+    audit::record(&mut *tx, Some(&project), actor, "Removed a topic").await?;
+    tx.commit().await?;
     Ok(())
 }
 

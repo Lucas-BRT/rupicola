@@ -134,7 +134,7 @@ pub async fn project_of(db: &SqlitePool, problem: &str) -> Result<Option<String>
 
 /// The live capture that holds `artifact` in `project`, if any.
 pub async fn resolve_evidence_capture(
-    db: &SqlitePool,
+    db: impl sqlx::SqliteExecutor<'_>,
     project: &str,
     artifact: &str,
 ) -> Result<Option<String>, ApiError> {

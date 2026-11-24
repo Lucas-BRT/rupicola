@@ -56,7 +56,7 @@ struct Args {
     /// Whether any project may remove a capture that something cites; `never` overrides
     /// every project's policy.
     #[arg(long, env = "RUPICOLA_CITED_DELETION", value_enum, default_value_t)]
-    cited_deletion: domain::removal::CitedDeletion,
+    cited_deletion: config::CitedDeletionArg,
 }
 
 #[tokio::main]
@@ -84,15 +84,13 @@ async fn main() -> anyhow::Result<()> {
         &args.db,
         setup_code,
         args.bind.is_loopback(),
-        domain::limits::LimitDefaults::new(
-            args.security.blob_limit,
-            args.security.body_limit,
-            &args.uploads,
-        ),
+        args.uploads
+            .to_defaults(args.security.blob_limit, args.security.body_limit),
     )
     .await?;
     state.cited_deletion.store(
-        args.cited_deletion == domain::removal::CitedDeletion::Allow,
+        domain::removal::CitedDeletion::from(args.cited_deletion)
+            == domain::removal::CitedDeletion::Allow,
         std::sync::atomic::Ordering::Relaxed,
     );
     state.allow_local_captures.store(

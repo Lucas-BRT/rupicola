@@ -1,5 +1,6 @@
 //! Credentials other than sessions in the `tokens` table, and the `invites` table.
 
+use crate::{domain::ApiError, repositories::corrupt};
 use rupicola_api::{Credential, Invite, TokenKind};
 use sqlx::SqliteExecutor;
 
@@ -16,11 +17,10 @@ struct CredentialRow {
 }
 
 impl CredentialRow {
-    /// `None` when the stored kind is unknown.
-    fn into_credential(self) -> Option<Credential> {
-        Some(Credential {
+    fn into_credential(self) -> Result<Credential, ApiError> {
+        Ok(Credential {
             id: self.digest,
-            kind: self.kind.parse().ok()?,
+            kind: self.kind.parse().map_err(corrupt)?,
             label: self.label,
             project_id: self.project_id,
             created_at: self.created_at,
@@ -40,11 +40,10 @@ struct InviteRow {
 }
 
 impl InviteRow {
-    /// `None` when the stored role is unknown.
-    fn into_invite(self) -> Option<Invite> {
-        Some(Invite {
+    fn into_invite(self) -> Result<Invite, ApiError> {
+        Ok(Invite {
             id: self.digest,
-            role: self.role.parse().ok()?,
+            role: self.role.parse().map_err(corrupt)?,
             created_by: self.created_by,
             expires_at: self.expires_at,
         })
@@ -83,7 +82,7 @@ pub async fn of_person(
     db: impl SqliteExecutor<'_>,
     handle: &str,
     now: i64,
-) -> sqlx::Result<Vec<Credential>> {
+) -> Result<Vec<Credential>, ApiError> {
     let rows: Vec<CredentialRow> = sqlx::query_as(
         "SELECT digest, kind, label, project_id, created_at, expires_at, last_used_at
          FROM tokens WHERE handle = ?1 AND (expires_at IS NULL OR expires_at > ?2)
@@ -93,14 +92,16 @@ pub async fn of_person(
     .bind(now)
     .fetch_all(db)
     .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(CredentialRow::into_credential)
-        .collect())
+    rows.into_iter()
+        .map(CredentialRow::into_credential)
+        .collect()
 }
 
 /// A project's devices, newest first.
-pub async fn devices(db: impl SqliteExecutor<'_>, project: &str) -> sqlx::Result<Vec<Credential>> {
+pub async fn devices(
+    db: impl SqliteExecutor<'_>,
+    project: &str,
+) -> Result<Vec<Credential>, ApiError> {
     let rows: Vec<CredentialRow> = sqlx::query_as(
         "SELECT digest, kind, label, project_id, created_at, expires_at, last_used_at
          FROM tokens WHERE kind = ?1 AND project_id = ?2 ORDER BY created_at DESC",
@@ -109,10 +110,9 @@ pub async fn devices(db: impl SqliteExecutor<'_>, project: &str) -> sqlx::Result
     .bind(project)
     .fetch_all(db)
     .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(CredentialRow::into_credential)
-        .collect())
+    rows.into_iter()
+        .map(CredentialRow::into_credential)
+        .collect()
 }
 
 /// Revokes one of a person's credentials, returning its label.
@@ -169,7 +169,7 @@ pub async fn invites(
     db: impl SqliteExecutor<'_>,
     project: &str,
     now: i64,
-) -> sqlx::Result<Vec<Invite>> {
+) -> Result<Vec<Invite>, ApiError> {
     let rows: Vec<InviteRow> = sqlx::query_as(
         "SELECT digest, role, created_by, expires_at FROM invites
          WHERE project_id = ?1 AND expires_at > ?2 ORDER BY expires_at",
@@ -178,10 +178,7 @@ pub async fn invites(
     .bind(now)
     .fetch_all(db)
     .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(InviteRow::into_invite)
-        .collect())
+    rows.into_iter().map(InviteRow::into_invite).collect()
 }
 
 /// Withdraws an invitation; `false` when there was none.
