@@ -11,12 +11,12 @@ use crate::{
     state::Shared,
 };
 use rupicola_api::{
-    BlobRef, Capture, CaptureStatus, Limits, NewCapture, NewCheckpoint, NewClip, Role, RunCapture,
+    BlobRef, Capture, CaptureBackendStatus, CaptureCapabilities, CaptureStatus, Limits, NewCapture,
+    NewCheckpoint, NewClip, Role, RunCapture,
 };
 use rupicola_capture::asynchronous::{
     CaptureBackend, CdpBackend, CdpDiscovery, WebBackend, WebDiscovery, run_plan,
 };
-use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{net::IpAddr, path::Path, sync::atomic::Ordering};
 use tokio::io::AsyncReadExt as _;
@@ -24,52 +24,32 @@ use tokio::io::AsyncReadExt as _;
 const DEFAULT_BROWSER_ENGINE: &str = "chromium";
 const MISSING_BACKEND_MSG: &str = "no headless web capture backend is available on this server \
     (configure RUPICOLA_PLAYWRIGHT_DIR with node, or install chromium)";
-const CAPABILITIES_DOCS_URL: &str = "https://github.com/Lucas-BRT/rupicola-protocol#readme";
 const PLAYWRIGHT_INSTALL_HINT: &str =
     "Install Node.js and Playwright, and set RUPICOLA_PLAYWRIGHT_DIR";
 const CDP_INSTALL_HINT: &str = "Install Chromium or Google Chrome on the host OS \
     (e.g. apt install chromium / dnf install chromium / brew install --cask chromium)";
 
-/// Availability of a single server-side capture backend.
-#[derive(Clone, Debug, Serialize)]
-pub struct BackendCapability {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub available: bool,
-    pub install_hint: Option<&'static str>,
-}
-
-/// Zero-install probe of available `rupicola-capture` backends on this host.
-#[derive(Clone, Debug, Serialize)]
-pub struct CaptureCapabilities {
-    pub ready: bool,
-    pub backends: Vec<BackendCapability>,
-    pub docs_url: &'static str,
-}
-
 /// Probes available `rupicola-capture` backends without installing anything.
 pub async fn capabilities() -> CaptureCapabilities {
     let playwright = WebBackend::discover(DEFAULT_BROWSER_ENGINE).await.is_some();
     let cdp = CdpBackend::discover().await.is_some();
-    let backends = vec![
-        BackendCapability {
-            id: "playwright",
-            label: "Playwright (Node.js)",
-            available: playwright,
-            install_hint: (!playwright).then_some(PLAYWRIGHT_INSTALL_HINT),
-        },
-        BackendCapability {
-            id: "cdp",
-            label: "Chromium / Chrome (CDP)",
-            available: cdp,
-            install_hint: (!cdp).then_some(CDP_INSTALL_HINT),
-        },
-    ];
-    let ready = backends.iter().any(|backend| backend.available);
     CaptureCapabilities {
-        ready,
-        backends,
-        docs_url: CAPABILITIES_DOCS_URL,
+        backends: vec![
+            CaptureBackendStatus {
+                id: "playwright".to_owned(),
+                label: "Playwright (Node.js)".to_owned(),
+                available: playwright,
+                detected: playwright.then(|| DEFAULT_BROWSER_ENGINE.to_owned()),
+                install_hint: (!playwright).then(|| PLAYWRIGHT_INSTALL_HINT.to_owned()),
+            },
+            CaptureBackendStatus {
+                id: "cdp".to_owned(),
+                label: "Chromium / Chrome (CDP)".to_owned(),
+                available: cdp,
+                detected: cdp.then(|| DEFAULT_BROWSER_ENGINE.to_owned()),
+                install_hint: (!cdp).then(|| CDP_INSTALL_HINT.to_owned()),
+            },
+        ],
     }
 }
 

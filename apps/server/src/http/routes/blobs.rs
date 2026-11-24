@@ -12,11 +12,3 @@ pub fn uploads() -> Router<Shared> {
         routing::put(captures::upload),
     )
 }
-
-/// `/blobs`: the upload the old capture flow uses, until its clients move to [`uploads`].
-pub fn legacy() -> Router<Shared> {
-    Router::new().route(
-        "/blobs/{sha256}",
-        routing::put(captures::put_blob).head(captures::head_blob),
-    )
-}

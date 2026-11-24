@@ -34,9 +34,6 @@ pub const DEFAULT_RATE_REFILL_MS: u64 = 100;
 pub const DEFAULT_BODY_LIMIT: usize = MIB;
 /// Default largest media upload of any kind: the ceiling every other file limit stays under.
 pub const DEFAULT_BLOB_LIMIT: usize = 512 * MIB;
-/// Largest file the older `PUT /v1/blobs/…` route takes. It holds the whole body in memory,
-/// so it keeps a small cap until clients move to the streamed upload.
-pub const LEGACY_BLOB_LIMIT: usize = 64 * MIB;
 /// Default seconds before a request is answered with 408.
 pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
 /// Default requests processed at once.

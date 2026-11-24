@@ -217,9 +217,6 @@ pub trait Api: Send + Sync {
     /// the mock generated for this trait cannot take an optional borrowed argument.
     async fn artifact(&self, token: &str, id: &str, range: Option<String>) -> Result<ArtifactBody>;
 
-    /// Uploads `data` unless the backend already has it; returns its SHA-256.
-    async fn put_blob(&self, token: &str, data: &[u8]) -> Result<String>;
-
     /// Queries which of `query.sha256` blobs are not yet stored for `project`.
     async fn missing_blobs(
         &self,
@@ -238,8 +235,7 @@ pub trait Api: Send + Sync {
         data: Vec<u8>,
     ) -> Result<()>;
 
-    /// Publishes a capture whose files were uploaded with [`Api::put_blob`] or
-    /// [`Api::upload_project_blob`].
+    /// Publishes a capture whose files were uploaded with [`Api::upload_project_blob`].
     async fn publish_capture(
         &self,
         token: &str,

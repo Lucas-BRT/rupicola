@@ -255,6 +255,33 @@ fn step_properties() -> Value {
     json!({"title": text(), "detail": text(), "verification": text(), "evidence": text()})
 }
 
+fn selections_schema() -> Value {
+    json!({
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["label", "items"],
+            "properties": {
+                "label": text(),
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["capture", "mark"],
+                        "properties": {
+                            "capture": text(),
+                            "artifact": text(),
+                            "path": text(),
+                            "mark": {"enum": ["proof", "context"]},
+                            "fragment": {"type": "object"}
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// Every tool, in the order clients list them.
 const TOOLS: &[Tool] = &[
     Tool {
@@ -327,7 +354,7 @@ const TOOLS: &[Tool] = &[
                             "id": text(),
                             "trigger": action,
                             "samples": {"type": "integer", "minimum": 2},
-                            "interval_ms": {"type": "integer", "minimum": 16}
+                            "interval_ms": {"type": "integer", "minimum": 1}
                         }
                     }
                 }
@@ -373,7 +400,7 @@ const TOOLS: &[Tool] = &[
         "origin": {"enum": ["agent-measured", "agent-visual", "user-reported"]},
         "route": text(), "viewport": text(), "theme": text(), "diagnosis": text(), "proposed_solution": text(),
         "rules": {"type": "array", "items": {"type": "object", "required": ["scope", "code", "title"], "properties": {"scope": text(), "code": text(), "title": text()}}},
-        "evidence": string_list()})
+        "evidence": string_list(), "selections": selections_schema()})
         },
     },
     Tool {
@@ -435,7 +462,7 @@ const TOOLS: &[Tool] = &[
         properties: || {
             json!({"project": text(), "title": text(), "summary": text(),
         "problems": string_list(), "tactics": string_list(), "files": string_list(),
-        "comparisons": comparisons(),
+        "comparisons": comparisons(), "baseline": selections_schema(), "proof": selections_schema(),
         "steps": {"type": "array", "items": {"type": "object", "required": ["title"], "properties": step_properties()}}})
         },
     },
@@ -544,7 +571,6 @@ mod tests {
     use axum::http::StatusCode;
     use base64::Engine as _;
     use serde_json::{Value, json};
-    use sha2::Digest as _;
 
     /// Calls `/mcp` as `token` and returns the JSON-RPC reply.
     async fn rpc(port: u16, token: &str, body: &Value) -> Value {
@@ -665,16 +691,7 @@ mod tests {
     #[tokio::test]
     async fn artifacts_are_read_in_pages() {
         let (port, [ana, ..]) = demo_with_artifacts().await;
-        let sha = format!("{:x}", sha2::Sha256::digest(CONTENT));
-        let upload = request(
-            port,
-            format!(
-                "PUT /v1/blobs/{sha} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {ana}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{CONTENT}",
-                CONTENT.len()
-            ),
-        )
-        .await;
-        assert!(status(&upload).is_success(), "{upload}");
+        let sha = stream_blob(port, &ana, "demo", CONTENT.as_bytes()).await;
         let capture = call(
             port,
             "POST",
@@ -705,5 +722,45 @@ mod tests {
             .decode(read["data"].as_str().unwrap())
             .unwrap();
         assert_eq!(decoded, READ_BACK.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn capture_capabilities_and_selection_schemas_work() {
+        const CAPTURE_SHOT: &str = "capture-shot";
+        let (port, [ana, ..]) = demo_with_artifacts().await;
+        let caps = payload(&rpc(port, &ana, &tool("capture_capabilities", &json!({}))).await);
+        assert!(caps["backends"].is_array(), "{caps}");
+
+        let selection = json!([{
+            "label": "Proof",
+            "items": [{"capture": CAPTURE_SHOT, "artifact": PROJECT_ARTIFACT, "mark": "proof"}]
+        }]);
+        let problem = payload(
+            &rpc(
+                port,
+                &ana,
+                &tool(
+                    "problem_create",
+                    &json!({"project": "demo", "title": "Alignment", "severity": "minor",
+                        "origin": "agent-visual", "selections": selection}),
+                ),
+            )
+            .await,
+        );
+        assert_eq!(problem["selections"].as_array().unwrap().len(), 1);
+
+        let fix = payload(
+            &rpc(
+                port,
+                &ana,
+                &tool(
+                    "fix_create",
+                    &json!({"project": "demo", "title": "Aligned", "problems": [problem["id"]],
+                        "baseline": selection, "proof": selection}),
+                ),
+            )
+            .await,
+        );
+        assert_eq!(fix["selections"].as_array().unwrap().len(), 2);
     }
 }

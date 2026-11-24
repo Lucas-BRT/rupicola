@@ -1,6 +1,6 @@
 use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
-use reqwest::{Method, RequestBuilder, StatusCode, header};
+use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
     AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
     DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Me,
@@ -10,7 +10,6 @@ use rupicola_api::{
     SessionToken, Setup, SetupStatus, Step, SystemActionForm, SystemList, SystemVersion,
 };
 use serde::de::DeserializeOwned;
-use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 /// Path of the MCP endpoint, which sits outside the versioned prefix.
@@ -577,30 +576,6 @@ impl Api for HttpApi {
             content_range,
             bytes,
         })
-    }
-
-    async fn put_blob(&self, token: &str, data: &[u8]) -> Result<String> {
-        let sha256 = format!("{:x}", Sha256::digest(data));
-        let path = format!("/blobs/{}", encode_segment(&sha256));
-        let known = self
-            .request(Method::HEAD, &path, Some(token))
-            .send()
-            .await
-            .map_err(|e| ClientError::Unavailable(e.to_string()))?;
-        if known.status().is_success() {
-            return Ok(sha256);
-        }
-        if known.status() != StatusCode::NOT_FOUND {
-            return Err(ClientError::from_response(known.status(), None, ""));
-        }
-        Self::send(
-            self.request(Method::PUT, &path, Some(token))
-                .timeout(LONG_TIMEOUT)
-                .header(header::CONTENT_TYPE, OCTET_STREAM)
-                .body(data.to_vec()),
-        )
-        .await?;
-        Ok(sha256)
     }
 
     async fn missing_blobs(

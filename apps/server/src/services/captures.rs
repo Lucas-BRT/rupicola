@@ -20,9 +20,7 @@ use rupicola_api::{
     Capture, CaptureSummary, Finding, Missing, MissingQuery, NewCapture, NewFinding, Role,
 };
 
-/// Stores a file under its digest, for any signed-in caller; blobs nobody references are
-/// pruned later. Returns whether it was new.
-pub async fn put_blob(state: Shared, sha256: String, data: Vec<u8>) -> Result<bool, ApiError> {
+async fn put_blob(state: Shared, sha256: String, data: Vec<u8>) -> Result<bool, ApiError> {
     tokio::task::spawn_blocking(move || state.blobs.put(&sha256, &data))
         .await
         .map_err(anyhow::Error::from)?
@@ -40,21 +38,6 @@ pub async fn put_project_blob(
     let mut connection = state.db.acquire().await?;
     blobs::record(&mut connection, project, &sha256, bytes).await?;
     Ok(created)
-}
-
-/// Whether a file is stored under `sha256`.
-pub async fn has_blob(state: &Shared, sha256: String) -> Result<bool, ApiError> {
-    let shared = state.clone();
-    tokio::task::spawn_blocking(move || {
-        shared
-            .blobs
-            .size(&sha256)
-            .map(|size| size.is_some())
-            .map_err(anyhow::Error::from)
-    })
-    .await
-    .map_err(anyhow::Error::from)?
-    .map_err(ApiError::Internal)
 }
 
 /// Which of these files the project does not have yet, so a client uploads only those,
@@ -89,6 +72,12 @@ pub async fn create(
         .iter()
         .map(|item| item.file.sha256.clone())
         .collect();
+    if !blobs::missing(&state.db, project, &hashes)
+        .await?
+        .is_empty()
+    {
+        return Err(ApiError::invalid("upload every file to this project first"));
+    }
     let shared = state.clone();
     let sizes = tokio::task::spawn_blocking(move || {
         hashes
@@ -98,9 +87,7 @@ pub async fn create(
                     .blobs
                     .size(&sha256)
                     .map_err(anyhow::Error::from)?
-                    .ok_or_else(|| {
-                        ApiError::invalid("upload every file with PUT /v1/blobs/{sha256} first")
-                    })
+                    .ok_or_else(|| ApiError::invalid("upload every file to this project first"))
             })
             .collect::<Result<Vec<u64>, ApiError>>()
     })

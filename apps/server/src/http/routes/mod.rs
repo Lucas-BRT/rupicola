@@ -80,12 +80,7 @@ fn v1(settings: &security::Security) -> anyhow::Result<Router<Shared>> {
         .nest("/tokens", tokens::routes())
         .merge(account::routes())
         .merge(account::sign_in(settings)?);
-    Ok(
-        security::limit_body(api, settings.body_limit).merge(security::limit_body(
-            blobs::legacy(),
-            settings.blob_limit.min(security::LEGACY_BLOB_LIMIT),
-        )),
-    )
+    Ok(security::limit_body(api, settings.body_limit))
 }
 
 async fn health() -> Json<Health> {
