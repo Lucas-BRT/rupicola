@@ -283,6 +283,35 @@ fn selections_schema() -> Value {
 }
 
 /// Every tool, in the order clients list them.
+/// What a `capture_run` clip trigger can do.
+const ACTION_KINDS: &[&str] = &[
+    "click",
+    "hover",
+    "fill",
+    "press",
+    "ready",
+    "scroll",
+    "scroll_into_view",
+    "scroll_to",
+    "scroll_to_end",
+    "wait",
+];
+/// What a `capture_run` step can do: every action, a checkpoint or a clip.
+const STEP_KINDS: &[&str] = &[
+    "click",
+    "hover",
+    "fill",
+    "press",
+    "ready",
+    "scroll",
+    "scroll_into_view",
+    "scroll_to",
+    "scroll_to_end",
+    "wait",
+    "checkpoint",
+    "clip",
+];
+
 const TOOLS: &[Tool] = &[
     Tool {
         name: "project_list",
@@ -315,12 +344,18 @@ const TOOLS: &[Tool] = &[
         properties: || {
             let action = json!({
                 "type": "object",
-                "required": ["kind", "selector"],
+                "required": ["kind"],
+                "description": "click, hover, fill, press and ready need a selector; scroll_into_view too. scroll, scroll_to and scroll_to_end take an optional selector (the page when absent).",
                 "properties": {
-                    "kind": {"enum": ["click", "hover", "fill", "press", "ready"]},
+                    "kind": {"enum": ACTION_KINDS},
                     "selector": text(),
                     "value": text(),
-                    "key": text()
+                    "key": text(),
+                    "dx": {"type": "integer"},
+                    "dy": {"type": "integer"},
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                    "ms": {"type": "integer", "minimum": 0}
                 }
             });
             json!({
@@ -347,10 +382,16 @@ const TOOLS: &[Tool] = &[
                         "type": "object",
                         "required": ["kind"],
                         "properties": {
-                            "kind": {"enum": ["click", "hover", "fill", "press", "ready", "checkpoint", "clip"]},
+                            "kind": {"enum": STEP_KINDS},
                             "selector": text(),
                             "value": text(),
                             "key": text(),
+                            "dx": {"type": "integer"},
+                            "dy": {"type": "integer"},
+                            "x": {"type": "integer"},
+                            "y": {"type": "integer"},
+                            "ms": {"type": "integer", "minimum": 0},
+                            "full_page": {"type": "boolean"},
                             "id": text(),
                             "trigger": action,
                             "samples": {"type": "integer", "minimum": 2},

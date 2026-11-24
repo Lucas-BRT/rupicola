@@ -289,11 +289,51 @@ pub struct NewCapture {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CaptureAction {
-    Click { selector: String },
-    Hover { selector: String },
-    Fill { selector: String, value: String },
-    Press { selector: String, key: String },
-    Ready { selector: String },
+    Click {
+        selector: String,
+    },
+    Hover {
+        selector: String,
+    },
+    Fill {
+        selector: String,
+        value: String,
+    },
+    Press {
+        selector: String,
+        key: String,
+    },
+    Ready {
+        selector: String,
+    },
+    /// Scrolls by `dx` and `dy` pixels: an element (or its closest scrollable ancestor), or the
+    /// page with the mouse wheel when `selector` is absent.
+    Scroll {
+        #[serde(default)]
+        selector: Option<String>,
+        dx: i32,
+        dy: i32,
+    },
+    /// Brings an element on screen without moving the pointer.
+    ScrollIntoView {
+        selector: String,
+    },
+    /// Scrolls an element, or the page when `selector` is absent, to an absolute offset.
+    ScrollTo {
+        #[serde(default)]
+        selector: Option<String>,
+        x: i32,
+        y: i32,
+    },
+    /// Scrolls an element, or the page when `selector` is absent, to its end.
+    ScrollToEnd {
+        #[serde(default)]
+        selector: Option<String>,
+    },
+    /// Pauses for `ms` milliseconds.
+    Wait {
+        ms: u32,
+    },
 }
 
 /// One step executed by the server's external capture runner.
@@ -317,8 +357,33 @@ pub enum CaptureStep {
     Ready {
         selector: String,
     },
+    Scroll {
+        #[serde(default)]
+        selector: Option<String>,
+        dx: i32,
+        dy: i32,
+    },
+    ScrollIntoView {
+        selector: String,
+    },
+    ScrollTo {
+        #[serde(default)]
+        selector: Option<String>,
+        x: i32,
+        y: i32,
+    },
+    ScrollToEnd {
+        #[serde(default)]
+        selector: Option<String>,
+    },
+    Wait {
+        ms: u32,
+    },
     Checkpoint {
         id: String,
+        /// Shoots the whole scrollable page instead of the viewport.
+        #[serde(default)]
+        full_page: bool,
     },
     Clip {
         id: String,

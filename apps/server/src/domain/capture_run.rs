@@ -31,6 +31,8 @@ const MAX_TOTAL_CLIP_MS: usize = 30_000;
 const DEFAULT_CHECKPOINT: &str = "home";
 const CSS_ENGINE: &str = "css=";
 const CHORD_SEPARATOR: char = '+';
+const MAX_WAIT_MS: u32 = 10_000;
+const MAX_TOTAL_WAIT_MS: u64 = 30_000;
 
 /// Validated capture target URL with its extracted host and port for DNS/SSRF checks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +48,10 @@ fn selector_target(selector: &str) -> Result<String, ApiError> {
         return Err(ApiError::invalid("step selector must not be empty"));
     }
     Ok(format!("{CSS_ENGINE}{trimmed}"))
+}
+
+fn optional_target(selector: Option<&str>) -> Result<Option<String>, ApiError> {
+    selector.map(selector_target).transpose()
 }
 
 fn action_steps(action: &CaptureAction) -> Result<Vec<Step>, ApiError> {
@@ -94,6 +100,40 @@ fn action_steps(action: &CaptureAction) -> Result<Vec<Step>, ApiError> {
                 target_id: selector_target(selector)?,
             },
         }]),
+        CaptureAction::Scroll { selector, dx, dy } => Ok(vec![Step::Action {
+            action: UiAction::Scroll {
+                target_id: optional_target(selector.as_deref())?,
+                dx: f64::from(*dx),
+                dy: f64::from(*dy),
+            },
+        }]),
+        CaptureAction::ScrollIntoView { selector } => Ok(vec![Step::Action {
+            action: UiAction::ScrollIntoView {
+                target_id: selector_target(selector)?,
+            },
+        }]),
+        CaptureAction::ScrollTo { selector, x, y } => Ok(vec![Step::Action {
+            action: UiAction::ScrollTo {
+                target_id: optional_target(selector.as_deref())?,
+                x: f64::from(*x),
+                y: f64::from(*y),
+            },
+        }]),
+        CaptureAction::ScrollToEnd { selector } => Ok(vec![Step::Action {
+            action: UiAction::ScrollToEnd {
+                target_id: optional_target(selector.as_deref())?,
+            },
+        }]),
+        CaptureAction::Wait { ms } => {
+            if *ms > MAX_WAIT_MS {
+                return Err(ApiError::invalid(format!(
+                    "a wait takes at most {MAX_WAIT_MS} ms"
+                )));
+            }
+            Ok(vec![Step::Wait {
+                condition: WaitCondition::Delay { ms: u64::from(*ms) },
+            }])
+        }
     }
 }
 
@@ -121,7 +161,36 @@ fn step_into_plan(step: &CaptureStep) -> Result<(Vec<Step>, Option<u32>), ApiErr
             selector: selector.clone(),
         })
         .map(|s| (s, None)),
-        CaptureStep::Checkpoint { id } => Ok((vec![Step::Checkpoint { id: id.clone() }], None)),
+        CaptureStep::Scroll { selector, dx, dy } => action_steps(&CaptureAction::Scroll {
+            selector: selector.clone(),
+            dx: *dx,
+            dy: *dy,
+        })
+        .map(|s| (s, None)),
+        CaptureStep::ScrollIntoView { selector } => action_steps(&CaptureAction::ScrollIntoView {
+            selector: selector.clone(),
+        })
+        .map(|s| (s, None)),
+        CaptureStep::ScrollTo { selector, x, y } => action_steps(&CaptureAction::ScrollTo {
+            selector: selector.clone(),
+            x: *x,
+            y: *y,
+        })
+        .map(|s| (s, None)),
+        CaptureStep::ScrollToEnd { selector } => action_steps(&CaptureAction::ScrollToEnd {
+            selector: selector.clone(),
+        })
+        .map(|s| (s, None)),
+        CaptureStep::Wait { ms } => {
+            action_steps(&CaptureAction::Wait { ms: *ms }).map(|s| (s, None))
+        }
+        CaptureStep::Checkpoint { id, full_page } => Ok((
+            vec![Step::Checkpoint {
+                id: id.clone(),
+                full_page: *full_page,
+            }],
+            None,
+        )),
         CaptureStep::Clip {
             id,
             trigger,
@@ -323,6 +392,7 @@ fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiErr
     let raw_steps = if steps.is_empty() {
         default_steps = [CaptureStep::Checkpoint {
             id: DEFAULT_CHECKPOINT.to_owned(),
+            full_page: false,
         }];
         &default_steps[..]
     } else {
@@ -338,10 +408,19 @@ fn build_steps(steps: &[CaptureStep]) -> Result<(Vec<Step>, Option<u32>), ApiErr
     let mut plan_steps = Vec::new();
     let mut min_interval: Option<u32> = None;
     let mut total_clip_ms = 0usize;
+    let mut total_wait_ms = 0u64;
 
     for step in raw_steps {
         match step {
-            CaptureStep::Checkpoint { id } => {
+            CaptureStep::Wait { ms } => {
+                total_wait_ms = total_wait_ms.saturating_add(u64::from(*ms));
+                if total_wait_ms > MAX_TOTAL_WAIT_MS {
+                    return Err(ApiError::invalid(format!(
+                        "total wait time exceeds {MAX_TOTAL_WAIT_MS} ms"
+                    )));
+                }
+            }
+            CaptureStep::Checkpoint { id, .. } => {
                 if !valid_id(id) || !ids.insert(id.to_ascii_lowercase()) {
                     return Err(ApiError::invalid(format!(
                         "invalid or duplicate checkpoint id `{id}`"
@@ -456,9 +535,123 @@ mod tests {
         assert_eq!(
             plan.steps,
             vec![Step::Checkpoint {
-                id: "home".to_owned()
+                id: "home".to_owned(),
+                full_page: false
             }]
         );
+    }
+
+    fn run_with(steps: Vec<CaptureStep>) -> Result<Vec<Step>, ApiError> {
+        let mut form = req("https://example.com/");
+        form.steps = steps;
+        to_plan(&form, false).map(|(plan, _)| plan.steps)
+    }
+
+    fn checkpoint(id: &str, full_page: bool) -> CaptureStep {
+        CaptureStep::Checkpoint {
+            id: id.to_owned(),
+            full_page,
+        }
+    }
+
+    #[test]
+    fn scroll_steps_become_protocol_actions_on_css_targets() {
+        let steps = run_with(vec![
+            CaptureStep::ScrollIntoView {
+                selector: "#deep".to_owned(),
+            },
+            CaptureStep::Scroll {
+                selector: None,
+                dx: 0,
+                dy: 300,
+            },
+            CaptureStep::ScrollTo {
+                selector: Some(".list".to_owned()),
+                x: 0,
+                y: 120,
+            },
+            CaptureStep::ScrollToEnd { selector: None },
+            checkpoint("end", true),
+        ])
+        .unwrap();
+        let action = |action| Step::Action { action };
+        assert_eq!(
+            steps,
+            vec![
+                action(UiAction::ScrollIntoView {
+                    target_id: "css=#deep".to_owned()
+                }),
+                action(UiAction::Scroll {
+                    target_id: None,
+                    dx: 0.0,
+                    dy: 300.0
+                }),
+                action(UiAction::ScrollTo {
+                    target_id: Some("css=.list".to_owned()),
+                    x: 0.0,
+                    y: 120.0
+                }),
+                action(UiAction::ScrollToEnd { target_id: None }),
+                Step::Checkpoint {
+                    id: "end".to_owned(),
+                    full_page: true
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_wait_step_is_a_delay_and_is_bounded() {
+        let steps = run_with(vec![
+            CaptureStep::Wait { ms: 250 },
+            checkpoint("home", false),
+        ])
+        .unwrap();
+        assert_eq!(
+            steps[0],
+            Step::Wait {
+                condition: WaitCondition::Delay { ms: 250 }
+            }
+        );
+        let too_long = run_with(vec![
+            CaptureStep::Wait {
+                ms: MAX_WAIT_MS + 1,
+            },
+            checkpoint("home", false),
+        ]);
+        assert!(matches!(too_long, Err(ApiError::Invalid(_))));
+        let wait = CaptureStep::Wait { ms: MAX_WAIT_MS };
+        let too_much = run_with(vec![
+            wait.clone(),
+            wait.clone(),
+            wait.clone(),
+            wait,
+            checkpoint("home", false),
+        ]);
+        assert!(matches!(too_much, Err(ApiError::Invalid(_))));
+    }
+
+    #[test]
+    fn an_empty_scroll_selector_is_refused() {
+        let result = run_with(vec![
+            CaptureStep::ScrollIntoView {
+                selector: "  ".to_owned(),
+            },
+            checkpoint("home", false),
+        ]);
+        assert!(matches!(result, Err(ApiError::Invalid(_))));
+    }
+
+    #[test]
+    fn json_steps_default_full_page_off_and_selector_absent() {
+        let steps: Vec<CaptureStep> = serde_json::from_str(
+            r#"[{"kind":"scroll_to_end"},{"kind":"checkpoint","id":"a"},
+                {"kind":"checkpoint","id":"b","full_page":true}]"#,
+        )
+        .unwrap();
+        assert_eq!(steps[0], CaptureStep::ScrollToEnd { selector: None });
+        assert_eq!(steps[1], checkpoint("a", false));
+        assert_eq!(steps[2], checkpoint("b", true));
     }
 
     #[test]
