@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STATE_DIR="$ROOT/.rupicola"
-DATA_DIR="$STATE_DIR/dev-data"
 PORT="${RUPICOLA_DEV_PORT:-4731}"
 SERVER_URL="${RUPICOLA_DEV_SERVER_URL:-http://127.0.0.1:4730}"
 PID_FILE="$STATE_DIR/panel-dev.pid"
@@ -45,7 +44,7 @@ wait_ready() {
 cmd="${1:-reload}"
 case "$cmd" in
   reload)
-    mkdir -p "$DATA_DIR"
+    mkdir -p "$STATE_DIR"
     cargo build --manifest-path "$ROOT/Cargo.toml" --target-dir "$ROOT/target" -p rupicola-panel --quiet
     BIN="$ROOT/target/debug/rupicola-panel"
     stop_dev
@@ -58,16 +57,11 @@ case "$cmd" in
       echo $! >"$PID_FILE"
     fi
     wait_ready
-    echo "panel-dev running at http://127.0.0.1:$PORT (data: $DATA_DIR, backend: $SERVER_URL)"
+    echo "panel-dev running at http://127.0.0.1:$PORT (backend: $SERVER_URL)"
     ;;
   stop)
     stop_dev
     echo "panel-dev stopped"
-    ;;
-  reset)
-    stop_dev
-    rm -rf "$DATA_DIR"
-    echo "panel-dev data reset ($DATA_DIR)"
     ;;
   status)
     if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet "$DEV_UNIT" 2>/dev/null; then
@@ -79,7 +73,7 @@ case "$cmd" in
     fi
     ;;
   *)
-    echo "usage: $0 {reload|stop|reset|status}" >&2
+    echo "usage: $0 {reload|stop|status}" >&2
     exit 2
     ;;
 esac

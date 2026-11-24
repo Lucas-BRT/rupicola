@@ -14,18 +14,18 @@ Operational rules for AI agents working in this repository. Never invent files, 
 
 ## Local Dev vs Cloud
 - Do not install or start local `systemd` services (`rupicola.service` / `ferris-atelier.service`).
-- Test panel changes locally via `./apps/panel/dev.sh {reload|stop|reset|status}` (isolated in `.rupicola/dev-data/`, `127.0.0.1:4731`) or `docker compose -f compose.local.yml up --build`.
+- Test panel changes locally via `./apps/panel/dev.sh {reload|stop|status}` (`127.0.0.1:4731`) or `docker compose -f compose.local.yml up --build`.
 - Never overwrite `~/.local/share/rupicola/auth-token` from dev scripts.
 - Remote MCP: `rupicola mcp-bridge` (backend address from `--server-url`, `RUPICOLA_SERVER_URL` or the `server-url` file `rupicola login` writes next to the token) (reads `~/.local/share/rupicola/auth-token` before `RUPICOLA_MCP_TOKEN`). Run the CLI against a dev backend with `XDG_DATA_HOME` pointing at a scratch directory so `login` does not replace your token.
-- `rupicola capture` publishes the finished capture to the backend when `--server-url`, `RUPICOLA_SERVER_URL` or a stored `server-url` names one; without `--out` it captures into a scratch directory that is removed afterwards.
-- Server MCP endpoint (`apps/server/src/mcp.rs`): `POST /mcp`, authenticated with any bearer token the backend issues. The panel serves no MCP.
+- `rupicola publish <dir>` uploads a finished capture bundle to the backend when `--server-url`, `RUPICOLA_SERVER_URL` or a stored `server-url` names one.
+- Server MCP endpoint (`apps/server/src/http/mcp.rs`): `POST /mcp`, authenticated with any bearer token the backend issues. The panel serves no MCP.
 
 ## Mandatory Verification Before Reporting Done
 Run and observe passing output after your final edit:
 ```sh
 cargo fmt --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked
+cargo test --locked --workspace
 cargo run --locked -- check .
 ```
 Report any skipped or environment-blocked test explicitly (e.g. missing `ffmpeg` in sandbox).

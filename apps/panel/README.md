@@ -3,7 +3,8 @@
 Review screenshots, recordings and analysis by project. Topcoat serves the
 routes and renders the pages. Tailwind compiles the panel stylesheet at build
 time, and the button, badge and card components come from Topcoat UI 0.11.
-Turso stores the index, accounts and access records. Captures stay on disk.
+The backend owns accounts, captures, problems, fixes, design records and design
+systems in SQLite and its media store; the panel is stateless.
 
 ## Local
 
@@ -59,8 +60,8 @@ rupicola serve \
 ```
 
 The upstream binds to loopback. Terminate TLS at the proxy and keep the upstream
-private. Back up the panel's data directory and the backend's database and media
-store together. Accounts, memberships, access records, captures and their media
+private. Back up the backend's database and media store; the panel itself is
+stateless. Accounts, memberships, access records, captures and their media
 live in the backend.
 
 In **Project settings**, create a Reader or Reviewer invitation. Share its code

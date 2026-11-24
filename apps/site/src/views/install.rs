@@ -22,7 +22,7 @@ pub async fn install_page(cx: &Cx, panel_url: &str, public_url: &str) -> Result<
             section(
                 eyebrow("Installation")
                 <h1>"Install CLI, Releases & AI Skill"</h1>
-                <p class="hero-lead">"Minimum Rust version for the CLI is " <code>"1.85.0"</code> ". Core inspection runs offline with zero API keys; Playwright is only used for headless web probing."</p>
+                <p class="hero-lead">"Minimum Rust version for the CLI is " <code>"1.99"</code> ". Core inspection runs offline with zero API keys; capture storage and MCP live on the backend."</p>
                 <div class="cta-row">
                     button(href: "/install.sh", primary: true, download: Some("install.sh"), "Download install.sh")
                     button(href: RELEASES_URL, external: true, "GitHub Releases")
@@ -39,7 +39,7 @@ pub async fn install_page(cx: &Cx, panel_url: &str, public_url: &str) -> Result<
             section(grid: "grid-2",
                 card(
                     <h2>"1. Install from Source"</h2>
-                    <p class="muted">"Requires Git and Rust 1.85+. Installs " <code>"rupicola"</code> " into " <code>"~/.cargo/bin"</code> "."</p>
+                    <p class="muted">"Requires Git and Rust 1.99+. Installs " <code>"rupicola"</code> " into " <code>"~/.cargo/bin"</code> "."</p>
                     code_block(label: "Cargo (Git)", code: "cargo install --git https://github.com/Lucas-BRT/rupicola.git --locked rupicola\nrupicola --version")
                 )
                 card(

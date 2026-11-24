@@ -55,7 +55,6 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "4731"
-      XDG_DATA_HOME: "/data"
       RUPICOLA_SERVER_URL: "http://backend:4730"
     tmpfs:
       - /tmp:size=64m,mode=1777

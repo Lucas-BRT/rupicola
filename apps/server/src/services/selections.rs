@@ -35,13 +35,15 @@ pub async fn keep(
             .map_err(anyhow::Error::from)?;
         selections::insert_item(
             tx,
-            project,
-            &id,
-            i64::try_from(position).map_err(anyhow::Error::from)?,
-            &item.capture,
-            artifact.as_deref(),
-            item.mark.as_str(),
-            fragment.as_deref(),
+            selections::NewSelectionItem {
+                project,
+                selection_id: &id,
+                position: i64::try_from(position).map_err(anyhow::Error::from)?,
+                capture_id: &item.capture,
+                artifact_id: artifact.as_deref(),
+                mark: item.mark.as_str(),
+                fragment: fragment.as_deref(),
+            },
         )
         .await?;
     }
