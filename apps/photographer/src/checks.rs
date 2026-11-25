@@ -394,6 +394,28 @@ pub fn evaluate_checks(checks: &Checks, checkpoint_id: &str, snapshot: &UiSnapsh
     findings
 }
 
+fn is_contrast_text_node(node: &WidgetNode) -> bool {
+    if matches!(
+        node.kind,
+        WidgetKind::Slider
+            | WidgetKind::Checkbox
+            | WidgetKind::Radio
+            | WidgetKind::Switch
+            | WidgetKind::Image
+    ) {
+        return false;
+    }
+    if !node.children.is_empty()
+        && matches!(
+            node.kind,
+            WidgetKind::Group | WidgetKind::List | WidgetKind::Dialog | WidgetKind::Other
+        )
+    {
+        return false;
+    }
+    has_visible_text(node)
+}
+
 fn check_contrast(
     nodes: &[(&WidgetNode, Vec<usize>)],
     level: ContrastLevel,
@@ -401,7 +423,7 @@ fn check_contrast(
 ) -> Option<String> {
     let mut low_contrast = Vec::new();
     for (i, (node, _)) in nodes.iter().enumerate() {
-        if node.bounds.width <= 0.0 || node.bounds.height <= 0.0 || !has_visible_text(node) {
+        if node.bounds.width <= 0.0 || node.bounds.height <= 0.0 || !is_contrast_text_node(node) {
             continue;
         }
         let Some(style) = node.style.as_ref() else {
@@ -653,5 +675,66 @@ mod tests {
         assert_eq!(findings_aaa.len(), 1, "{findings_aaa:?}");
         assert!(findings_aaa[0].contains("muted-small"));
         assert!(findings_aaa[0].contains("muted-large"));
+    }
+
+    #[test]
+    fn contrast_check_ignores_sliders_and_non_leaf_containers() {
+        use rupicola_protocol::ComputedStyle;
+
+        let mut slider = node(
+            "split-slider",
+            "slider",
+            WidgetKind::Slider,
+            Some("Before and after split slider"),
+            rect(0.0, 0.0, 200.0, 24.0),
+            None,
+            Vec::new(),
+        );
+        slider.style = Some(ComputedStyle {
+            color: Some("rgb(120, 120, 120)".to_owned()),
+            background_color: Some("rgb(255, 255, 255)".to_owned()),
+            font_size_px: Some(14.0),
+            ..ComputedStyle::default()
+        });
+
+        let mut container = node(
+            "hero-diff",
+            "div",
+            WidgetKind::Group,
+            Some("Concatenated child text"),
+            rect(0.0, 0.0, 300.0, 120.0),
+            None,
+            vec![{
+                let mut leaf = node(
+                    "leaf",
+                    "span",
+                    WidgetKind::Text,
+                    Some("Readable"),
+                    rect(10.0, 10.0, 100.0, 20.0),
+                    None,
+                    Vec::new(),
+                );
+                leaf.style = Some(ComputedStyle {
+                    color: Some("rgb(17, 17, 19)".to_owned()),
+                    background_color: Some("rgba(0, 0, 0, 0)".to_owned()),
+                    font_size_px: Some(16.0),
+                    ..ComputedStyle::default()
+                });
+                leaf
+            }],
+        );
+        container.style = Some(ComputedStyle {
+            color: Some("rgb(255, 255, 255)".to_owned()),
+            background_color: Some("rgb(255, 255, 255)".to_owned()),
+            font_size_px: Some(16.0),
+            ..ComputedStyle::default()
+        });
+
+        let snap = snapshot(390, vec![slider, container]);
+        let aa = Checks {
+            contrast: Some(ContrastLevel::Aa),
+            ..Checks::default()
+        };
+        assert_eq!(evaluate_checks(&aa, "full", &snap), Vec::<String>::new());
     }
 }
