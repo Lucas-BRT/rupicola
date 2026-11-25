@@ -130,25 +130,28 @@ mod tests {
                VALUES ('demo', 'max_artifacts_per_capture', '1', 0)",
         )
         .await;
-        let form = format!(
-            r#"{{"scenario":"Home","status":"complete","checkpoints":[
-                {{"id":"a","path":"a.png","sha256":"{DIGEST}"}},
-                {{"id":"b","path":"b.png","sha256":"{DIGEST}"}}]}}"#
-        );
-        let response = call(
-            port,
-            "POST",
-            "/v1/projects/demo/captures",
-            Some(&ana),
-            Some(&form),
-        )
-        .await;
+        let mut record = capture_record("cap-limit-1", DIGEST, 1, vec![]);
+        let second = rupicola_api::record::Member {
+            path: "b.png".to_owned(),
+            role: rupicola_api::record::MemberRole::Checkpoint,
+            owner: "b".to_owned(),
+            sha256: DIGEST.to_owned(),
+            bytes: 1,
+            mime: "image/png".to_owned(),
+            surface: None,
+            locator: std::collections::BTreeMap::new(),
+            target_ms: None,
+            video_ms: None,
+        };
+        record.members.push(second);
+        record.members.sort_by(|a, b| a.path.cmp(&b.path));
+        let response = publish_record(port, &ana, &record).await;
         assert_eq!(
             status(&response),
             StatusCode::UNPROCESSABLE_ENTITY,
             "{response}"
         );
-        assert!(body(&response).contains("at most 1 files"), "{response}");
+        assert!(body(&response).contains("allows 1"), "{response}");
     }
 
     #[tokio::test]

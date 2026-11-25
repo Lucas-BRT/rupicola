@@ -1,13 +1,9 @@
-//! Publishing captures the old way, browsing and reviewing them, and the files they hold.
+//! Browsing and reviewing captures, blob uploads, and OS capture capability probing.
 
 use crate::{
-    domain::{
-        ApiError, Principal,
-        capture::{check_scenario, clean_note, plan},
-        secret::now_ms,
-    },
+    domain::{ApiError, Principal, capture::clean_note, secret::now_ms},
     repositories::{
-        audit, blobs,
+        blobs,
         captures::{self, ArtifactBlob},
     },
     services::{
@@ -17,8 +13,34 @@ use crate::{
     state::{AppState, Shared},
 };
 use rupicola_api::{
-    Capture, CaptureSummary, Finding, Missing, MissingQuery, NewCapture, NewFinding, Role,
+    Capture, CaptureBackendStatus, CaptureCapabilities, CaptureSummary, Finding, Missing,
+    MissingQuery, NewFinding, Role,
 };
+use rupicola_capture::asynchronous::probe_environment;
+
+/// Probes host OS capture backend availability without installing any dependencies.
+pub async fn capabilities() -> CaptureCapabilities {
+    let reports = probe_environment().await;
+    CaptureCapabilities {
+        backends: reports
+            .into_iter()
+            .map(|report| CaptureBackendStatus {
+                id: report.id,
+                label: report.label,
+                available: report.available,
+                detected: (!report.detected_binaries.is_empty()).then(|| {
+                    report
+                        .detected_binaries
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }),
+                install_hint: (!report.available).then_some(report.install_guidance),
+            })
+            .collect(),
+    }
+}
 
 async fn put_blob(state: Shared, sha256: String, data: Vec<u8>) -> Result<bool, ApiError> {
     tokio::task::spawn_blocking(move || state.blobs.put(&sha256, &data))
@@ -54,62 +76,6 @@ pub async fn missing(
         missing: blobs::missing(&state.db, project, &query.sha256).await?,
         limits: limits::effective(state, project).await?,
     })
-}
-
-/// Devices and reviewers publish a capture whose files are already stored.
-pub async fn create(
-    state: &Shared,
-    principal: &Principal,
-    project: &str,
-    form: NewCapture,
-) -> Result<Capture, ApiError> {
-    require_publisher(state, principal, project, Role::Reviewer).await?;
-    check_scenario(&form.scenario)?;
-    let limits = limits::effective(state, project).await?;
-    let max_artifacts = usize::try_from(limits.max_artifacts_per_capture).unwrap_or(usize::MAX);
-    let planned = plan(&form, max_artifacts)?;
-    let hashes: Vec<String> = planned
-        .iter()
-        .map(|item| item.file.sha256.clone())
-        .collect();
-    if !blobs::missing(&state.db, project, &hashes)
-        .await?
-        .is_empty()
-    {
-        return Err(ApiError::invalid("upload every file to this project first"));
-    }
-    let shared = state.clone();
-    let sizes = tokio::task::spawn_blocking(move || {
-        hashes
-            .into_iter()
-            .map(|sha256| {
-                shared
-                    .blobs
-                    .size(&sha256)
-                    .map_err(anyhow::Error::from)?
-                    .ok_or_else(|| ApiError::invalid("upload every file to this project first"))
-            })
-            .collect::<Result<Vec<u64>, ApiError>>()
-    })
-    .await
-    .map_err(anyhow::Error::from)??;
-    let id = uuid::Uuid::now_v7().to_string();
-    let mut tx = state.db.begin().await?;
-    captures::insert(&mut *tx, &id, project, &form, now_ms()).await?;
-    for (position, (item, size)) in planned.iter().zip(&sizes).enumerate() {
-        captures::insert_artifact(&mut *tx, &id, position, item, *size).await?;
-        // The project now cites the file, so it is no longer missing for it.
-        blobs::record(&mut tx, project, &item.file.sha256, *size).await?;
-    }
-    audit::record(
-        &mut *tx,
-        Some(project),
-        principal.actor(),
-        &format!("Published capture {}", form.scenario),
-    )
-    .await?;
-    tx.commit().await?;
-    captures::load(&state.db, &id).await
 }
 
 /// A project's live captures, newest first.

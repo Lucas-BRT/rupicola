@@ -51,8 +51,6 @@ struct Args {
     security: http::security::Security,
     #[command(flatten)]
     uploads: config::UploadLimits,
-    #[command(flatten)]
-    capture: config::CaptureConfig,
     /// Whether any project may remove a capture that something cites; `never` overrides
     /// every project's policy.
     #[arg(long, env = "RUPICOLA_CITED_DELETION", value_enum, default_value_t)]
@@ -91,10 +89,6 @@ async fn main() -> anyhow::Result<()> {
     state.cited_deletion.store(
         domain::removal::CitedDeletion::from(args.cited_deletion)
             == domain::removal::CitedDeletion::Allow,
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    state.allow_local_captures.store(
-        args.capture.allow_local_captures,
         std::sync::atomic::Ordering::Relaxed,
     );
     let listener = tokio::net::TcpListener::bind((args.bind, args.port))

@@ -1,11 +1,8 @@
 //! The `captures`, `artifacts` and `capture_findings` tables.
 
-use crate::domain::{
-    ApiError,
-    capture::{Planned, status_text},
-};
+use crate::domain::ApiError;
 use rupicola_api::{
-    Artifact, Capture, CaptureSummary, Checkpoint, Clip, Finding, Frame, NewCapture, Tombstone,
+    Artifact, Capture, CaptureSummary, Checkpoint, Clip, Finding, Frame, Tombstone,
 };
 use sqlx::SqliteExecutor;
 
@@ -191,59 +188,6 @@ pub async fn artifact_blob(
     .bind(artifact)
     .fetch_optional(db)
     .await
-}
-
-pub async fn insert(
-    db: impl SqliteExecutor<'_>,
-    id: &str,
-    project: &str,
-    form: &NewCapture,
-    now: i64,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO captures (id, project_id, scenario, revision, status, blocker, inspection,
-           environment, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8)",
-    )
-    .bind(id)
-    .bind(project)
-    .bind(&form.scenario)
-    .bind(&form.revision)
-    .bind(status_text(form.status))
-    .bind(&form.blocker)
-    .bind(serde_json::to_string(&form.environment).map_err(anyhow::Error::from)?)
-    .bind(now)
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-pub async fn insert_artifact(
-    db: impl SqliteExecutor<'_>,
-    capture: &str,
-    position: usize,
-    item: &Planned<'_>,
-    size: u64,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO artifacts (id, capture_id, role, owner_id, position, path, sha256, bytes,
-           mime, target_ms, video_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-    )
-    .bind(uuid::Uuid::now_v7().to_string())
-    .bind(capture)
-    .bind(item.role)
-    .bind(item.owner)
-    .bind(i64::try_from(position).map_err(anyhow::Error::from)?)
-    .bind(&item.file.path)
-    .bind(&item.file.sha256)
-    .bind(i64::try_from(size).map_err(anyhow::Error::from)?)
-    .bind(crate::domain::blob::mime(&item.file.path))
-    .bind(item.target_ms)
-    .bind(item.video_ms)
-    .execute(db)
-    .await?;
-    Ok(())
 }
 
 /// Inserts a derived capture holding a comparison diff PNG artifact, returning the artifact ID.

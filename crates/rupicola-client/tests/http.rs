@@ -9,8 +9,8 @@ use axum::{
 use rupicola_api::{
     AuditEvent, Capture, CaptureStatus, CaptureSummary, Credential, Credentials, Environment,
     ErrorBody, Finding, Inspection, Invite, IssuedCredential, IssuedInvite, Limits, Me, Member,
-    Missing, MissingQuery, NewCapture, NewCredential, NewFinding, NewInvite, NewProject,
-    PasswordChange, Project, Redeem, Role, SessionToken, SetupStatus, TokenKind,
+    Missing, MissingQuery, NewCredential, NewFinding, NewInvite, NewProject, PasswordChange,
+    Project, Redeem, Role, SessionToken, SetupStatus, TokenKind,
 };
 use rupicola_client::{Api, ClientError, HttpApi, McpReply};
 use sha2::{Digest, Sha256};
@@ -88,18 +88,6 @@ fn credentials(password: &str) -> Credentials {
 
 fn sha256(data: &[u8]) -> String {
     format!("{:x}", Sha256::digest(data))
-}
-
-fn new_capture() -> NewCapture {
-    NewCapture {
-        scenario: SCENARIO.to_owned(),
-        revision: None,
-        status: CaptureStatus::Blocked,
-        blocker: None,
-        environment: Environment::default(),
-        checkpoints: vec![],
-        clips: vec![],
-    }
 }
 
 const INVITE_CODE: &str = "invite-code";
@@ -324,28 +312,6 @@ fn upload_routes(uploads: Arc<AtomicUsize>) -> Router {
             }),
         )
         .route(
-            "/v1/projects/{id}/captures",
-            post(
-                |Path(id): Path<String>, Json(form): Json<NewCapture>| async move {
-                    Json(Capture {
-                        id: CAPTURE_ID.to_owned(),
-                        project_id: id,
-                        scenario: form.scenario,
-                        revision: None,
-                        status: form.status,
-                        blocker: None,
-                        inspection: Inspection::Pending,
-                        environment: Environment::default(),
-                        created_at: 0,
-                        checkpoints: vec![],
-                        clips: vec![],
-                        findings: vec![],
-                        deleted: None,
-                    })
-                },
-            ),
-        )
-        .route(
             "/mcp",
             post(|| async { (StatusCode::BAD_GATEWAY, MCP_BODY) }),
         )
@@ -466,18 +432,6 @@ async fn a_blob_the_backend_has_is_not_uploaded_again() {
         .await
         .unwrap();
     assert_eq!(uploads.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn a_capture_is_published_to_its_project() {
-    let (api, _) = serve().await;
-    let capture = api
-        .publish_capture(TOKEN, PROJECT, &new_capture())
-        .await
-        .unwrap();
-    assert_eq!(capture.id, CAPTURE_ID);
-    assert_eq!(capture.project_id, PROJECT);
-    assert_eq!(capture.scenario, SCENARIO);
 }
 
 #[tokio::test]

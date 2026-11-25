@@ -293,3 +293,19 @@ pub async fn uncite_selection(
     tx.commit().await?;
     problems::load(&state.db, id).await
 }
+
+/// Permanently deletes `id` from its project.
+pub async fn delete(state: &AppState, principal: &Principal, id: &str) -> Result<(), ApiError> {
+    let project = problem_access(state, principal, id, Role::Reviewer).await?;
+    let mut tx = state.db.begin().await?;
+    problems::delete(&mut tx, id).await?;
+    audit::record(
+        &mut *tx,
+        Some(&project),
+        principal.actor(),
+        &format!("Deleted problem {id}"),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}

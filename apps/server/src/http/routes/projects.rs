@@ -80,8 +80,7 @@ fn project_settings() -> Router<Shared> {
 
 fn project_captures() -> Router<Shared> {
     Router::new()
-        .route("/", routing::get(captures::list).post(captures::create))
-        .route("/run", routing::post(captures::run))
+        .route("/", routing::get(captures::list))
         .route("/search", routing::get(search::search))
         .route("/{capture}", routing::put(publish::put))
         .route(

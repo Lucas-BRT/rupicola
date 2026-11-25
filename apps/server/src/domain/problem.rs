@@ -56,6 +56,11 @@ pub fn validate(form: &NewProblem) -> Result<(), ApiError> {
     ] {
         check_len(field, value, MAX_LABEL_CHARS, false)?;
     }
+    if form.evidence.is_empty() && form.selections.is_empty() {
+        return Err(ApiError::invalid(
+            "a problem requires at least one evidence artifact or selection",
+        ));
+    }
     if form.rules.len() > MAX_RULES
         || form.evidence.len() > MAX_EVIDENCE
         || form.selections.len() > MAX_SELECTIONS

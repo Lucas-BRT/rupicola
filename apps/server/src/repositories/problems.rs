@@ -422,6 +422,18 @@ pub async fn uncite(
     Ok(())
 }
 
+/// Permanently deletes a problem and its cascaded rows.
+pub async fn delete(tx: &mut SqliteConnection, id: &str) -> Result<(), ApiError> {
+    let result = sqlx::query("DELETE FROM problems WHERE id = ?1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    Ok(())
+}
+
 /// Loads one problem with its rules, selections, derived evidence and comments.
 pub async fn load(db: &SqlitePool, id: &str) -> Result<Problem, ApiError> {
     let row: ProblemRow = sqlx::query_as(

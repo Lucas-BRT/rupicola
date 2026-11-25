@@ -1,7 +1,5 @@
 //! `GET /projects/{project}/captures`
 
-mod run;
-
 use super::{current, tab_metadata};
 use crate::app::fail;
 use crate::views::project::Tab;

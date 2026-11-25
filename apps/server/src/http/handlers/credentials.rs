@@ -365,15 +365,10 @@ mod tests {
             (me.kind, me.project.as_deref()),
             (TokenKind::Device, Some("demo"))
         );
-        let blocked = r#"{"scenario":"ci","status":"blocked","blocker":"server down"}"#;
-        let published = call(
-            port,
-            "POST",
-            "/v1/projects/demo/captures",
-            Some(&device),
-            Some(blocked),
-        )
-        .await;
+        let sha = stream_blob(port, &device, "demo", b"png-bytes").await;
+        let mut record = capture_record("cap-device-1", &sha, 9, vec![]);
+        record.scenario.name = "ci".to_owned();
+        let published = publish_record(port, &device, &record).await;
         assert_eq!(status(&published), StatusCode::CREATED, "{published}");
         let read = call(
             port,
@@ -393,12 +388,14 @@ mod tests {
         )
         .await;
         assert_eq!(status(&owner_only), StatusCode::FORBIDDEN, "{owner_only}");
+        let mut foreign = capture_record("cap-device-2", &sha, 9, vec![]);
+        foreign.project = "other".to_owned();
         let elsewhere = call(
             port,
-            "POST",
-            "/v1/projects/other/captures",
+            "PUT",
+            "/v1/projects/other/captures/cap-device-2",
             Some(&device),
-            Some(blocked),
+            Some(&serde_json::to_string(&foreign).unwrap()),
         )
         .await;
         assert_eq!(status(&elsewhere), StatusCode::NOT_FOUND, "{elsewhere}");

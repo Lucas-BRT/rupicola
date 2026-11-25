@@ -6,7 +6,7 @@
 
 use crate::{
     domain::{ApiError, Principal},
-    services::{capture_runner, captures, design, fixes, jobs, problems, projects, scenarios},
+    services::{captures, design, fixes, jobs, problems, projects, scenarios},
     state::Shared,
 };
 use axum::{
@@ -17,8 +17,7 @@ use axum::{
 };
 use base64::Engine as _;
 use rupicola_api::{
-    NewFinding, NewFix, NewJob, NewProblem, NewProject, NewReview, NewStep, ProblemPatch,
-    RunCapture, Scenario,
+    NewFinding, NewFix, NewJob, NewProblem, NewProject, NewReview, NewStep, ProblemPatch, Scenario,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -54,11 +53,6 @@ enum Call {
     CaptureGet {
         id: String,
     },
-    CaptureRun {
-        project: String,
-        #[serde(flatten)]
-        capture: RunCapture,
-    },
     CaptureCapabilities {},
     CaptureReview {
         id: String,
@@ -82,6 +76,9 @@ enum Call {
         project: String,
         #[serde(flatten)]
         problem: NewProblem,
+    },
+    ProblemDelete {
+        id: String,
     },
     ProblemTriage {
         id: String,
@@ -173,10 +170,7 @@ impl Call {
                 value(&captures::list(&state, &principal, &project).await?)
             }
             Self::CaptureGet { id } => value(&captures::get(&state, &principal, &id).await?),
-            Self::CaptureRun { project, capture } => {
-                value(&capture_runner::run(&state, &principal, &project, capture).await?)
-            }
-            Self::CaptureCapabilities {} => value(&capture_runner::capabilities().await),
+            Self::CaptureCapabilities {} => value(&captures::capabilities().await),
             Self::CaptureReview { id, finding } => {
                 value(&captures::add_finding(&state, &principal, &id, finding).await?)
             }
@@ -189,6 +183,10 @@ impl Call {
             Self::ProblemGet { id } => value(&problems::get(&state, &principal, &id).await?),
             Self::ProblemCreate { project, problem } => {
                 value(&problems::create(&state, &principal, &project, &problem).await?)
+            }
+            Self::ProblemDelete { id } => {
+                problems::delete(&state, &principal, &id).await?;
+                Ok(json!({"deleted": id}))
             }
             Self::ProblemTriage { id, patch } => {
                 value(&problems::update(&state, &principal, &id, &patch).await?)
@@ -346,35 +344,6 @@ fn selections_schema() -> Value {
 }
 
 /// Every tool, in the order clients list them.
-/// What a `capture_run` clip trigger can do.
-const ACTION_KINDS: &[&str] = &[
-    "click",
-    "hover",
-    "fill",
-    "press",
-    "ready",
-    "scroll",
-    "scroll_into_view",
-    "scroll_to",
-    "scroll_to_end",
-    "wait",
-];
-/// What a `capture_run` step can do: every action, a checkpoint or a clip.
-const STEP_KINDS: &[&str] = &[
-    "click",
-    "hover",
-    "fill",
-    "press",
-    "ready",
-    "scroll",
-    "scroll_into_view",
-    "scroll_to",
-    "scroll_to_end",
-    "wait",
-    "checkpoint",
-    "clip",
-];
-
 const TOOLS: &[Tool] = &[
     Tool {
         name: "project_list",
@@ -401,73 +370,8 @@ const TOOLS: &[Tool] = &[
         properties: || json!({"id": text()}),
     },
     Tool {
-        name: "capture_run",
-        description: "Execute a headless web capture on the server and store its checkpoints and clips",
-        required: &["project", "scenario", "url"],
-        properties: || {
-            let action = json!({
-                "type": "object",
-                "required": ["kind"],
-                "description": "click, hover, fill, press and ready need a selector; scroll_into_view too. scroll, scroll_to and scroll_to_end take an optional selector (the page when absent).",
-                "properties": {
-                    "kind": {"enum": ACTION_KINDS},
-                    "selector": text(),
-                    "value": text(),
-                    "key": text(),
-                    "dx": {"type": "integer"},
-                    "dy": {"type": "integer"},
-                    "x": {"type": "integer"},
-                    "y": {"type": "integer"},
-                    "ms": {"type": "integer", "minimum": 0}
-                }
-            });
-            json!({
-                "project": text(),
-                "scenario": text(),
-                "url": text(),
-                "revision": text(),
-                "timeout_ms": {"type": "integer", "minimum": 1},
-                "allow_degraded": {"type": "boolean"},
-                "environment": {
-                    "type": "object",
-                    "properties": {
-                        "width": {"type": "integer", "minimum": 1},
-                        "height": {"type": "integer", "minimum": 1},
-                        "scale": {"type": "number"},
-                        "locale": text(),
-                        "color_scheme": {"enum": ["light", "dark"]},
-                        "reduced_motion": {"type": "boolean"}
-                    }
-                },
-                "steps": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["kind"],
-                        "properties": {
-                            "kind": {"enum": STEP_KINDS},
-                            "selector": text(),
-                            "value": text(),
-                            "key": text(),
-                            "dx": {"type": "integer"},
-                            "dy": {"type": "integer"},
-                            "x": {"type": "integer"},
-                            "y": {"type": "integer"},
-                            "ms": {"type": "integer", "minimum": 0},
-                            "full_page": {"type": "boolean"},
-                            "id": text(),
-                            "trigger": action,
-                            "samples": {"type": "integer", "minimum": 2},
-                            "interval_ms": {"type": "integer", "minimum": 1}
-                        }
-                    }
-                }
-            })
-        },
-    },
-    Tool {
         name: "capture_capabilities",
-        description: "Probe which server-side web capture backends are available and return OS install hints for missing ones",
+        description: "Probe which host OS capture backends are available and return install hints for missing ones",
         required: &[],
         properties: || json!({}),
     },
@@ -497,15 +401,21 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "problem_create",
-        description: "File a problem; evidence lists artifact ids of the project's captures",
-        required: &["project", "title", "severity", "origin"],
+        description: "File a problem; requires at least one evidence artifact id from the project's captures",
+        required: &["project", "title", "severity", "origin", "evidence"],
         properties: || {
             json!({"project": text(), "title": text(), "severity": severity(),
         "origin": {"enum": ["agent-measured", "agent-visual", "user-reported"]},
         "route": text(), "viewport": text(), "theme": text(), "diagnosis": text(), "proposed_solution": text(),
         "rules": {"type": "array", "items": {"type": "object", "required": ["scope", "code", "title"], "properties": {"scope": text(), "code": text(), "title": text()}}},
-        "evidence": string_list(), "selections": selections_schema()})
+        "evidence": {"type": "array", "minItems": 1, "items": text()}, "selections": selections_schema()})
         },
+    },
+    Tool {
+        name: "problem_delete",
+        description: "Permanently delete a problem from its project",
+        required: &["id"],
+        properties: || json!({"id": text()}),
     },
     Tool {
         name: "problem_triage",
@@ -951,17 +861,8 @@ mod tests {
     async fn artifacts_are_read_in_pages() {
         let (port, [ana, ..]) = demo_with_artifacts().await;
         let sha = stream_blob(port, &ana, "demo", CONTENT.as_bytes()).await;
-        let capture = call(
-            port,
-            "POST",
-            "/v1/projects/demo/captures",
-            Some(&ana),
-            Some(&format!(
-                r#"{{"scenario":"home","status":"complete","environment":{{}},
-                    "checkpoints":[{{"id":"home","path":"home.png","sha256":"{sha}"}}]}}"#
-            )),
-        )
-        .await;
+        let record = capture_record("cap-mcp-read", &sha, CONTENT.len() as u64, vec![]);
+        let capture = publish_record(port, &ana, &record).await;
         let capture: rupicola_api::Capture = json(&capture);
         let artifact = &capture.checkpoints[0].artifact.id;
         let read = payload(

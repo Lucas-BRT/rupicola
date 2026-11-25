@@ -6,7 +6,12 @@ use axum::{Router, routing};
 
 pub fn routes() -> Router<Shared> {
     Router::new()
-        .route("/{id}", routing::get(problems::get).patch(problems::update))
+        .route(
+            "/{id}",
+            routing::get(problems::get)
+                .patch(problems::update)
+                .delete(problems::delete),
+        )
         .route("/{id}/comments", routing::post(problems::comment))
         .route(
             "/{id}/selections/{selection}",

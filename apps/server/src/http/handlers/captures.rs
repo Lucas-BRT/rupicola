@@ -2,7 +2,7 @@
 
 use crate::{
     domain::{ApiError, Principal},
-    services::{capture_runner, captures, uploads::Receiving},
+    services::{captures, uploads::Receiving},
     state::Shared,
 };
 use axum::{
@@ -13,8 +13,7 @@ use axum::{
     response::Response,
 };
 use rupicola_api::{
-    Capture, CaptureCapabilities, CaptureSummary, Finding, Missing, MissingQuery, NewCapture,
-    NewFinding, RunCapture,
+    Capture, CaptureCapabilities, CaptureSummary, Finding, Missing, MissingQuery, NewFinding,
 };
 
 /// 201 for a file stored now, 200 for one already kept.
@@ -28,7 +27,7 @@ const fn stored(created: bool) -> StatusCode {
 
 /// `GET /v1/capture-capabilities`
 pub async fn capabilities(_principal: Principal) -> Json<CaptureCapabilities> {
-    Json(capture_runner::capabilities().await)
+    Json(captures::capabilities().await)
 }
 
 /// `PUT /v1/projects/{id}/blobs/{sha256}`: the file arrives as a stream, cut when it takes
@@ -69,29 +68,6 @@ pub async fn missing(
     captures::missing(&state, &principal, &project, &query)
         .await
         .map(Json)
-}
-
-/// `POST /v1/projects/{id}/captures`
-pub async fn create(
-    State(state): State<Shared>,
-    principal: Principal,
-    Path(project): Path<String>,
-    Json(form): Json<NewCapture>,
-) -> Result<(StatusCode, Json<Capture>), ApiError> {
-    let capture = captures::create(&state, &principal, &project, form).await?;
-    Ok((StatusCode::CREATED, Json(capture)))
-}
-
-/// `POST /v1/projects/{id}/captures/run`: captures `form.url` using the server's external
-/// capture runner and stores the resulting capture (`complete` or `blocked`).
-pub async fn run(
-    State(state): State<Shared>,
-    principal: Principal,
-    Path(project): Path<String>,
-    Json(form): Json<RunCapture>,
-) -> Result<(StatusCode, Json<Capture>), ApiError> {
-    let capture = capture_runner::run(&state, &principal, &project, form).await?;
-    Ok((StatusCode::CREATED, Json(capture)))
 }
 
 /// `GET /v1/projects/{id}/captures`
@@ -191,13 +167,45 @@ mod tests {
     const VIEWPORT_HEIGHT: u32 = 720;
     const FRAME_TARGET_MS: f64 = 100.0;
 
-    fn capture_json(home: &str, frame: &str) -> String {
-        format!(
-            r#"{{"scenario":"home","status":"complete",
-                "environment":{{"width":{VIEWPORT_WIDTH},"height":{VIEWPORT_HEIGHT},"color_scheme":"dark"}},
-                "checkpoints":[{{"id":"home","path":"checkpoints/home.png","sha256":"{home}"}}],
-                "clips":[{{"id":"open","frames":[{{"path":"clips/open/1.png","sha256":"{frame}","target_ms":{FRAME_TARGET_MS}}}]}}]}}"#
-        )
+    fn record_json(
+        project: &str,
+        id: &str,
+        home: &str,
+        home_bytes: u64,
+        frame: &str,
+        frame_bytes: u64,
+    ) -> String {
+        let mut record = capture_record(id, home, home_bytes, vec![]);
+        record.project = project.to_owned();
+        record.scenario.name = "home".to_owned();
+        record.environment.display = Some(rupicola_api::record::Display {
+            width: Some(VIEWPORT_WIDTH),
+            height: Some(VIEWPORT_HEIGHT),
+            scale_milli: None,
+            orientation: None,
+        });
+        record.environment.appearance = Some(rupicola_api::record::Appearance {
+            color_scheme: Some("dark".to_owned()),
+            contrast: None,
+            font_scale_milli: None,
+            reduced_motion: None,
+            locale: None,
+        });
+        record.members[0].path = "checkpoints/home.png".to_owned();
+        record.members[0].owner = "home".to_owned();
+        record.members.push(rupicola_api::record::Member {
+            path: "clips/open/1.png".to_owned(),
+            role: rupicola_api::record::MemberRole::ClipFrame,
+            owner: "open".to_owned(),
+            sha256: frame.to_owned(),
+            bytes: frame_bytes,
+            mime: "image/png".to_owned(),
+            surface: None,
+            locator: std::collections::BTreeMap::new(),
+            target_ms: Some(100),
+            video_ms: None,
+        });
+        serde_json::to_string(&record).unwrap()
     }
 
     #[tokio::test]
@@ -244,10 +252,10 @@ mod tests {
         let frame = upload(port, &ana, b"also-only-in-demo").await;
         let cross = call(
             port,
-            "POST",
-            "/v1/projects/other/captures",
+            "PUT",
+            "/v1/projects/other/captures/cap-cross",
             Some(&ana),
-            Some(&capture_json(&home, &frame)),
+            Some(&record_json("other", "cap-cross", &home, 12, &frame, 17)),
         )
         .await;
         assert_eq!(status(&cross), StatusCode::UNPROCESSABLE_ENTITY, "{cross}");
@@ -260,10 +268,10 @@ mod tests {
         let frame = upload(port, &ana, b"frame-png").await;
         let created = call(
             port,
-            "POST",
-            "/v1/projects/demo/captures",
+            "PUT",
+            "/v1/projects/demo/captures/cap-browse",
             Some(&ana),
-            Some(&capture_json(&home, &frame)),
+            Some(&record_json("demo", "cap-browse", &home, 8, &frame, 9)),
         )
         .await;
         assert_eq!(status(&created), StatusCode::CREATED, "{created}");
@@ -349,10 +357,10 @@ mod tests {
         let missing = digest(b"never uploaded");
         let incomplete = call(
             port,
-            "POST",
-            "/v1/projects/demo/captures",
+            "PUT",
+            "/v1/projects/demo/captures/cap-inc",
             Some(&ana),
-            Some(&capture_json(&home, &missing)),
+            Some(&record_json("demo", "cap-inc", &home, 8, &missing, 14)),
         )
         .await;
         assert_eq!(
@@ -362,11 +370,11 @@ mod tests {
         );
 
         let frame = upload(port, &ana, b"frame-png").await;
-        let body = capture_json(&home, &frame);
+        let body = record_json("demo", "cap-perm", &home, 8, &frame, 9);
         let reader = call(
             port,
-            "POST",
-            "/v1/projects/demo/captures",
+            "PUT",
+            "/v1/projects/demo/captures/cap-perm",
             Some(&bruno),
             Some(&body),
         )
@@ -374,8 +382,8 @@ mod tests {
         assert_eq!(status(&reader), StatusCode::FORBIDDEN, "{reader}");
         let outsider = call(
             port,
-            "POST",
-            "/v1/projects/demo/captures",
+            "PUT",
+            "/v1/projects/demo/captures/cap-perm",
             Some(&carla),
             Some(&body),
         )
@@ -385,8 +393,8 @@ mod tests {
         let escaping = body.replace("checkpoints/home.png", "../home.png");
         let bad_path = call(
             port,
-            "POST",
-            "/v1/projects/demo/captures",
+            "PUT",
+            "/v1/projects/demo/captures/cap-perm",
             Some(&ana),
             Some(&escaping),
         )
@@ -406,10 +414,10 @@ mod tests {
         let capture: Capture = json(
             &call(
                 port,
-                "POST",
-                "/v1/projects/demo/captures",
+                "PUT",
+                "/v1/projects/demo/captures/cap-out",
                 Some(&ana),
-                Some(&capture_json(&home, &frame)),
+                Some(&record_json("demo", "cap-out", &home, 8, &frame, 9)),
             )
             .await,
         );
@@ -468,10 +476,10 @@ mod tests {
         );
         let created = call(
             port,
-            "POST",
-            "/v1/projects/demo/captures",
+            "PUT",
+            "/v1/projects/demo/captures/cap-missing",
             Some(&ana),
-            Some(&capture_json(&home, &frame)),
+            Some(&record_json("demo", "cap-missing", &home, 11, &frame, 12)),
         )
         .await;
         assert_eq!(status(&created), StatusCode::CREATED, "{created}");
@@ -657,9 +665,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn running_a_capture_validates_target_and_enforces_access() {
-        let (port, state, [ana, bruno, carla]) = demo_with_state().await;
-        let denied = call(
+    async fn capture_capabilities_is_served_and_legacy_run_route_is_gone() {
+        let (port, _state, [ana, bruno, _carla]) = demo_with_state().await;
+        let removed = call(
             port,
             "POST",
             "/v1/projects/demo/captures/run",
@@ -667,66 +675,11 @@ mod tests {
             Some(r#"{"scenario":"Home","url":"http://127.0.0.1:4731/"}"#),
         )
         .await;
-        assert_eq!(status(&denied), StatusCode::FORBIDDEN, "{denied}");
-
-        let outsider = call(
-            port,
-            "POST",
-            "/v1/projects/demo/captures/run",
-            Some(&carla),
-            Some(r#"{"scenario":"Home","url":"http://127.0.0.1:4731/"}"#),
-        )
-        .await;
-        assert_eq!(status(&outsider), StatusCode::NOT_FOUND, "{outsider}");
-
-        let invalid = call(
-            port,
-            "POST",
-            "/v1/projects/demo/captures/run",
-            Some(&ana),
-            Some(r#"{"scenario":"Bad","url":"file:///etc/passwd"}"#),
-        )
-        .await;
         assert_eq!(
-            status(&invalid),
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "{invalid}"
+            status(&removed),
+            StatusCode::METHOD_NOT_ALLOWED,
+            "{removed}"
         );
-
-        let local_blocked = call(
-            port,
-            "POST",
-            "/v1/projects/demo/captures/run",
-            Some(&ana),
-            Some(r#"{"scenario":"Home","url":"http://127.0.0.1:9/"}"#),
-        )
-        .await;
-        assert_eq!(
-            status(&local_blocked),
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "{local_blocked}"
-        );
-
-        // Capture the test server itself: it answers at once and needs no outside network,
-        // so the run ends quickly whether or not the host has a browser.
-        state
-            .allow_local_captures
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        let local_page = format!(
-            r#"{{"scenario":"Home","url":"http://127.0.0.1:{port}{}"}}"#,
-            crate::http::routes::HEALTH_PATH
-        );
-        let ran = call(
-            port,
-            "POST",
-            "/v1/projects/demo/captures/run",
-            Some(&ana),
-            Some(&local_page),
-        )
-        .await;
-        assert_eq!(status(&ran), StatusCode::CREATED, "{ran}");
-        let capture: Capture = json(&ran);
-        assert_eq!(capture.scenario, "Home");
 
         let caps = call(port, "GET", "/v1/capture-capabilities", Some(&ana), None).await;
         assert_eq!(status(&caps), StatusCode::OK, "{caps}");

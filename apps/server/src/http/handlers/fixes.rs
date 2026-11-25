@@ -111,12 +111,15 @@ mod tests {
     };
 
     async fn file_problem(port: u16, token: &str) -> String {
+        let body = format!(
+            r#"{{"title":"Cramped","severity":"minor","origin":"user-reported","evidence":["{PROJECT_ARTIFACT}"]}}"#
+        );
         let response = call(
             port,
             "POST",
             "/v1/projects/demo/problems",
             Some(token),
-            Some(r#"{"title":"Cramped","severity":"minor","origin":"user-reported"}"#),
+            Some(&body),
         )
         .await;
         assert_eq!(status(&response), StatusCode::CREATED, "{response}");

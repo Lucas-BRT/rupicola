@@ -246,54 +246,7 @@ text_enum! {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NewCheckpoint {
-    pub id: String,
-    #[serde(flatten)]
-    pub file: BlobRef,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NewFrame {
-    #[serde(flatten)]
-    pub file: BlobRef,
-    pub target_ms: f64,
-    #[serde(default)]
-    pub video_ms: Option<f64>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NewClip {
-    pub id: String,
-    #[serde(default)]
-    pub video: Option<BlobRef>,
-    #[serde(default)]
-    pub sheet: Option<BlobRef>,
-    #[serde(default)]
-    pub analysis: Option<BlobRef>,
-    #[serde(default)]
-    pub frames: Vec<NewFrame>,
-}
-
-/// `POST /v1/projects/{id}/captures`: describes a capture whose files were
-/// uploaded first.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NewCapture {
-    pub scenario: String,
-    #[serde(default)]
-    pub revision: Option<String>,
-    pub status: CaptureStatus,
-    #[serde(default)]
-    pub blocker: Option<String>,
-    #[serde(default)]
-    pub environment: Environment,
-    #[serde(default)]
-    pub checkpoints: Vec<NewCheckpoint>,
-    #[serde(default)]
-    pub clips: Vec<NewClip>,
-}
-
-/// Interactive step inside a server-run [`CaptureStep::Clip`] trigger.
+/// Interactive step inside a scenario [`CaptureStep::Clip`] trigger.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CaptureAction {
@@ -399,24 +352,6 @@ pub enum CaptureStep {
         samples: usize,
         interval_ms: u32,
     },
-}
-
-/// `POST /v1/projects/{id}/captures/run`: asks the server to capture `url` using its
-/// external capture backend and store the resulting artifacts.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct RunCapture {
-    pub scenario: String,
-    pub url: String,
-    #[serde(default)]
-    pub revision: Option<String>,
-    #[serde(default)]
-    pub environment: Environment,
-    #[serde(default)]
-    pub timeout_ms: Option<u32>,
-    #[serde(default)]
-    pub steps: Vec<CaptureStep>,
-    #[serde(default)]
-    pub allow_degraded: bool,
 }
 
 /// A stored media file; fetch its bytes from `GET /v1/artifacts/{id}`.

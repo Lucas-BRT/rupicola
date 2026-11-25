@@ -386,23 +386,13 @@ mod tests {
     async fn upload_png_capture(port: u16, token: &str, revision: &str, rgba: [u8; 4]) -> String {
         let bytes = make_solid_png(rgba);
         let sha = stream_blob(port, token, "demo", &bytes).await;
-
-        let body = serde_json::json!({
-            "scenario": "home",
-            "revision": revision,
-            "status": "complete",
-            "checkpoints": [{"id": "full", "path": "checkpoints/full.png", "sha256": sha}],
-            "clips": []
-        })
-        .to_string();
-        let created = call(
-            port,
-            "POST",
-            "/v1/projects/demo/captures",
-            Some(token),
-            Some(&body),
-        )
-        .await;
+        let id = uuid::Uuid::now_v7().to_string();
+        let mut record = capture_record(&id, &sha, bytes.len() as u64, vec![]);
+        record.scenario.name = "home".to_owned();
+        record.revision = Some(revision.to_owned());
+        record.members[0].path = "checkpoints/full.png".to_owned();
+        record.members[0].owner = "full".to_owned();
+        let created = publish_record(port, token, &record).await;
         assert_eq!(status(&created), StatusCode::CREATED, "{created}");
         json::<rupicola_api::Capture>(&created).id
     }
@@ -423,12 +413,15 @@ mod tests {
         .await;
         assert_eq!(status(&scen), StatusCode::CREATED, "{scen}");
 
+        let prob_body = format!(
+            r#"{{"title":"Spacing off","severity":"major","origin":"agent-visual","evidence":["{PROJECT_ARTIFACT}"]}}"#
+        );
         let prob = call(
             port,
             "POST",
             "/v1/projects/demo/problems",
             Some(&ana),
-            Some(r#"{"title":"Spacing off","severity":"major","origin":"agent-visual"}"#),
+            Some(&prob_body),
         )
         .await;
         let prob_id = json::<rupicola_api::Problem>(&prob).id;

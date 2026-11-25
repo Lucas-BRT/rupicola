@@ -10,12 +10,11 @@ use async_trait::async_trait;
 use rupicola_api::{
     AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
     DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Job,
-    JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewCapture, NewComment,
+    JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewComment,
     NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem, NewProject,
     NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
-    RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, RunCapture, Scenario,
-    ScenarioSummary, ScenarioVersion, SessionToken, Setup, Step, SystemActionForm, SystemList,
-    SystemVersion,
+    RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, Scenario, ScenarioSummary,
+    ScenarioVersion, SessionToken, Setup, Step, SystemActionForm, SystemList, SystemVersion,
 };
 
 pub use error::{ClientError, Result};
@@ -306,21 +305,8 @@ pub trait Api: Send + Sync {
         data: Vec<u8>,
     ) -> Result<()>;
 
-    /// Publishes a capture whose files were uploaded with [`Api::upload_project_blob`].
-    async fn publish_capture(
-        &self,
-        token: &str,
-        project: &str,
-        capture: &NewCapture,
-    ) -> Result<Capture>;
-
-    /// Executes a web capture on the server and stores the resulting capture.
-    async fn run_capture(
-        &self,
-        token: &str,
-        project: &str,
-        capture: &RunCapture,
-    ) -> Result<Capture>;
+    /// Permanently deletes a problem from its project.
+    async fn delete_problem(&self, token: &str, id: &str) -> Result<()>;
 
     /// Sends one MCP JSON-RPC message.
     ///

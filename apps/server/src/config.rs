@@ -85,11 +85,3 @@ impl From<CitedDeletionArg> for CitedDeletion {
         }
     }
 }
-
-/// Capture runner settings from command-line flags or environment variables.
-#[derive(Clone, Debug, Default, clap::Args)]
-pub struct CaptureConfig {
-    /// Allow server-executed captures to target loopback, private, or link-local addresses.
-    #[arg(long, env = "RUPICOLA_ALLOW_LOCAL_CAPTURES")]
-    pub allow_local_captures: bool,
-}

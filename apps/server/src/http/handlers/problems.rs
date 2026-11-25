@@ -76,6 +76,17 @@ pub async fn update(
         .map(Json)
 }
 
+/// `DELETE /v1/problems/{id}`
+pub async fn delete(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    problems::delete(&state, &principal, &id)
+        .await
+        .map(|()| StatusCode::NO_CONTENT)
+}
+
 /// `POST /v1/problems/{id}/comments`
 pub async fn comment(
     State(state): State<Shared>,
@@ -188,12 +199,26 @@ mod tests {
     #[tokio::test]
     async fn readers_cannot_change_and_outsiders_cannot_see() {
         let (port, [ana, bruno, carla]) = demo_with_artifacts().await;
+        let empty_ev = call(
+            port,
+            "POST",
+            "/v1/projects/demo/problems",
+            Some(&ana),
+            Some(&new_problem("")),
+        )
+        .await;
+        assert_eq!(
+            status(&empty_ev),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{empty_ev}"
+        );
+        let with_ev = new_problem(&format!("\"{PROJECT_ARTIFACT}\""));
         let denied = call(
             port,
             "POST",
             "/v1/projects/demo/problems",
             Some(&bruno),
-            Some(&new_problem("")),
+            Some(&with_ev),
         )
         .await;
         assert_eq!(status(&denied), StatusCode::FORBIDDEN, "{denied}");
@@ -203,7 +228,7 @@ mod tests {
                 "POST",
                 "/v1/projects/demo/problems",
                 Some(&ana),
-                Some(&new_problem("")),
+                Some(&with_ev),
             )
             .await,
         );
@@ -219,6 +244,10 @@ mod tests {
         assert_eq!(status(&patched), StatusCode::FORBIDDEN, "{patched}");
         let hidden = call(port, "GET", &path, Some(&carla), None).await;
         assert_eq!(status(&hidden), StatusCode::NOT_FOUND, "{hidden}");
+        let deleted = call(port, "DELETE", &path, Some(&ana), None).await;
+        assert_eq!(status(&deleted), StatusCode::NO_CONTENT, "{deleted}");
+        let gone = call(port, "GET", &path, Some(&ana), None).await;
+        assert_eq!(status(&gone), StatusCode::NOT_FOUND, "{gone}");
     }
 
     #[tokio::test]

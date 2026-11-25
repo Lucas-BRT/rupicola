@@ -4,12 +4,12 @@ use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
     AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
     DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Job,
-    JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewCapture, NewComment,
+    JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewComment,
     NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem, NewProject,
     NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
-    RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, RunCapture, Scenario,
-    ScenarioSummary, ScenarioVersion, SessionToken, Setup, SetupStatus, Step, SystemActionForm,
-    SystemList, SystemVersion,
+    RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, Scenario, ScenarioSummary,
+    ScenarioVersion, SessionToken, Setup, SetupStatus, Step, SystemActionForm, SystemList,
+    SystemVersion,
 };
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -821,39 +821,14 @@ impl Api for HttpApi {
         Ok(())
     }
 
-    async fn publish_capture(
-        &self,
-        token: &str,
-        project: &str,
-        capture: &NewCapture,
-    ) -> Result<Capture> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/captures", encode_segment(project)),
-                Some(token),
-            )
-            .json(capture),
-        )
-        .await
-    }
-
-    async fn run_capture(
-        &self,
-        token: &str,
-        project: &str,
-        capture: &RunCapture,
-    ) -> Result<Capture> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/captures/run", encode_segment(project)),
-                Some(token),
-            )
-            .timeout(LONG_TIMEOUT)
-            .json(capture),
-        )
-        .await
+    async fn delete_problem(&self, token: &str, id: &str) -> Result<()> {
+        Self::send(self.request(
+            Method::DELETE,
+            &format!("/problems/{}", encode_segment(id)),
+            Some(token),
+        ))
+        .await?;
+        Ok(())
     }
 
     async fn mcp(&self, token: &str, payload: &str) -> Result<McpReply> {
