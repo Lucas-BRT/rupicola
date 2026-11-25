@@ -28,7 +28,7 @@
     --ok: light-dark(#15803d, #4ade80);
     --ok-bg: light-dark(#f0fdf4, rgba(34, 197, 94, 0.12));
     --danger: light-dark(#dc2626, #f87171);
-    --top-edge: light-dark(none, inset 0 1px 0 rgba(255, 255, 255, 0.05));
+    --top-edge: light-dark(inset 0 0 0 0 transparent, inset 0 1px 0 rgba(255, 255, 255, 0.05));
 
     --radius: 6px;
     --r-inner: 4px;
@@ -644,7 +644,7 @@
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(12px);
   border: 1px solid var(--line);
-  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.35), var(--top-edge);
+  box-shadow: light-dark(0 10px 28px -10px rgba(0, 0, 0, 0.16), 0 12px 32px -10px rgba(0, 0, 0, 0.55)), var(--top-edge);
 }
 .project-rail a {
   position: relative; display: grid; place-items: center;
@@ -661,11 +661,12 @@
 }
 .rail-icon { inline-size: 1.15rem; block-size: 1.15rem; }
 .rail-tooltip {
-  position: absolute; inset-inline-start: calc(100% + 0.6rem); inset-block-start: 50%; translate: 0 -50%;
-  padding: 0.25rem 0.55rem; border-radius: 999px;
+  position: absolute; inset-inline-start: calc(100% + 0.65rem); inset-block-start: 50%; translate: 0 -50%;
+  z-index: 40;
+  padding: 0.28rem 0.6rem; border-radius: 999px;
   background: var(--surface); border: 1px solid var(--line);
   color: var(--ink); font-size: 0.75rem; font-weight: 600; white-space: nowrap;
-  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.35);
   opacity: 0; pointer-events: none; transition: opacity 120ms var(--ease);
 }
 .project-rail a:hover .rail-tooltip, .project-rail a:focus-visible .rail-tooltip { opacity: 1; }
