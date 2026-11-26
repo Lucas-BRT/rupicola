@@ -1,51 +1,34 @@
 # Capture bundles & web scenarios
 
-Use either **server-managed execution** (`capture_run` MCP tool, `rupicola captures run`, or the panel form) when the Rupicola server can reach the target HTTP(S) preview URL, or **external local capture + `rupicola publish`** when the preview only runs on client loopback (`127.0.0.1`) or comes from a native toolkit. Start the preview server with your project's normal command and use test accounts and fixture data.
+Use either **scenario jobs** (`scenario_put` + `job_create` executed by `rupicola-photographer`) or **direct MCP publication (`capture_publish`)** when capturing locally (e.g. against `127.0.0.1` or a native toolkit). Start the preview server with your project's normal command and use test accounts and fixture data.
 
-## Server-managed web runs (`capture_run`)
+## Direct publication via MCP (`capture_publish`)
 
-When the backend host has Playwright/Node (`RUPICOLA_PLAYWRIGHT_DIR`) or Chromium and can reach the preview URL, invoke `capture_run` (MCP) or `rupicola captures run URL` (optionally `--steps-file steps.json`). Checkpoints and clips need distinct ASCII IDs (`letters`, `digits`, `-`, `_`). Keep each clip at `2..=60` samples spanning at most `10_000` ms (`interval_ms` `16..=5000`). If `steps` is omitted, the server takes a single `"home"` checkpoint.
+Agents connected to Rupicola MCP do not need to shell out to the CLI to upload screenshots or recordings:
 
-Step kinds: `click`, `hover`, `fill`, `press` and `ready` need a `selector` (CSS). `scroll_into_view` needs a `selector` and does not move the pointer. `scroll` (`dx`, `dy` pixels), `scroll_to` (`x`, `y` offset) and `scroll_to_end` take an optional `selector`: the page when absent, otherwise that element (`scroll` uses its closest ancestor that scrolls). `wait` pauses `ms` milliseconds, at most `10_000` each and `30_000` in total. `checkpoint` takes `full_page: true` to shoot the whole scrollable page instead of the viewport; the web backend declares that capability and others refuse the run, or skip the step with `allow_degraded`. The browser waits for scrolling to settle after each action, so a checkpoint right after a scroll shows the result and `wait` is only for animations that outlast it. The scroll kinds and `wait` also work as a clip `trigger`.
+- Pass `project`, `scenario`, optional `viewport` (`"1280x800"`), `theme` (`"dark"` | `"light"`), `revision`, and `members`.
+- Over remote `POST /mcp`, supply `data_base64` per member.
+- Over `rupicola mcp-bridge`, you can pass local `file_path` per member (or `bundle_dir` pointing at a `record.json` directory); the bridge streams missing blobs directly over binary HTTP (`PUT /v1/projects/{id}/blobs/{sha256}`) and forwards only the content hashes.
+- The response returns the stored `Capture` with every `artifact.id` ready for `problem_create`, `fix_create`, and `capture_review`.
 
-Example `steps` JSON array for `capture_run`:
+## Declarative web scenarios (`scenario_put` + `job_create`)
 
-```json
-[
-  { "kind": "ready", "selector": "#theme-options" },
-  { "kind": "checkpoint", "id": "closed" },
-  {
-    "kind": "clip",
-    "id": "open",
-    "samples": 16,
-    "interval_ms": 40,
-    "trigger": { "kind": "click", "selector": "#theme-options" }
-  },
-  { "kind": "ready", "selector": "#theme-panel" },
-  { "kind": "checkpoint", "id": "opened" },
-  { "kind": "scroll_to_end" },
-  { "kind": "checkpoint", "id": "page-end" },
-  { "kind": "checkpoint", "id": "page-full", "full_page": true }
-]
-```
+Store declarative scenarios in `.rupicola/scenarios/*.toml` (or push them with `scenario_put`) and queue matrix runs with `job_create`. `rupicola-photographer` executes them using `rupicola-protocol`'s in-house Chromium CDP backend (`rupicola-capture`).
 
-## External capture bundles & `rupicola publish`
+Step kinds: `click`, `hover`, `fill`, `press` and `ready` need a `selector` (CSS). `scroll_into_view` needs a `selector` and does not move the pointer. `scroll` (`dx`, `dy` pixels), `scroll_to` (`x`, `y` offset) and `scroll_to_end` take an optional `selector`: the page when absent, otherwise that element (`scroll` uses its closest ancestor that scrolls). `wait` pauses `ms` milliseconds, at most `10_000` each and `30_000` in total. `checkpoint` takes `full_page: true` to shoot the whole scrollable page instead of the viewport. `clip` records `2..=60` samples spanning at most `10_000` ms (`interval_ms` `16..=5000`) around a `trigger` action.
 
-When running Playwright/Chromium or a native capture driver outside the server, produce a v1 bundle (`manifest.json` + media files) and publish it with the CLI:
+## CLI fallback (`rupicola publish`)
+
+When publishing a finished canonical `record.json` bundle outside MCP:
 
 ```sh
-# Target project comes from manifest.project.id or --project:
 rupicola publish .rupicola/captures/settings-before --project settings-client --server-url https://rupicola.example.com
 ```
 
-Unlike `captures`/`problems`/`fixes`/`design`, `rupicola publish DIR` reads the target project from `--project` or `[project].id` in `manifest.json` (not Git or `.rupicola/project.toml`). Use a separate capture run for dark theme, a different viewport or reduced motion.
+`rupicola publish DIR` reads `record.json` and uploads only missing SHA-256 member blobs.
 
 ## Inspect a run
 
-When captured via `capture_run`, inspect the stored PNGs and `analysis.json` with `artifact_read` (using the returned `artifact.id` values) or in the panel. For clip recordings, `analysis.json` records the pixel-change heuristic, sample indices, scheduled times and observed screenshot start times relative to the trigger (`0 ms` baseline; retained frames include `video_ms` seek offsets when an MP4 preview exists). Screenshot sampling and CFR MP4 previews provide approximate motion evidence and cannot establish compositor frame pacing.
-
-Compare the same checkpoint across runs in the panel (`Before/After` view). Record a concrete observation after inspecting the evidence with `capture_review` (MCP), `rupicola captures note`, or the panel's review form (`evidence_artifact_id` points at one of the capture's artifact IDs). File deduplicated findings as project problems with `problem_analyze` or `problem_create`.
+Inspect stored PNGs with `artifact_read` (using the returned `artifact.id` values) or in the panel. Compare the same checkpoint across runs in the panel (`Before/After` view). Record a concrete observation after inspecting the evidence with `capture_review` (`evidence_artifact_id` points at one of the capture's artifact IDs), and file deduplicated findings as project problems with `problem_analyze` or `problem_create`.
 
 Capture status and inspection status are independent. After an authorized fix, rerun the same scenario with the updated `revision`, then inspect and record new observations.
-
-The [Playwright Browser API](https://playwright.dev/docs/api/class-browser) documents the browser context settings (`viewport`, `colorScheme`, `reducedMotion`, `locale`).

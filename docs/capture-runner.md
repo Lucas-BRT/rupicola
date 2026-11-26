@@ -24,6 +24,8 @@ capture records the hash it came from, so repeating it is running that hash on a
 **Runner.** `rupicola runner` is a process on a machine that has the code. It authenticates as
 a capture device, claims jobs from the server, builds the trees a job names, captures with
 `rupicola-capture`, runs the checks, and uploads the result through the existing publish path.
+The photographer uses Chromium CDP only; it never falls back to Playwright. Set
+`RUPICOLA_CHROMIUM_BIN` or pass `--chromium-bin` when Chromium is not discoverable on `PATH`.
 The server never runs project commands, so the same design works installed on a laptop, in
 Docker, or on a cloud host that cannot reach a developer's `127.0.0.1`. On a laptop the server
 can start one runner in-process.
