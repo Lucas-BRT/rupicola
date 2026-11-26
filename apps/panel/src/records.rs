@@ -71,22 +71,24 @@ pub struct ComparisonPair {
 }
 
 impl ComparisonPair {
-    /// What the button and caption say: the view, the label, the revisions the captures came
-    /// from and, when it is out of date, that it is.
+    /// Short label for multi-pair switchers: label, integrated view when applicable, revisions,
+    /// and staleness notice.
     #[must_use]
     pub fn caption(&self) -> String {
-        let view = match self.view {
-            ComparisonView::Isolated => "Isolated",
-            ComparisonView::Integrated => "Integrated",
-        };
-        let mut parts = vec![view.to_owned(), self.label.clone()];
+        let mut parts = Vec::new();
+        if self.view == ComparisonView::Integrated {
+            parts.push("Integrated".to_owned());
+        }
+        if !self.label.is_empty() {
+            parts.push(self.label.clone());
+        }
         if !self.base_revision.is_empty() && !self.revision.is_empty() {
             parts.push(format!("{} → {}", self.base_revision, self.revision));
         }
         if self.stale {
-            parts.push("stale, recapture".to_owned());
+            parts.push("stale".to_owned());
         }
-        parts.join(" · ")
+        parts.join(" — ")
     }
 }
 
@@ -441,11 +443,11 @@ mod tests {
         };
         assert_eq!(
             pair(ComparisonView::Isolated, false, ("", "")).caption(),
-            "Isolated · home"
+            "home"
         );
         assert_eq!(
             pair(ComparisonView::Integrated, true, ("a1b2c3d", "e4f5a6b")).caption(),
-            "Integrated · home · a1b2c3d → e4f5a6b · stale, recapture"
+            "Integrated — home — a1b2c3d → e4f5a6b — stale"
         );
     }
 }

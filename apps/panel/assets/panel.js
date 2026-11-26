@@ -68,7 +68,9 @@ function hydrateMain(root = document) {
   }
   railToggleBtn?.addEventListener("click", () => {
     const hidden = stageShell?.classList.toggle("is-rail-hidden");
-    railToggleBtn.textContent = hidden ? "Show Inspector" : "Hide Inspector";
+    const hideLabel = railToggleBtn.dataset.labelHide || "Hide Inspector";
+    const showLabel = railToggleBtn.dataset.labelShow || "Show Inspector";
+    railToggleBtn.textContent = hidden ? showLabel : hideLabel;
     railToggleBtn.setAttribute("aria-expanded", hidden ? "false" : "true");
   });
   for (const thumb of root.querySelectorAll("[data-film-pick]")) {
@@ -214,6 +216,32 @@ function hydrateMain(root = document) {
         const mode = btn.dataset.compareMode;
         for (const b of modeBtns) b.classList.toggle("primary", b === btn);
         for (const st of stages) st.hidden = st.dataset.stageMode !== mode;
+      });
+    }
+
+    const zoomBtns = [...comp.querySelectorAll("[data-compare-zoom]")];
+    for (const btn of zoomBtns) {
+      btn.addEventListener("click", () => {
+        const zoom = btn.dataset.compareZoom || "fit";
+        comp.dataset.zoom = zoom;
+        for (const b of zoomBtns) b.classList.toggle("primary", b === btn);
+      });
+    }
+
+    const fsBtn = comp.querySelector("[data-compare-fullscreen]");
+    if (fsBtn) {
+      const setFullscreen = (open) => {
+        comp.classList.toggle("is-fullscreen", open);
+        document.body.classList.toggle("has-fullscreen-compare", open);
+        fsBtn.textContent = open ? "Exit fullscreen" : "Fullscreen";
+        fsBtn.setAttribute("aria-pressed", open ? "true" : "false");
+      };
+      fsBtn.addEventListener("click", () => setFullscreen(!comp.classList.contains("is-fullscreen")));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && comp.classList.contains("is-fullscreen")) {
+          setFullscreen(false);
+          fsBtn.focus();
+        }
       });
     }
 

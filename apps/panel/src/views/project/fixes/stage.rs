@@ -8,10 +8,9 @@ use topcoat::{
 #[component]
 pub(super) async fn baseline_stage(cx: &Cx, baseline: &[EvidenceAsset]) -> Result<impl View> {
     Ok(view! {
-        <section class="fix-comparator" aria-label="Baseline capture evidence">
+        <section class="fix-comparator" aria-label="Baseline capture">
             <div class="stage-bar">
-                <span class="tactic-chip">"Baseline evidence from linked problem (BEFORE)"</span>
-                <span class="tactic-chip">"Awaiting AFTER capture to enable Split Slider"</span>
+                <span class="muted">"Baseline capture — awaiting after capture"</span>
             </div>
             <div class="compare-side">
                 for ev in baseline.iter().take(4) {
@@ -20,11 +19,10 @@ pub(super) async fn baseline_stage(cx: &Cx, baseline: &[EvidenceAsset]) -> Resul
                         if is_vid {
                             <video src=(&ev.url) controls="" autoplay="" loop="" muted="" playsinline=""></video>
                         } else {
-                            <img src=(&ev.url) alt=(format!("Baseline before fix: {}", ev.label))>
+                            <img src=(&ev.url) alt=(format!("Before: {}", ev.label))>
                         }
                         <figcaption>
-                            "BEFORE · " (&ev.label)
-                            " · " <a href=(format!("/run/{}", ev.run_key))>"Open capture ↗"</a>
+                            "Before — " <a href=(format!("/run/{}", ev.run_key))>"Open capture ↗"</a>
                         </figcaption>
                     </figure>
                 }
@@ -84,20 +82,20 @@ pub(super) async fn comparator(
     let before_video = is_video_url(&pair.before_url);
     let after_video = is_video_url(&after);
     Ok(view! {
-        <section class="fix-comparator" data-comparator="">
+        <section class="fix-comparator" data-comparator="" data-zoom="fit">
             <div class="stage-bar">
                 <div class="stage-viewports" role="group" aria-label="Comparison mode">
-                    <button type="button" class="button primary" data-compare-mode="split">"Split Slider"</button>
-                    <button type="button" class="button" data-compare-mode="side">"Side by Side"</button>
+                    <button type="button" class="button primary" data-compare-mode="split">"Split"</button>
+                    <button type="button" class="button" data-compare-mode="side">"Side by side"</button>
                     if before_video || after_video {
-                        <button type="button" class="button" data-compare-mode="video">"Video Player (Slow-Mo)"</button>
+                        <button type="button" class="button" data-compare-mode="video">"Video"</button>
                     }
                     if pair.diff_url.is_some() {
-                        <button type="button" class="button" data-compare-mode="diff">"Pixel Diff"</button>
+                        <button type="button" class="button" data-compare-mode="diff">"Pixel diff"</button>
                     }
                 </div>
-                if fix.comparisons.len() > 1 {
-                    <div class="stage-viewports" role="group" aria-label="Coordinate pair">
+                <div class="stage-viewports" role="group" aria-label="Zoom and view">
+                    if fix.comparisons.len() > 1 {
                         for (idx, cmp) in fix.comparisons.iter().enumerate() {
                             <button type="button"
                                 class=(if idx == 0 { "button primary" } else { "button" })
@@ -108,13 +106,15 @@ pub(super) async fn comparator(
                                 (cmp.caption())
                             </button>
                         }
+                    }
+                    <div class="compare-zoom-group" role="group" aria-label="Zoom level">
+                        <button type="button" class="button primary" data-compare-zoom="fit">"Fit"</button>
+                        <button type="button" class="button" data-compare-zoom="100">"100%"</button>
+                        <button type="button" class="button" data-compare-zoom="150">"150%"</button>
+                        <button type="button" class="button" data-compare-zoom="200">"200%"</button>
                     </div>
-                } else {
-                    <span class="tactic-chip" data-pair-current-label="">
-                        (pair.caption())
-                        if after_video { " · VIDEO MP4" }
-                    </span>
-                }
+                    <button type="button" class="button" data-compare-fullscreen="" aria-pressed="false">"Fullscreen"</button>
+                </div>
             </div>
         split_stage(fix_id: &fix.id, pair: pair, after: &after, before_video: before_video, after_video: after_video)
         side_stage(pair: pair, after: &after, before_video: before_video, after_video: after_video)
@@ -140,35 +140,37 @@ async fn split_stage(
 ) -> Result<impl View> {
     Ok(view! {
         <div class="compare-stage compare-split" data-stage-mode="split">
-            <div class="split-viewport">
-                <figure class="split-layer split-before">
-                    <img src=(if before_video { "" } else { &pair.before_url })
-                        alt="Before fix" data-img-before=""
-                        if before_video { hidden="" }>
-                    <video src=(if before_video { &pair.before_url } else { "" })
-                        autoplay="" loop="" muted="" playsinline="" data-vid-before=""
-                        if !before_video { hidden="" }></video>
-                    <span class="split-tag tag-before">
-                        (if before_video { "BEFORE (VIDEO)" } else { "BEFORE (INITIAL)" })
-                    </span>
-                </figure>
-                <figure class="split-layer split-after">
-                    <img src=(if after_video { "" } else { &pair.after_url })
-                        alt="After fix" data-img-after=""
-                        if after_video { hidden="" }>
-                    <video src=(if after_video { after } else { "" })
-                        autoplay="" loop="" muted="" playsinline="" data-vid-after=""
-                        if !after_video { hidden="" }></video>
-                    <span class="split-tag tag-after">
-                        (if after_video { "AFTER (VIDEO)" } else { "AFTER (FINAL)" })
-                    </span>
-                </figure>
-                <div class="split-divider" aria-hidden="true">
-                    <span class="split-handle">"↔"</span>
+            <div class="compare-scroll">
+                <div class="split-viewport">
+                    <figure class="split-layer split-before">
+                        <img src=(if before_video { "" } else { &pair.before_url })
+                            alt="Before" data-img-before=""
+                            if before_video { hidden="" }>
+                        <video src=(if before_video { &pair.before_url } else { "" })
+                            autoplay="" loop="" muted="" playsinline="" data-vid-before=""
+                            if !before_video { hidden="" }></video>
+                        <span class="split-tag tag-before">
+                            (if before_video { "Before (video)" } else { "Before" })
+                        </span>
+                    </figure>
+                    <figure class="split-layer split-after">
+                        <img src=(if after_video { "" } else { &pair.after_url })
+                            alt="After" data-img-after=""
+                            if after_video { hidden="" }>
+                        <video src=(if after_video { after } else { "" })
+                            autoplay="" loop="" muted="" playsinline="" data-vid-after=""
+                            if !after_video { hidden="" }></video>
+                        <span class="split-tag tag-after">
+                            (if after_video { "After (video)" } else { "After" })
+                        </span>
+                    </figure>
+                    <div class="split-divider" aria-hidden="true">
+                        <span class="split-handle">"↔"</span>
+                    </div>
                 </div>
             </div>
             <div class="split-control-bar">
-                <label for=(format!("slider-{}", fix_id))>"Split curtain"</label>
+                <label class="sr-only" for=(format!("slider-{}", fix_id))>"Split position"</label>
                 <input id=(format!("slider-{}", fix_id)) type="range" min="0" max="100" value="50" class="split-range" data-split-range="">
                 <output class="tactic-chip" data-split-output="">"50%"</output>
             </div>
@@ -185,8 +187,6 @@ async fn split_stage(
                 </div>
             }
         </div>
-
-
     })
 }
 
@@ -202,26 +202,28 @@ async fn side_stage(
     Ok(view! {
         <div class="compare-stage compare-side" data-stage-mode="side" hidden="">
             <figure class="checkpoint">
-                <img src=(if before_video { "" } else { &pair.before_url })
-                    alt="Before fix" data-side-before=""
-                    if before_video { hidden="" }>
-                <video src=(if before_video { &pair.before_url } else { "" })
-                    controls="" autoplay="" loop="" muted="" playsinline="" data-side-vid-before=""
-                    if !before_video { hidden="" }></video>
-                <figcaption>"BEFORE · Initial problem (" (&pair.label) ")"</figcaption>
+                <div class="compare-scroll">
+                    <img src=(if before_video { "" } else { &pair.before_url })
+                        alt="Before" data-side-before=""
+                        if before_video { hidden="" }>
+                    <video src=(if before_video { &pair.before_url } else { "" })
+                        controls="" autoplay="" loop="" muted="" playsinline="" data-side-vid-before=""
+                        if !before_video { hidden="" }></video>
+                </div>
+                <figcaption>"Before"</figcaption>
             </figure>
             <figure class="checkpoint">
-                <img src=(if after_video { "" } else { &pair.after_url })
-                    alt="After fix" data-side-after=""
-                    if after_video { hidden="" }>
-                <video src=(if after_video { after } else { "" })
-                    controls="" autoplay="" loop="" muted="" playsinline="" data-side-vid-after=""
-                    if !after_video { hidden="" }></video>
-                <figcaption>"AFTER · Verified fix (" (&pair.label) ")"</figcaption>
+                <div class="compare-scroll">
+                    <img src=(if after_video { "" } else { &pair.after_url })
+                        alt="After" data-side-after=""
+                        if after_video { hidden="" }>
+                    <video src=(if after_video { after } else { "" })
+                        controls="" autoplay="" loop="" muted="" playsinline="" data-side-vid-after=""
+                        if !after_video { hidden="" }></video>
+                </div>
+                <figcaption>"After"</figcaption>
             </figure>
         </div>
-
-
     })
 }
 
@@ -238,7 +240,7 @@ async fn full_stage(
                 <figure class="checkpoint">
                     <video src=(if after_video { after } else { pair.before_url.as_str() })
                         controls="" autoplay="" loop="" muted="" playsinline="" data-full-video=""></video>
-                    <figcaption>"FULL RECORDING · " (&pair.label) " (use timeline above for 0.25× / 0.5× slow-motion inspection)"</figcaption>
+                    <figcaption>"Recording"</figcaption>
                 </figure>
             </div>
     })
@@ -250,8 +252,10 @@ async fn diff_stage(cx: &Cx, diff: &str) -> Result<impl View> {
     Ok(view! {
         <div class="compare-stage compare-diff" data-stage-mode="diff" hidden="">
             <figure class="checkpoint">
-                <img src=(diff) alt="Pixel diff" data-diff-img="">
-                <figcaption>"PIXEL DIFF · Changed regions highlighted"</figcaption>
+                <div class="compare-scroll">
+                    <img src=(diff) alt="Pixel diff" data-diff-img="">
+                </div>
+                <figcaption>"Pixel diff"</figcaption>
             </figure>
         </div>
     })

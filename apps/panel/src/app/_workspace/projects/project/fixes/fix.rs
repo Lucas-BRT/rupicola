@@ -51,22 +51,41 @@ async fn loaded_fix(cx: &Cx) -> Result<impl View> {
     let job = open_jobs
         .into_iter()
         .find(|j| j.fix.as_deref() == Some(item.id.as_str()));
-    let baseline = if item.comparisons.is_empty() && !item.problem_ids.is_empty() {
+    let (linked_problems, baseline) = if item.problem_ids.is_empty() {
+        (Vec::new(), Vec::new())
+    } else {
         let assets = project.assets();
         let problems = records::problems(cx, &project.id, &assets, &[])
             .await
             .unwrap_or_default();
-        let mut seen = std::collections::BTreeSet::new();
-        problems
+        let matched: Vec<_> = problems
             .into_iter()
             .filter(|p| item.problem_ids.contains(&p.id))
-            .flat_map(|p| p.evidence_assets)
-            .filter(|ev| seen.insert(ev.url.clone()))
-            .collect()
-    } else {
-        Vec::new()
+            .collect();
+        let linked = matched
+            .iter()
+            .map(|p| (p.id.clone(), p.title.clone()))
+            .collect();
+        let baseline = if item.comparisons.is_empty() {
+            let mut seen = std::collections::BTreeSet::new();
+            matched
+                .into_iter()
+                .flat_map(|p| p.evidence_assets)
+                .filter(|ev| seen.insert(ev.url.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        (linked, baseline)
     };
     Ok(view! {
-        fix_detail(role: project.role, base: &project.base, fix: item, job: job, baseline: baseline)
+        fix_detail(
+            role: project.role,
+            base: &project.base,
+            fix: item,
+            job: job,
+            linked_problems: linked_problems,
+            baseline: baseline,
+        )
     })
 }

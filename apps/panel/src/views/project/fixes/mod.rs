@@ -3,7 +3,7 @@ use super::{AssetOption, Cx, FixRecord, FixStatus, Problem, Role, badge, fix_sta
 use crate::Account;
 use crate::components::{
     controls::{SelectOption, select_menu},
-    display::{chip, counts, kind_label, link_button, metric, moment},
+    display::{chip, counts, link_button, metric, moment},
     form::{csrf, field, select_field, stack_form, text_area},
 };
 use crate::project::Filter;
@@ -306,6 +306,7 @@ pub async fn fix_detail(
     base: &str,
     fix: FixRecord,
     job: Option<Job>,
+    linked_problems: Vec<(String, String)>,
     baseline: Vec<EvidenceAsset>,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
@@ -314,87 +315,165 @@ pub async fn fix_detail(
         if j.status == JobStatus::Queued {
             "Queued for recapture".to_owned()
         } else {
-            format!("Recapturing · {}/{}", j.cells_done, j.cells_total)
+            format!("Recapturing {}/{}", j.cells_done, j.cells_total)
         }
     });
+    let has_rail = !linked_problems.is_empty()
+        || !fix.problem_ids.is_empty()
+        || !fix.modified_files.is_empty()
+        || !fix.tactics.is_empty()
+        || !fix.steps.is_empty()
+        || !fix.reviews.is_empty();
     Ok(view! {
         <div class="propose-toolbar">
             <a class="button button-ghost" href=(format!("{base}/fixes")) data-nav-partial="">"← All fixes"</a>
-            moment(epoch_ms: fix.created_at_ms)
+            <div class="toolbar-lead">
+                moment(epoch_ms: fix.created_at_ms)
+                if has_rail {
+                    <button
+                        class="button"
+                        type="button"
+                        data-rail-toggle=""
+                        data-label-hide="Hide details"
+                        data-label-show="Show details"
+                        aria-expanded="true">"Hide details"</button>
+                }
+            </div>
         </div>
-        <article class="surface fix-card" id=(format!("fix-{}", fix.id)) data-fix-card=(&fix.id)>
-            <header class="propose-head">
-                <div>
+        <div class=(if has_rail { "stage-shell fix-detail-shell" } else { "fix-detail-shell" }) data-stage-shell="">
+            <article class="surface fix-card" id=(format!("fix-{}", fix.id)) data-fix-card=(&fix.id)>
+                <header class="fix-header">
                     <div class="propose-badges">
                         badge(variant: fix_status_badge(fix.status), (fix.status.label()))
                         <span class="fix-job-badge" data-fix-job-badge=(&fix.id) if job_text.is_none() { hidden="" }>(job_text.as_deref().unwrap_or(""))</span>
-                        for pid in &fix.problem_ids {
-                            <a class="tactic-chip" href=(format!("{base}/problems/{pid}")) data-nav-partial="">"Problem #" (pid.chars().take(10).collect::<String>()) " ↗"</a>
-                        }
-                        for file in &fix.modified_files {
-                            <code class="tactic-chip">(file)</code>
-                        }
                     </div>
                     <h2>(&fix.title)</h2>
-                    <p class="muted">(&fix.summary)</p>
-                </div>
-            </header>
-            if let Some(pair) = fix.comparisons.first() {
-                comparator(fix: &fix, pair: pair)
-            } else if !baseline.is_empty() {
-                baseline_stage(baseline: &baseline)
-            } else {
-                <div class="empty">
-                    <p class="muted">"No before/after capture pair attached to this fix yet."</p>
-                </div>
-            }
-            if !fix.tactics.is_empty() {
-                <div class="tactic-chips">
-                    kind_label("TACTICS APPLIED:")
-                    for t in &fix.tactics {
-                        chip((t))
+                    if !fix.summary.is_empty() {
+                        <p class="fix-summary muted">(&fix.summary)</p>
                     }
-                </div>
+                </header>
+                if let Some(pair) = fix.comparisons.first() {
+                    comparator(fix: &fix, pair: pair)
+                } else if !baseline.is_empty() {
+                    baseline_stage(baseline: &baseline)
+                } else {
+                    <div class="empty">
+                        <p class="muted">"No before/after capture pair attached to this fix yet."</p>
+                    </div>
+                }
+                if role != Role::Reader {
+                    <footer class="propose-foot">
+                        <form method="post" action=(format!("{base}/fixes/{}/review", fix.id)) class="fix-review-form">
+                            csrf(token: token)
+                            <input name="comment" maxlength="1000" placeholder="Add a review note…">
+                            <button class="button primary" type="submit" name="status" value="approved">"Approve"</button>
+                            <button class="button" type="submit" name="status" value="changes-requested">"Request changes"</button>
+                        </form>
+                    </footer>
+                }
+            </article>
+            if has_rail {
+                fix_meta_rail(base: base, fix: &fix, linked_problems: &linked_problems)
             }
-            if !fix.steps.is_empty() {
-                <details class="fix-steps-timeline" open="">
-                    <summary>"Intermediate steps & verification loop (" (fix.steps.len()) " steps)"</summary>
-                    <ol class="steps-list">
-                        for step in &fix.steps {
+        </div>
+    })
+}
+
+/// Collapsible right-hand metadata rail for a single fix.
+#[component]
+async fn fix_meta_rail(
+    cx: &Cx,
+    base: &str,
+    fix: &FixRecord,
+    linked_problems: &[(String, String)],
+) -> Result<impl View> {
+    Ok(view! {
+        <aside class="canvas-rail fix-meta-rail" aria-label="Fix details">
+            if !linked_problems.is_empty() {
+                <section class="fix-meta-section">
+                    <h3>"Linked problems"</h3>
+                    <ul class="fix-meta-list">
+                        for (pid, title) in linked_problems {
                             <li>
-                                <div class="step-head">
-                                    <span class="step-num">(format!("#{:02}", step.index))</span>
-                                    <strong>(&step.title)</strong>
-                                    chip((&step.verification))
-                                </div>
-                                if !step.detail.is_empty() {
-                                    <p class="muted">(&step.detail)</p>
-                                }
+                                <a href=(format!("{base}/problems/{pid}")) data-nav-partial="">(title)</a>
                             </li>
                         }
-                    </ol>
-                </details>
+                    </ul>
+                </section>
+            } else if !fix.problem_ids.is_empty() {
+                <section class="fix-meta-section">
+                    <h3>"Linked problems"</h3>
+                    <ul class="fix-meta-list">
+                        for pid in &fix.problem_ids {
+                            <li>
+                                <a class="mono" href=(format!("{base}/problems/{pid}")) data-nav-partial="">(pid)</a>
+                            </li>
+                        }
+                    </ul>
+                </section>
+            }
+            if !fix.modified_files.is_empty() {
+                <section class="fix-meta-section">
+                    <h3>"Modified files"</h3>
+                    <ul class="fix-meta-list">
+                        for file in &fix.modified_files {
+                            <li><code class="fix-meta-path">(file)</code></li>
+                        }
+                    </ul>
+                </section>
+            }
+            if !fix.tactics.is_empty() {
+                <section class="fix-meta-section">
+                    <h3>"Tactics"</h3>
+                    <div class="tactic-chips">
+                        for t in &fix.tactics {
+                            chip((t))
+                        }
+                    </div>
+                </section>
+            }
+            if !fix.steps.is_empty() {
+                <section class="fix-meta-section">
+                    <details class="fix-steps-timeline">
+                        <summary>"Steps (" (fix.steps.len()) ")"</summary>
+                        <ol class="steps-list">
+                            for step in &fix.steps {
+                                <li>
+                                    <div class="step-head">
+                                        <span class="step-num">(format!("#{:02}", step.index))</span>
+                                        <strong>(&step.title)</strong>
+                                        if !step.verification.is_empty() {
+                                            chip((&step.verification))
+                                        }
+                                    </div>
+                                    if !step.detail.is_empty() {
+                                        <p class="muted">(&step.detail)</p>
+                                    }
+                                </li>
+                            }
+                        </ol>
+                    </details>
+                </section>
             }
             if !fix.reviews.is_empty() {
-                <ul class="problem-comments">
-                    for rev in &fix.reviews {
-                        <li>
-                            <strong>(&rev.author)</strong> " (" (&rev.action) "): " (&rev.comment)
-                            " " moment(epoch_ms: rev.created_at_ms)
-                        </li>
-                    }
-                </ul>
+                <section class="fix-meta-section">
+                    <h3>"Reviews"</h3>
+                    <ul class="fix-meta-list">
+                        for rev in &fix.reviews {
+                            <li class="fix-review-item">
+                                <div class="fix-review-meta">
+                                    <strong>(&rev.author)</strong>
+                                    <span class="muted">(&rev.action)</span>
+                                </div>
+                                if !rev.comment.is_empty() {
+                                    <p class="muted">(&rev.comment)</p>
+                                }
+                                moment(epoch_ms: rev.created_at_ms)
+                            </li>
+                        }
+                    </ul>
+                </section>
             }
-            if role != Role::Reader {
-                <footer class="propose-foot">
-                    <form method="post" action=(format!("{base}/fixes/{}/review", fix.id)) class="fix-review-form">
-                        csrf(token: token)
-                        <input name="comment" maxlength="1000" placeholder="Optional review note or requested adjustment…">
-                        <button class="button primary" type="submit" name="status" value="approved">"Approve Fix"</button>
-                        <button class="button" type="submit" name="status" value="changes-requested">"Request Changes"</button>
-                    </form>
-                </footer>
-            }
-        </article>
+        </aside>
     })
 }
