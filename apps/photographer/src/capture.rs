@@ -5,11 +5,12 @@ use crate::checks::evaluate_checks;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use rupicola_api::{
-    Capture, CaptureStatus, MissingQuery, NewFinding, Scenario, Viewport,
-    plan::scenario_cell_plan,
+    Capture, CapturePlanSpec, CaptureStatus, MissingQuery, NewFinding, Scenario, Viewport,
+    plan::{plan_from_spec, scenario_cell_plan},
     record::{
         Appearance, CaptureRecord, Display, Environment as RecordEnvironment, Host, Member,
-        MemberRole, Platform, PlatformFamily, RECORD_FORMAT, RecordKind, ScenarioRef, Software,
+        MemberRole, ParentKind, ParentRef, Platform, PlatformFamily, RECORD_FORMAT, RecordKind,
+        ScenarioRef, Software,
     },
 };
 use rupicola_capture::{
@@ -55,6 +56,10 @@ pub struct CellContext<'a> {
     pub revision: &'a str,
     pub viewport: Viewport,
     pub theme: Option<&'a str>,
+    /// When set, executes this frozen plan spec verbatim instead of compiling `scenario`.
+    pub frozen_spec: Option<&'a CapturePlanSpec>,
+    /// Source capture id when running a deterministic recapture job.
+    pub parent_capture_id: Option<&'a str>,
 }
 
 /// Abstracts running a capture [`Plan`] so the job loop can be tested without Chromium.
@@ -269,7 +274,15 @@ fn build_capture_record(
         },
         revision: Some(ctx.revision.to_owned()),
         series,
-        parents: Vec::new(),
+        parents: ctx
+            .parent_capture_id
+            .map(|id| {
+                vec![ParentRef {
+                    id: id.to_owned(),
+                    kind: ParentKind::Baseline,
+                }]
+            })
+            .unwrap_or_default(),
         captured_at: now_ms(),
         status: CaptureStatus::Complete,
         blocker: None,
@@ -303,12 +316,15 @@ fn build_capture_record(
             }),
             extra: BTreeMap::new(),
         },
-        plan_spec: Some(rupicola_api::CapturePlanSpec::from_scenario_cell(
-            ctx.scenario,
-            Some(ctx.scenario_hash),
-            ctx.viewport,
-            ctx.theme,
-        )),
+        plan_spec: Some(match ctx.frozen_spec {
+            Some(spec) => spec.normalized(),
+            None => CapturePlanSpec::from_scenario_cell(
+                ctx.scenario,
+                Some(ctx.scenario_hash),
+                ctx.viewport,
+                ctx.theme,
+            ),
+        }),
         members,
     }
 }
@@ -327,8 +343,12 @@ pub async fn capture_and_publish<A: Api>(
     ctx: &CellContext<'_>,
     scratch_dir: &Path,
 ) -> Result<(Capture, BTreeMap<String, String>)> {
-    let plan = scenario_cell_plan(ctx.scenario, ctx.base_url, ctx.viewport, ctx.theme)
-        .map_err(|err| anyhow::anyhow!("invalid scenario cell plan: {err}"))?;
+    let plan = match ctx.frozen_spec {
+        Some(spec) => plan_from_spec(spec, ctx.base_url, false)
+            .map_err(|err| anyhow::anyhow!("invalid frozen plan_spec: {err}"))?,
+        None => scenario_cell_plan(ctx.scenario, ctx.base_url, ctx.viewport, ctx.theme)
+            .map_err(|err| anyhow::anyhow!("invalid scenario cell plan: {err}"))?,
+    };
     let outcome = capturer.capture_cell(&plan, scratch_dir).await?;
     let (staged, checkpoint_hashes) = stage_files(&outcome).await?;
     upload_missing_blobs(api, token, ctx.project, &staged).await?;
@@ -374,8 +394,12 @@ pub async fn check_determinism<A: Api>(
     capture_id: &str,
     scratch_dir: &Path,
 ) -> Result<()> {
-    let plan = scenario_cell_plan(ctx.scenario, ctx.base_url, ctx.viewport, ctx.theme)
-        .map_err(|err| anyhow::anyhow!("invalid scenario cell plan: {err}"))?;
+    let plan = match ctx.frozen_spec {
+        Some(spec) => plan_from_spec(spec, ctx.base_url, false)
+            .map_err(|err| anyhow::anyhow!("invalid frozen plan_spec: {err}"))?,
+        None => scenario_cell_plan(ctx.scenario, ctx.base_url, ctx.viewport, ctx.theme)
+            .map_err(|err| anyhow::anyhow!("invalid scenario cell plan: {err}"))?,
+    };
     let second = capturer.capture_cell(&plan, scratch_dir).await?;
     let mut diffs = Vec::new();
     for cp in &second.checkpoints {

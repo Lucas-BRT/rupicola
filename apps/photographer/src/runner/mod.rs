@@ -112,11 +112,33 @@ async fn execute_job<A: Api>(
     capturer: &dyn CellCapturer,
     job: &Job,
 ) -> Result<()> {
-    let version = api
-        .scenario_version(token, project, &job.scenario, &job.hash)
-        .await
-        .context("fetch scenario version")?;
-    let cells = matrix_cells(&version.scenario);
+    let (scenario, cells) = if let Some(spec) = &job.plan_spec {
+        let viewport = Viewport {
+            width: spec.viewport[0],
+            height: spec.viewport[1],
+            scale: (spec.scale_milli / rupicola_api::DEFAULT_SCALE_MILLI).max(1),
+        };
+        let synthetic = Scenario {
+            name: job.scenario.clone(),
+            url: spec.url_path.clone(),
+            environment: rupicola_api::ScenarioEnvironment {
+                reduced_motion: spec.reduced_motion,
+                locale: spec.locale.clone(),
+            },
+            matrix: rupicola_api::Matrix::default(),
+            themes: std::collections::BTreeMap::new(),
+            steps: spec.steps.clone(),
+            checks: rupicola_api::Checks::default(),
+        };
+        (synthetic, vec![(viewport, spec.color_scheme.clone())])
+    } else {
+        let version = api
+            .scenario_version(token, project, &job.scenario, &job.hash)
+            .await
+            .context("fetch scenario version")?;
+        let cells = matrix_cells(&version.scenario);
+        (version.scenario, cells)
+    };
     let scratch = tempfile::tempdir().context("create runner scratch directory")?;
 
     let cells_done = Arc::new(AtomicU32::new(0));
@@ -131,7 +153,7 @@ async fn execute_job<A: Api>(
             preview_cfg,
             capturer,
             job,
-            &version.scenario,
+            &scenario,
             &cells,
             scratch.path(),
             &cells_done,
@@ -230,6 +252,8 @@ async fn run_job_trees<A: Api>(
                     revision: worktree.revision(),
                     viewport: *viewport,
                     theme: theme.as_deref(),
+                    frozen_spec: job.plan_spec.as_ref(),
+                    parent_capture_id: job.parent_capture_id.as_deref(),
                 };
                 let (capture, cp_hashes) =
                     capture_and_publish(api, token, capturer, &ctx, &cell_dir).await?;

@@ -101,6 +101,8 @@ fn sample_job() -> Job {
         created_at: 0,
         started_at: Some(0),
         finished_at: None,
+        plan_spec: None,
+        parent_capture_id: None,
     }
 }
 
