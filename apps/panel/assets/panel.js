@@ -175,6 +175,22 @@ function hydrateMain(root = document) {
     });
   }
 
+  for (const opener of root.querySelectorAll("[data-drawer-open]")) {
+    opener.addEventListener("click", () => {
+      const targetId = opener.dataset.drawerOpen;
+      const drawer = targetId ? document.getElementById(targetId) : null;
+      if (drawer && typeof drawer.showModal === "function") {
+        drawer.showModal();
+      }
+    });
+  }
+  for (const drawer of root.querySelectorAll("[data-details-drawer]")) {
+    drawer.querySelector("[data-drawer-close]")?.addEventListener("click", () => drawer.close());
+    drawer.addEventListener("click", (e) => {
+      if (e.target === drawer) drawer.close();
+    });
+  }
+
   for (const comp of root.querySelectorAll("[data-comparator]")) {
     const viewport = comp.querySelector(".split-viewport");
     const range = comp.querySelector("[data-split-range]");
