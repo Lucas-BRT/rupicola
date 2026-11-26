@@ -1230,6 +1230,7 @@
     background-size: 18px 18px;
     border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem;
   }
+  .compare-stage { min-inline-size: 0; }
   .compare-zoom-group { display: inline-flex; align-items: center; gap: 0.2rem; }
   .compare-zoom-group .button { font-family: var(--mono); font-size: 0.74rem; padding-inline: 0.5rem; }
   .compare-scroll {
@@ -1242,8 +1243,20 @@
     background: var(--canvas);
     overflow: hidden; user-select: none;
   }
+  .split-viewport.has-sync-size {
+    aspect-ratio: var(--split-ar, 16 / 10);
+    inline-size: min(100%, calc(var(--fit-max-h, 38rem) * var(--split-ratio, 1.6)));
+    max-block-size: var(--fit-max-h, 38rem);
+    margin-inline: auto;
+  }
   .split-layer { position: absolute; inset: 0; margin: 0; overflow: hidden; }
   .split-layer img, .split-layer video { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; object-fit: contain; pointer-events: none; border: 0; background: var(--canvas); }
+  .split-viewport.has-sync-size .split-layer img {
+    inset-block-end: auto; inset-inline-end: auto;
+    block-size: auto; object-fit: initial;
+  }
+  .split-viewport.has-sync-size .split-before img { inline-size: var(--before-w, 100%); }
+  .split-viewport.has-sync-size .split-after img { inline-size: var(--after-w, 100%); }
   .split-after { clip-path: inset(0 0 0 var(--split, 50%)); background: var(--canvas); }
   .split-divider {
     position: absolute; inset-block: 0; inset-inline-start: var(--split, 50%);
@@ -1277,21 +1290,20 @@
 
   /* Zoomed inspection (100%, 150%, 200%) unlocks tall full-page screenshots for 1:1 scrolling */
   .fix-comparator:not([data-zoom="fit"]) .split-viewport {
-    aspect-ratio: auto; max-block-size: none;
+    aspect-ratio: var(--split-ar, auto);
     inline-size: var(--compare-zoom-w, 100%);
+    max-inline-size: none;
+    max-block-size: none;
+    margin-inline: 0;
   }
-  .fix-comparator:not([data-zoom="fit"]) .split-before { position: relative; inset: auto; }
-  .fix-comparator:not([data-zoom="fit"]) .split-before img,
-  .fix-comparator:not([data-zoom="fit"]) .split-before video {
-    position: static; display: block; inline-size: 100%; block-size: auto; object-fit: fill;
-  }
-  .fix-comparator:not([data-zoom="fit"]) .split-after img,
-  .fix-comparator:not([data-zoom="fit"]) .split-after video {
-    object-fit: fill;
+  .fix-comparator:not([data-zoom="fit"]) .split-viewport:not(.has-sync-size) .split-before { position: relative; inset: auto; }
+  .fix-comparator:not([data-zoom="fit"]) .split-viewport:not(.has-sync-size) .split-before img,
+  .fix-comparator:not([data-zoom="fit"]) .split-viewport:not(.has-sync-size) .split-before video {
+    position: static; display: block; inline-size: 100%; block-size: auto; object-fit: contain;
   }
   .fix-comparator:not([data-zoom="fit"]) .compare-side .checkpoint img,
   .fix-comparator:not([data-zoom="fit"]) .compare-diff .checkpoint img {
-    max-block-size: none; inline-size: var(--compare-zoom-w, 100%); block-size: auto; object-fit: fill;
+    max-block-size: none; inline-size: var(--compare-zoom-w, 100%); block-size: auto; object-fit: initial;
   }
   .fix-comparator[data-zoom="100"] { --compare-zoom-w: 100%; }
   .fix-comparator[data-zoom="150"] { --compare-zoom-w: 150%; }
@@ -1304,6 +1316,7 @@
     grid-template-rows: auto minmax(0, 1fr);
     box-shadow: 0 0 0 100vmax rgba(5, 5, 7, 0.84), var(--rail-shadow);
     padding: 0.9rem 1rem;
+    --fit-max-h: calc(100dvb - 8.8rem);
   }
   .fix-comparator.is-fullscreen .compare-stage:not([hidden]) {
     display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 0.5rem; min-block-size: 0;
@@ -1312,7 +1325,7 @@
     grid-template-rows: minmax(0, 1fr);
   }
   .fix-comparator.is-fullscreen .compare-scroll { max-block-size: calc(100dvb - 8.5rem); }
-  .fix-comparator.is-fullscreen[data-zoom="fit"] .split-viewport {
+  .fix-comparator.is-fullscreen[data-zoom="fit"] .split-viewport:not(.has-sync-size) {
     aspect-ratio: auto; block-size: calc(100dvb - 8.8rem); max-block-size: none;
   }
   .fix-comparator.is-fullscreen[data-zoom="fit"] .compare-side .checkpoint img,

@@ -195,6 +195,32 @@ function hydrateMain(root = document) {
     const viewport = comp.querySelector(".split-viewport");
     const range = comp.querySelector("[data-split-range]");
     const output = comp.querySelector("[data-split-output]");
+    const splitBeforeImg = viewport?.querySelector("[data-img-before]");
+    const splitAfterImg = viewport?.querySelector("[data-img-after]");
+
+    function syncSplitScale() {
+      if (!viewport || !splitBeforeImg || !splitAfterImg) return;
+      if (splitBeforeImg.hidden || splitAfterImg.hidden) {
+        viewport.classList.remove("has-sync-size");
+        return;
+      }
+      const bw = splitBeforeImg.naturalWidth;
+      const bh = splitBeforeImg.naturalHeight;
+      const aw = splitAfterImg.naturalWidth;
+      const ah = splitAfterImg.naturalHeight;
+      if (!bw || !bh || !aw || !ah) return;
+      const maxW = Math.max(bw, aw);
+      const maxH = Math.max(bh, ah);
+      viewport.style.setProperty("--split-ar", `${maxW} / ${maxH}`);
+      viewport.style.setProperty("--split-ratio", String(maxW / maxH));
+      viewport.style.setProperty("--before-w", `${(bw / maxW) * 100}%`);
+      viewport.style.setProperty("--after-w", `${(aw / maxW) * 100}%`);
+      viewport.classList.add("has-sync-size");
+    }
+
+    splitBeforeImg?.addEventListener("load", syncSplitScale);
+    splitAfterImg?.addEventListener("load", syncSplitScale);
+    syncSplitScale();
 
     function setSplit(pct) {
       const clamped = Math.max(0, Math.min(100, Math.round(pct)));
@@ -294,6 +320,7 @@ function hydrateMain(root = document) {
         for (const img of comp.querySelectorAll("[data-diff-img]")) {
           if (diff) img.src = diff;
         }
+        syncSplitScale();
       });
     }
 
