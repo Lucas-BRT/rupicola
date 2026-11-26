@@ -93,24 +93,6 @@ async fn collect_bundle_members(
             surface: None,
             locator: BTreeMap::new(),
         });
-        if let Some(snapshot) = cp.snapshot {
-            let json = serde_json::to_vec(&snapshot).map_err(anyhow::Error::from)?;
-            let snap_sha = sha256_hex(&json);
-            let snap_len = u64::try_from(json.len()).map_err(anyhow::Error::from)?;
-            captures::put_project_blob(state, project, snap_sha.clone(), json).await?;
-            members.push(Member {
-                path: format!("checkpoints/{}.ui-snapshot.json", cp.id),
-                role: MemberRole::UiSnapshot,
-                mime: "application/json".to_owned(),
-                sha256: snap_sha,
-                bytes: snap_len,
-                owner: cp.id,
-                target_ms: None,
-                video_ms: None,
-                surface: None,
-                locator: BTreeMap::new(),
-            });
-        }
     }
     for clip in bundle.clips {
         let mp4 = tokio::fs::read(&clip.mp4)
