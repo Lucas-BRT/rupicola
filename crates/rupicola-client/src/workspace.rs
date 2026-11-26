@@ -766,6 +766,57 @@ impl<A: Api> ProjectAdminOps for WorkspaceClient<A> {
     async fn audit_log(&self, project: &str) -> Result<Vec<AuditEvent>> {
         self.api.audit(&self.token, project).await
     }
+
+    async fn device_list(&self, project: &str) -> Result<Vec<Credential>> {
+        self.api.list_devices(&self.token, project).await
+    }
+
+    async fn device_create(&self, project: &str, form: &NewCredential) -> Result<IssuedCredential> {
+        self.api.create_device(&self.token, project, form).await
+    }
+
+    async fn device_delete(&self, project: &str, device: &str) -> Result<()> {
+        self.api.delete_device(&self.token, project, device).await
+    }
+
+    async fn deletion_policy_get(&self, project: &str) -> Result<rupicola_api::PolicyView> {
+        self.api.deletion_policy(&self.token, project).await
+    }
+
+    async fn deletion_policy_set(
+        &self,
+        project: &str,
+        form: &rupicola_api::PolicyView,
+    ) -> Result<rupicola_api::PolicyView> {
+        self.api
+            .set_deletion_policy(&self.token, project, form)
+            .await
+    }
+
+    async fn project_settings_get(&self, project: &str) -> Result<rupicola_api::LimitSettings> {
+        self.api.project_settings(&self.token, project).await
+    }
+
+    async fn project_settings_set(
+        &self,
+        project: &str,
+        key: &str,
+        value: &rupicola_api::LimitValue,
+    ) -> Result<rupicola_api::LimitSettings> {
+        self.api
+            .set_project_setting(&self.token, project, key, value)
+            .await
+    }
+
+    async fn project_settings_reset(
+        &self,
+        project: &str,
+        key: &str,
+    ) -> Result<rupicola_api::LimitSettings> {
+        self.api
+            .reset_project_setting(&self.token, project, key)
+            .await
+    }
 }
 
 #[cfg(test)]

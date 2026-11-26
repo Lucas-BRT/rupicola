@@ -5,13 +5,13 @@ use rupicola_api::{
     AuditEvent, Capture, CaptureCapabilities, CaptureDiff, CapturePage, CaptureRemoval,
     CaptureSummary, Citations, Comment, Credential, Credentials, DesignEntry, DocumentEdit,
     Finding, Fix, FixSelectionLink, FixSummary, IssuedCredential, IssuedInvite, Job, JobFailure,
-    JobProgress, JobResult, Limits, Lineage, LineageGraph, Me, Member, Missing, MissingQuery,
-    NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem,
-    NewProject, NewReview, NewSelection, NewStep, NewTopic, PREFIX, ParentsEdit, PasswordChange,
-    Problem, ProblemPatch, ProblemSummary, Project, ProjectUpdate, RecaptureSettings,
-    RecaptureSettingsPatch, Redeem, Register, Scenario, ScenarioSummary, ScenarioVersion,
-    Selection, SessionToken, Setup, SetupStatus, Step, SystemActionForm, SystemList, SystemVersion,
-    Topic, TopicMove, TopicRename, TopicTree,
+    JobProgress, JobResult, LimitSettings, LimitValue, Limits, Lineage, LineageGraph, Me, Member,
+    Missing, MissingQuery, NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix,
+    NewInvite, NewJob, NewProblem, NewProject, NewReview, NewSelection, NewStep, NewTopic, PREFIX,
+    ParentsEdit, PasswordChange, PolicyView, Problem, ProblemPatch, ProblemSummary, Project,
+    ProjectUpdate, RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, Scenario,
+    ScenarioSummary, ScenarioVersion, Selection, SessionToken, Setup, SetupStatus, Step,
+    SystemActionForm, SystemList, SystemVersion, Topic, TopicMove, TopicRename, TopicTree,
 };
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -1149,6 +1149,121 @@ impl Api for HttpApi {
         ))
         .await?;
         Ok(())
+    }
+
+    async fn list_devices(&self, token: &str, project: &str) -> Result<Vec<Credential>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{}/devices", encode_segment(project)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn create_device(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewCredential,
+    ) -> Result<IssuedCredential> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{}/devices", encode_segment(project)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn delete_device(&self, token: &str, project: &str, device: &str) -> Result<()> {
+        Self::send(self.request(
+            Method::DELETE,
+            &format!(
+                "/projects/{}/devices/{}",
+                encode_segment(project),
+                encode_segment(device)
+            ),
+            Some(token),
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn deletion_policy(&self, token: &str, project: &str) -> Result<PolicyView> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{}/deletion-policy", encode_segment(project)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn set_deletion_policy(
+        &self,
+        token: &str,
+        project: &str,
+        form: &PolicyView,
+    ) -> Result<PolicyView> {
+        Self::read(
+            self.request(
+                Method::PUT,
+                &format!("/projects/{}/deletion-policy", encode_segment(project)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn project_settings(&self, token: &str, project: &str) -> Result<LimitSettings> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{}/settings", encode_segment(project)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn set_project_setting(
+        &self,
+        token: &str,
+        project: &str,
+        key: &str,
+        value: &LimitValue,
+    ) -> Result<LimitSettings> {
+        Self::read(
+            self.request(
+                Method::PUT,
+                &format!(
+                    "/projects/{}/settings/{}",
+                    encode_segment(project),
+                    encode_segment(key)
+                ),
+                Some(token),
+            )
+            .json(value),
+        )
+        .await
+    }
+
+    async fn reset_project_setting(
+        &self,
+        token: &str,
+        project: &str,
+        key: &str,
+    ) -> Result<LimitSettings> {
+        Self::read(self.request(
+            Method::DELETE,
+            &format!(
+                "/projects/{}/settings/{}",
+                encode_segment(project),
+                encode_segment(key)
+            ),
+            Some(token),
+        ))
+        .await
     }
 
     async fn mcp(&self, token: &str, payload: &str) -> Result<McpReply> {

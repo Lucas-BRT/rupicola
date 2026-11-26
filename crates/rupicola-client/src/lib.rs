@@ -13,13 +13,13 @@ use rupicola_api::{
     AuditEvent, Capture, CaptureCapabilities, CaptureDiff, CapturePage, CaptureRemoval,
     CaptureSummary, Citations, Comment, Credential, Credentials, DesignEntry, DocumentEdit,
     Finding, Fix, FixSelectionLink, FixSummary, IssuedCredential, IssuedInvite, Job, JobFailure,
-    JobProgress, JobResult, Limits, Lineage, LineageGraph, Me, Member, Missing, MissingQuery,
-    NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem,
-    NewProject, NewReview, NewSelection, NewStep, NewTopic, ParentsEdit, PasswordChange, Problem,
-    ProblemPatch, ProblemSummary, Project, ProjectUpdate, RecaptureSettings,
-    RecaptureSettingsPatch, Redeem, Register, Scenario, ScenarioSummary, ScenarioVersion,
-    Selection, SessionToken, Setup, Step, SystemActionForm, SystemList, SystemVersion, Topic,
-    TopicMove, TopicRename, TopicTree,
+    JobProgress, JobResult, LimitSettings, LimitValue, Limits, Lineage, LineageGraph, Me, Member,
+    Missing, MissingQuery, NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix,
+    NewInvite, NewJob, NewProblem, NewProject, NewReview, NewSelection, NewStep, NewTopic,
+    ParentsEdit, PasswordChange, PolicyView, Problem, ProblemPatch, ProblemSummary, Project,
+    ProjectUpdate, RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, Scenario,
+    ScenarioSummary, ScenarioVersion, Selection, SessionToken, Setup, Step, SystemActionForm,
+    SystemList, SystemVersion, Topic, TopicMove, TopicRename, TopicTree,
 };
 
 pub use error::{ClientError, Result};
@@ -401,6 +401,43 @@ pub trait Api: Send + Sync {
     async fn file_topic_capture(&self, token: &str, id: &str, capture: &str) -> Result<()>;
 
     async fn unfile_topic_capture(&self, token: &str, id: &str, capture: &str) -> Result<()>;
+
+    async fn list_devices(&self, token: &str, project: &str) -> Result<Vec<Credential>>;
+
+    async fn create_device(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewCredential,
+    ) -> Result<IssuedCredential>;
+
+    async fn delete_device(&self, token: &str, project: &str, device: &str) -> Result<()>;
+
+    async fn deletion_policy(&self, token: &str, project: &str) -> Result<PolicyView>;
+
+    async fn set_deletion_policy(
+        &self,
+        token: &str,
+        project: &str,
+        form: &PolicyView,
+    ) -> Result<PolicyView>;
+
+    async fn project_settings(&self, token: &str, project: &str) -> Result<LimitSettings>;
+
+    async fn set_project_setting(
+        &self,
+        token: &str,
+        project: &str,
+        key: &str,
+        value: &LimitValue,
+    ) -> Result<LimitSettings>;
+
+    async fn reset_project_setting(
+        &self,
+        token: &str,
+        project: &str,
+        key: &str,
+    ) -> Result<LimitSettings>;
 
     /// Sends one MCP JSON-RPC message.
     ///

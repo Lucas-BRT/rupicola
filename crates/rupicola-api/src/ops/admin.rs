@@ -2,9 +2,9 @@
 
 use super::{ArtifactBytes, OpsBase};
 use crate::{
-    AuditEvent, Capture, Credential, Credentials, IssuedCredential, IssuedInvite, Member, Missing,
-    MissingQuery, NewCredential, NewInvite, PasswordChange, Project, Redeem, Register,
-    SessionToken, Setup, record::CaptureRecord,
+    AuditEvent, Capture, Credential, Credentials, IssuedCredential, IssuedInvite, LimitSettings,
+    LimitValue, Member, Missing, MissingQuery, NewCredential, NewInvite, PasswordChange,
+    PolicyView, Project, Redeem, Register, SessionToken, Setup, record::CaptureRecord,
 };
 use async_trait::async_trait;
 
@@ -59,7 +59,7 @@ pub trait TokenOps: OpsBase {
     async fn token_delete(&self, id: &str) -> Result<(), Self::Error>;
 }
 
-/// Project membership, invitations, and audit trail administration.
+/// Project membership, devices, invitations, limits, deletion policy, and audit trail administration.
 #[async_trait]
 pub trait ProjectAdminOps: OpsBase {
     async fn member_list(&self, project: &str) -> Result<Vec<Member>, Self::Error>;
@@ -70,4 +70,29 @@ pub trait ProjectAdminOps: OpsBase {
         form: &NewInvite,
     ) -> Result<IssuedInvite, Self::Error>;
     async fn audit_log(&self, project: &str) -> Result<Vec<AuditEvent>, Self::Error>;
+    async fn device_list(&self, project: &str) -> Result<Vec<Credential>, Self::Error>;
+    async fn device_create(
+        &self,
+        project: &str,
+        form: &NewCredential,
+    ) -> Result<IssuedCredential, Self::Error>;
+    async fn device_delete(&self, project: &str, device: &str) -> Result<(), Self::Error>;
+    async fn deletion_policy_get(&self, project: &str) -> Result<PolicyView, Self::Error>;
+    async fn deletion_policy_set(
+        &self,
+        project: &str,
+        form: &PolicyView,
+    ) -> Result<PolicyView, Self::Error>;
+    async fn project_settings_get(&self, project: &str) -> Result<LimitSettings, Self::Error>;
+    async fn project_settings_set(
+        &self,
+        project: &str,
+        key: &str,
+        value: &LimitValue,
+    ) -> Result<LimitSettings, Self::Error>;
+    async fn project_settings_reset(
+        &self,
+        project: &str,
+        key: &str,
+    ) -> Result<LimitSettings, Self::Error>;
 }
