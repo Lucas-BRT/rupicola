@@ -18,6 +18,7 @@ use topcoat::{
     Result,
     context::context,
     router::{Next, OriginPolicy, RouterBuilderDiscoverExt, layer, module_router, request},
+    view::SuspenseMode,
 };
 
 pub fn router(panel: Arc<Panel>) -> Router {
@@ -90,9 +91,27 @@ async fn workspace(cx: &Cx, body: Body, next: Next<'_>) -> Result<Response> {
     if !is_healthz && received != Some(&panel.host) && (panel.secure || received != local_alias) {
         return Ok(status(StatusCode::BAD_REQUEST));
     }
+    let accepts_frames = headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|accept| {
+            accept.split(',').any(|entry| {
+                entry
+                    .split(';')
+                    .next()
+                    .unwrap_or(entry)
+                    .trim()
+                    .eq_ignore_ascii_case("application/x-ndjson")
+            })
+        });
+    let mode = if accepts_frames {
+        SuspenseMode::Stream
+    } else {
+        SuspenseMode::Wait
+    };
     let mut response = match auth::authenticate(&panel, path, headers, request::method(cx)).await {
-        Ok(Some(account)) => next.run(&cx.with(account), body).await?,
-        Ok(None) => next.run(cx, body).await?,
+        Ok(Some(account)) => next.run(&cx.with(account).with(mode), body).await?,
+        Ok(None) => next.run(&cx.with(mode), body).await?,
         Err(StatusCode::UNAUTHORIZED) => auth::unauthenticated(path),
         Err(code) => status(code),
     };

@@ -15,5 +15,5 @@ use topcoat::{
 async fn page(cx: &Cx) -> Result<impl View> {
     let mut filter: Filter = parse_query_params(cx)?;
     filter.view.get_or_insert_with(|| "images".into());
-    super::captures::show(cx, filter).await
+    Ok(super::captures::show(cx, filter))
 }

@@ -1,5 +1,5 @@
 use crate::components::{
-    display::moment,
+    display::{moment, section_head},
     form::{field, select_field, stack_form, text_area},
 };
 use crate::views::design_system::design_studio;
@@ -34,7 +34,12 @@ pub async fn design_tab(
             if records.is_empty() {
                 <section class="empty">
                     <h2>"No design records yet"</h2>
-                    <p>"Ask your agent to record the brief, art direction, tactics and decisions as the design takes shape."</p>
+                    <p>"Record the brief, art direction, tactics, and decisions as the design takes shape."</p>
+                    if role == Role::Owner {
+                        <div class="empty-action">
+                            <button class="button primary" type="button" data-open-target="design-record-editor">"Add first design record"</button>
+                        </div>
+                    }
                 </section>
             }
             for kind in DesignKind::ALL {
@@ -60,7 +65,7 @@ async fn record_editor(
     all_assets: &[AssetOption],
 ) -> Result<impl View> {
     Ok(view! {
-        <details class="surface panel-padding design-editor">
+        <details id="design-record-editor" class="surface panel-padding design-editor">
             <summary>"Add or revise a design record"</summary>
             stack_form(action: format!("{base}/design/record"), token: token,
                 select_field(id: "design-kind", name: "kind", label: "Record type",
@@ -107,8 +112,8 @@ async fn design_chapter(
     superseded: &BTreeSet<&str>,
 ) -> Result<impl View> {
     Ok(view! {
-        <section class="design-chapter">
-            <h2>(kind.label())</h2>
+        <section class="surface captures-ledger design-chapter">
+            section_head(title: kind.label().to_owned())
             <ul class="findings-list">
                 for entry in records.iter().filter(|entry| entry.entry.kind == kind && !superseded.contains(entry.id.as_str())) {
                     record_item(entry: entry)

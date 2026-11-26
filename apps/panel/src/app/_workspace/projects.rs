@@ -5,7 +5,8 @@ mod project;
 use crate::app::{_workspace::title, account, fail, panel, respond};
 use crate::{
     Account, Arc, Deserialize, PageResult, Panel, StatusCode, auth,
-    project::{Filter, project_catalog},
+    components::skeleton::projects_skeleton,
+    project::Filter,
     records, redirect, safe_name,
     views::projects::{ProjectName, Projects, projects_page},
 };
@@ -16,12 +17,27 @@ use topcoat::{
     context::Cx,
     metadata::Metadata,
     router::{content::Form, page, parse_query_params, response::Response, route},
-    view::{View, view},
+    view::{View, component, error_boundary, suspense, view},
 };
 
 #[page(with(Metadata::new().title(title("Projects"))))]
 async fn list(cx: &Cx) -> Result<impl View> {
     let filter: Filter = parse_query_params(cx)?;
+    Ok(view! {
+        suspense(
+            fallback: view! { projects_skeleton() },
+            error_boundary(
+                fallback: |_| Ok(view! {
+                    <p class="notice" role="alert">"Projects could not be loaded. Try again in a moment."</p>
+                }),
+                loaded_projects(filter: filter)
+            )
+        )
+    })
+}
+
+#[component]
+async fn loaded_projects(cx: &Cx, filter: Filter) -> Result<impl View> {
     let data = load(cx, &filter).await.map_err(fail)?;
     Ok(view! { projects_page(data: &data) })
 }
@@ -32,18 +48,33 @@ async fn create(cx: &Cx, Form(form): Form<CreateProject>) -> Result<Response> {
 }
 
 async fn load(cx: &Cx, filter: &Filter) -> PageResult<Projects> {
-    let projects = project_catalog(cx).await?;
+    let projects = crate::backend::projects(cx)
+        .await
+        .as_ref()
+        .map_err(|e| *e)?;
     let query = filter.q.clone().unwrap_or_default();
     let search = query.trim().to_lowercase();
+    let sort = filter.sort_key().to_owned();
     let empty_catalog = projects.is_empty();
     let total = projects.len();
-    let visible: Vec<ProjectName> = projects
-        .into_iter()
-        .map(|(id, label)| ProjectName { id, label })
+    let mut matching: Vec<_> = projects
+        .iter()
         .filter(|project| {
             search.is_empty()
                 || project.id.contains(&search)
                 || project.label.to_lowercase().contains(&search)
+        })
+        .collect();
+    match sort.as_str() {
+        "oldest" => matching.sort_by_key(|p| p.created_at),
+        "name" => matching.sort_by_key(|a| a.label.to_lowercase()),
+        _ => matching.sort_by_key(|p| std::cmp::Reverse(p.created_at)),
+    }
+    let visible: Vec<ProjectName> = matching
+        .into_iter()
+        .map(|project| ProjectName {
+            id: project.id.clone(),
+            label: project.label.clone(),
         })
         .collect();
     let mut summaries = BTreeMap::new();
@@ -57,6 +88,7 @@ async fn load(cx: &Cx, filter: &Filter) -> PageResult<Projects> {
     }
     Ok(Projects {
         query,
+        sort,
         search,
         visible,
         total,

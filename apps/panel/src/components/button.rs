@@ -17,7 +17,7 @@ impl ButtonVariant {
         match self {
             Self::Primary => class!(
                 "border-transparent bg-primary text-primary-foreground shadow-xs",
-                "hover:bg-primary/90 active:bg-primary/80",
+                "hover:bg-primary/90 active:scale-[0.96]",
             ),
         }
     }
@@ -34,7 +34,7 @@ pub enum ButtonSize {
 impl ButtonSize {
     fn classes(self) -> StaticClass {
         match self {
-            Self::Md => class!("h-9 gap-2 rounded-lg px-4"),
+            Self::Md => class!("h-10 gap-2 rounded-full px-5"),
         }
     }
 }
@@ -43,9 +43,9 @@ impl ButtonSize {
 /// every variant.
 const BASE: StaticClass = class!(
     "inline-flex shrink-0 items-center justify-center border",
-    "text-sm font-medium whitespace-nowrap transition-colors outline-none select-none",
-    "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-    "focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
+    "text-sm font-semibold whitespace-nowrap transition-[background-color,transform] select-none",
+    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+    "disabled:pointer-events-none disabled:opacity-50",
 );
 
 /// A styled button.

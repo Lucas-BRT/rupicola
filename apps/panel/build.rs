@@ -1,6 +1,7 @@
 fn main() {
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=styles.css");
+    println!("cargo:rerun-if-changed=assets/panel.css");
     println!("cargo:rerun-if-env-changed=TAILWIND_CLI");
     let config = topcoat::tailwind::BuildConfig::new()
         .input("styles.css")

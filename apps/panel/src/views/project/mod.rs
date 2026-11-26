@@ -8,11 +8,10 @@ pub mod problems;
 pub mod settings;
 
 pub use captures::captures_tab;
-pub use fixes::fixes_tab;
-pub use problems::problems_tab;
+pub use fixes::{fix_detail, fixes_tab};
+pub use problems::{problem_detail, problems_tab};
 
 use crate::components::badge::{BadgeVariant, badge};
-use crate::components::layout::breadcrumbs;
 use crate::project::AssetOption;
 use crate::records::{FixRecord, Problem};
 use crate::{Run, auth};
@@ -106,7 +105,7 @@ impl Tab {
             Self::Problems => "Problems",
             Self::Fixes => "Fixes",
             Self::Design => "Design",
-            Self::Settings => "Settings",
+            Self::Settings => "Project settings",
         }
     }
 
@@ -156,17 +155,20 @@ async fn tab_icon(cx: &Cx, tab: Tab) -> Result<impl View> {
     })
 }
 
-/// The project page around one tab: breadcrumbs, heading and tabs; `child` is the tab.
 #[component]
-pub async fn project_frame(
+async fn project_masthead(
     cx: &Cx,
     project: &crate::project::ProjectMeta,
     tab: Tab,
-    open_jobs: Vec<Job>,
-    #[default] child: Child<'_>,
+    open_jobs: &[Job],
 ) -> Result<impl View> {
-    let (id, label, base, role) = (&project.id, &project.label, &project.base, project.role);
+    let (id, label, base) = (&project.id, &project.label, &project.base);
     let overview = tab == Tab::Overview;
+    let page_title = if overview {
+        format!("{label} · Rupicola")
+    } else {
+        format!("{} · {label} · Rupicola", tab.heading())
+    };
     let jobs_url = format!("{base}/jobs");
     let done: u32 = open_jobs.iter().map(|j| j.cells_done).sum();
     let total: u32 = open_jobs.iter().map(|j| j.cells_total).sum();
@@ -185,33 +187,63 @@ pub async fn project_frame(
         open_jobs.len()
     );
     Ok(view! {
-        breadcrumbs(<a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span><span>(label)</span>)
-        <header class="page-title project-masthead">
-            <div><h1>(if overview { label.as_str() } else { tab.heading() })</h1>
-                if overview && label != id { <code class="muted">(id)</code> }
-            </div>
-            <div class="jobs-indicator" role="status" aria-live="polite" data-jobs-url=(jobs_url) if open_jobs.is_empty() { hidden="" }>(jobs_summary)</div>
-        </header>
-        <div class="project-shell">
-            <nav class="project-rail" aria-label="Project">
-                for each in Tab::ALL {
-                    if each != Tab::Settings || role == Role::Owner {
-                        let href = if each == Tab::Overview {
-                            base.clone()
-                        } else {
-                            format!("{base}/{}", each.slug())
-                        };
-                        <a href=(href) aria-label=(each.label()) title=(each.label()) if tab == each { aria-current="page" }>
-                            tab_icon(tab: each)
-                            <span class="sr-only">(each.label())</span>
-                            <span class="rail-tooltip" aria-hidden="true">(each.label())</span>
-                        </a>
-                    }
+        <header class="page-title project-masthead" data-page-title=(page_title)>
+            <nav class="masthead-crumb" aria-label="Breadcrumb">
+                <a class="crumb-link" href="/projects">"Projects"</a>
+                <span class="crumb-sep" aria-hidden="true">"/"</span>
+                if overview {
+                    <h1 class="masthead-heading" title=(id)>(label)</h1>
+                } else {
+                    <a class="crumb-link" href=(base) title=(id)>(label)</a>
+                    <span class="crumb-sep" aria-hidden="true">"/"</span>
+                    <h1 class="masthead-heading">(tab.heading())</h1>
                 }
             </nav>
-            <div class="project-stage">
+            <div class="jobs-indicator" role="status" aria-live="polite" data-jobs-url=(jobs_url) if open_jobs.is_empty() { hidden="" }>(jobs_summary)</div>
+        </header>
+    })
+}
+
+/// The project page around one tab: breadcrumbs, heading and tabs; `child` is the tab.
+#[component]
+pub async fn project_frame(
+    cx: &Cx,
+    project: &crate::project::ProjectMeta,
+    tab: Tab,
+    open_jobs: Vec<Job>,
+    #[default] partial: bool,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    let (id, base, role) = (&project.id, &project.base, project.role);
+    Ok(view! {
+        project_masthead(project: project, tab: tab, open_jobs: &open_jobs)
+        if partial {
+            <div class="project-stage" data-project-stage="">
                 (child)
             </div>
-        </div>
+        } else {
+            <div class="project-shell" data-project-id=(id)>
+                <nav class="project-rail" aria-label="Project" data-project-rail="">
+                    <span class="rail-indicator" aria-hidden="true"></span>
+                    for each in Tab::ALL {
+                        if each != Tab::Settings || role == Role::Owner {
+                            let href = if each == Tab::Overview {
+                                base.clone()
+                            } else {
+                                format!("{base}/{}", each.slug())
+                            };
+                            <a href=(href) data-nav-partial="" aria-label=(each.label()) title=(each.label()) if tab == each { aria-current="page" }>
+                                tab_icon(tab: each)
+                                <span class="sr-only">(each.label())</span>
+                                <span class="rail-tooltip" aria-hidden="true">(each.label())</span>
+                            </a>
+                        }
+                    }
+                </nav>
+                <div class="project-stage" data-project-stage="">
+                    (child)
+                </div>
+            </div>
+        }
     })
 }

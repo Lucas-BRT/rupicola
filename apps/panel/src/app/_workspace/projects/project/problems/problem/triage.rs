@@ -77,6 +77,6 @@ pub async fn triage_problem_action(
             .map_err(|e| auth::api_error(&e))?;
     }
     Ok(redirect(&format!(
-        "/projects/{project_id}/problems#problem-{problem_id}"
+        "/projects/{project_id}/problems/{problem_id}"
     )))
 }

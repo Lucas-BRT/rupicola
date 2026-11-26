@@ -82,7 +82,7 @@ pub async fn overview_tab(cx: &Cx, data: Overview<'_>) -> Result<impl View> {
             section_head(title: "Recent captures",
                 link_button(href: format!("{base}/captures"), "Open research hub")
             )
-            run_list(runs: &recent, message: "No matching captures. Send a capture with this project's ID.")
+            run_list(runs: &recent, hide_project: true, message: "No matching captures. Send a capture with this project's ID.")
         </section>
     })
 }

@@ -110,9 +110,49 @@ pub async fn proof_card(
     })
 }
 
+fn run_subtitle(run: &Run, hide_project: bool) -> String {
+    if !hide_project {
+        return run.project.clone();
+    }
+    let env = &run.capture.environment;
+    let mut parts = Vec::new();
+    if let (Some(w), Some(h)) = (env.width, env.height) {
+        parts.push(format!("{w}×{h}"));
+    }
+    if let Some(scheme) = &env.color_scheme {
+        parts.push(scheme.clone());
+    }
+    let checkpoints = run.capture.checkpoints.len();
+    if checkpoints > 0 {
+        parts.push(if checkpoints == 1 {
+            "1 checkpoint".to_owned()
+        } else {
+            format!("{checkpoints} checkpoints")
+        });
+    }
+    let clips = run.capture.clips.len();
+    if clips > 0 {
+        parts.push(if clips == 1 {
+            "1 clip".to_owned()
+        } else {
+            format!("{clips} clips")
+        });
+    }
+    if parts.is_empty() {
+        run.capture.id.clone()
+    } else {
+        parts.join(" · ")
+    }
+}
+
 /// The captures as a list, newest first, or `message` when there are none.
 #[component]
-pub async fn run_list(cx: &Cx, runs: &[&Run], message: &str) -> Result<impl View> {
+pub async fn run_list(
+    cx: &Cx,
+    runs: &[&Run],
+    message: &str,
+    #[default] hide_project: bool,
+) -> Result<impl View> {
     Ok(view! {
         if runs.is_empty() {
             empty(message: message)
@@ -121,7 +161,10 @@ pub async fn run_list(cx: &Cx, runs: &[&Run], message: &str) -> Result<impl View
                 for run in runs {
                     <li>
                         <a href=(format!("/run/{}", run.key))>
-                            <span class="run-title"><strong>(&run.scenario)</strong><small>(&run.project)</small></span>
+                            <span class="run-title">
+                                <strong>(&run.scenario)</strong>
+                                <small>(run_subtitle(run, hide_project))</small>
+                            </span>
                             <span class="run-state">
                                 badge(
                                     variant: if run.status == "blocked" { BadgeVariant::Destructive } else { BadgeVariant::Secondary },

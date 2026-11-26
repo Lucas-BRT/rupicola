@@ -1,4 +1,8 @@
-use crate::components::{display::empty, form::csrf};
+use crate::components::{
+    controls::{SelectOption, select_menu},
+    display::empty,
+    form::csrf,
+};
 use crate::{Account, auth::Role, project::AccessItem};
 use rupicola_api::RecaptureSettings;
 use topcoat::{
@@ -18,6 +22,10 @@ pub async fn settings_tab(
     capture: RecaptureSettings,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
+    let role_options = [
+        SelectOption::new("reader", "Reader"),
+        SelectOption::new("reviewer", "Reviewer"),
+    ];
     Ok(view! {
         <h2>"Access & publication"</h2>
         if role != Role::Owner {
@@ -33,9 +41,15 @@ pub async fn settings_tab(
                     <form method="post" action=(format!("{base}/settings")) class="stack-form">
                         csrf(token: &account.csrf)
                         <input type="hidden" name="action" value="invite">
-                        <label for="role">"Invitation role"</label>
-                        <select name="value" id="role"><option value="reader">"Reader"</option><option value="reviewer">"Reviewer"</option></select>
-                        <button class="button" type="submit">"Create invitation"</button>
+                        <label for="role-trigger">"Invitation role"</label>
+                        select_menu(
+                            id: "role",
+                            name: "value",
+                            label: "Invitation role",
+                            selected: "reader",
+                            options: &role_options,
+                        )
+                        <button class="button primary" type="submit">"Create invitation"</button>
                     </form>
                 </section>
                 <section class="surface panel-padding">
@@ -49,7 +63,7 @@ pub async fn settings_tab(
                         </label>
                         <label for="base-ref">"Base Git ref"</label>
                         <input type="text" id="base-ref" name="base_ref" value=(&capture.base_ref) maxlength="200" required="">
-                        <button class="button" type="submit">"Save capture settings"</button>
+                        <button class="button primary" type="submit">"Save capture settings"</button>
                     </form>
                 </section>
             </div>
@@ -75,7 +89,7 @@ async fn member_row(cx: &Cx, action: String, token: &str, item: &AccessItem) -> 
             <input type="hidden" name="action" value="revoke-member">
             <input type="hidden" name="value" value=(&item.key)>
             <span><strong>(&item.label)</strong><small>(&item.detail)</small></span>
-            <button class="button" type="submit">"Remove"</button>
+            <button class="button button-danger" type="submit">"Remove"</button>
         </form>
     })
 }

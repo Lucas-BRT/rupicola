@@ -1,11 +1,12 @@
 use super::{AssetOption, Cx, FixRecord, FixStatus, Problem, Role, badge, fix_status_badge, view};
 use crate::Account;
 use crate::components::{
-    display::{chip, counts, kind_label, metric, moment},
+    controls::{SelectOption, select_menu},
+    display::{chip, counts, kind_label, link_button, metric, moment},
     form::{csrf, field, select_field, stack_form, text_area},
 };
 use crate::project::Filter;
-use crate::records::ComparisonPair;
+use crate::records::{ComparisonPair, EvidenceAsset};
 use rupicola_api::{Job, JobStatus};
 use topcoat::{
     Result,
@@ -41,10 +42,24 @@ pub async fn fixes_tab(
             .filter(|f| f.status == FixStatus::ChangesRequested)
             .count();
 
-        let filtered: Vec<&FixRecord> = fixes
-            .iter()
-            .filter(|f| status_filter.is_empty() || f.status.as_str() == status_filter)
-            .collect();
+        let sort_key = filter.sort_key();
+        let filtered: Vec<&FixRecord> = {
+            let mut list: Vec<&FixRecord> = fixes
+                .iter()
+                .filter(|f| status_filter.is_empty() || f.status.as_str() == status_filter)
+                .collect();
+            match sort_key {
+                "oldest" => list.sort_by_key(|f| f.created_at_ms),
+                "title" => list.sort_by(|a, b| {
+                    a.title
+                        .to_lowercase()
+                        .cmp(&b.title.to_lowercase())
+                        .then_with(|| b.created_at_ms.cmp(&a.created_at_ms))
+                }),
+                _ => list.sort_by_key(|f| std::cmp::Reverse(f.created_at_ms)),
+            }
+            list
+        };
 
         counts(label: "Fixes overview",
             metric(href: format!("{base}/fixes?status=pending-review"), value: pending_count, featured: pending_count > 0, arrow: false, "Pending approval")
@@ -54,34 +69,79 @@ pub async fn fixes_tab(
         if role != Role::Reader {
             record_form(base: base, token: &account.csrf, problems: &problems, assets: &assets)
         }
-        <div class="propose-toolbar">
-            <p class="muted">(filtered.len()) " recorded fixes with Before/After evidence"</p>
-            <form class="filters" method="get" action=(format!("{base}/fixes"))>
-                <label for="f-status">"Status"</label>
-                <select id="f-status" name="status">
-                    <option value="">"All fixes"</option>
-                    for st in FixStatus::ALL {
-                        <option value=(st.as_str()) if status_filter == st.as_str() { selected="" }>(st.label())</option>
-                    }
-                </select>
-                <button class="button" type="submit">"Filter"</button>
-            </form>
-        </div>
-        if filtered.is_empty() {
-            <section class="empty">
-                <h2>"No fixes recorded yet"</h2>
-                <p>"When a problem from the Problems queue is fixed and re-captured, its Before/After comparison and intermediate steps appear here."</p>
-            </section>
-        } else {
-            <div class="fixes-list">
-                for fix in &filtered {
-                    let fix_job = open_jobs
-                        .iter()
-                        .find(|j| j.fix.as_deref() == Some(fix.id.as_str()));
-                    fix_card(fix: fix, base: base, role: role, token: &account.csrf, job: fix_job)
+        <div id="fixes-region" class="skel-stack">
+            fixes_toolbar(base: base, shown: filtered.len(), status_filter: status_filter, sort_key: sort_key)
+            <div data-swap-body="rows">
+                if filtered.is_empty() {
+                    <section class="empty">
+                        <h2>"No fixes recorded yet"</h2>
+                        <p>"When a problem from the Problems queue is fixed and re-captured, its Before/After comparison and intermediate steps appear here."</p>
+                    </section>
+                } else {
+                    <div class="fixes-list">
+                        for fix in &filtered {
+                            let fix_job = open_jobs
+                                .iter()
+                                .find(|j| j.fix.as_deref() == Some(fix.id.as_str()));
+                            let baseline = if fix.comparisons.is_empty() {
+                                linked_baseline_first(fix, &problems)
+                            } else {
+                                None
+                            };
+                            fix_card(fix: fix, base: base, job: fix_job, baseline: baseline)
+                        }
+                    </div>
                 }
             </div>
-        }
+        </div>
+    })
+}
+
+#[component]
+async fn fixes_toolbar(
+    cx: &Cx,
+    base: &str,
+    shown: usize,
+    status_filter: &str,
+    sort_key: &str,
+) -> Result<impl View> {
+    let fix_status_options: Vec<SelectOption> = std::iter::once(SelectOption::new("", "All fixes"))
+        .chain(
+            FixStatus::ALL
+                .iter()
+                .map(|st| SelectOption::new(st.as_str(), st.label())),
+        )
+        .collect();
+    let fix_sort_options = [
+        SelectOption::new("newest", "Newest first"),
+        SelectOption::new("oldest", "Oldest first"),
+        SelectOption::new("title", "Title A–Z"),
+    ];
+    Ok(view! {
+        <div class="propose-toolbar">
+            <p class="muted" data-swap-meta="count">(shown) " recorded fixes with Before/After evidence"</p>
+            <form class="filters" method="get" action=(format!("{base}/fixes")) data-swap-target="fixes-region">
+                select_menu(
+                    id: "f-status",
+                    name: "status",
+                    label: "Filter fixes by status",
+                    selected: status_filter,
+                    options: &fix_status_options,
+                    auto_submit: true,
+                    compact: true,
+                )
+                select_menu(
+                    id: "f-sort",
+                    name: "sort",
+                    label: "Sort fixes",
+                    selected: sort_key,
+                    options: &fix_sort_options,
+                    auto_submit: true,
+                    compact: true,
+                )
+                <noscript><button class="button" type="submit">"Filter"</button></noscript>
+            </form>
+        </div>
     })
 }
 
@@ -146,16 +206,27 @@ async fn record_form(
     })
 }
 
-/// One fix: its labels, comparison, tactics, steps, reviews and review controls.
+fn linked_baseline_first<'a>(
+    fix: &FixRecord,
+    problems: &'a [Problem],
+) -> Option<&'a EvidenceAsset> {
+    problems
+        .iter()
+        .filter(|p| fix.problem_ids.contains(&p.id))
+        .flat_map(|p| p.evidence_assets.iter())
+        .next()
+}
+
+/// One fix in the list: minimal scannable summary linking to its detail page.
 #[component]
 async fn fix_card(
     cx: &Cx,
     fix: &FixRecord,
     base: &str,
-    role: Role,
-    token: &str,
     job: Option<&Job>,
+    baseline: Option<&EvidenceAsset>,
 ) -> Result<impl View> {
+    let detail_href = format!("{base}/fixes/{}", fix.id);
     let job_text = job.map(|j| {
         if j.status == JobStatus::Queued {
             "Queued for recapture".to_owned()
@@ -163,7 +234,92 @@ async fn fix_card(
             format!("Recapturing · {}/{}", j.cells_done, j.cells_total)
         }
     });
+    let summary_meta = format!("{} steps · {} reviews", fix.steps.len(), fix.reviews.len());
     Ok(view! {
+        <article class="surface fix-card problem-card-compact" id=(format!("fix-{}", fix.id)) data-fix-card=(&fix.id)>
+            <header class="propose-head">
+                <div>
+                    <div class="propose-badges">
+                        badge(variant: fix_status_badge(fix.status), (fix.status.label()))
+                        <span class="fix-job-badge" data-fix-job-badge=(&fix.id) if job_text.is_none() { hidden="" }>(job_text.as_deref().unwrap_or(""))</span>
+                    </div>
+                    <h2>
+                        <a class="problem-title-link" href=(&detail_href) data-nav-partial="">(&fix.title)</a>
+                    </h2>
+                    <p class="muted problem-summary-meta">(&fix.summary)</p>
+                    <p class="muted problem-summary-meta">(summary_meta)</p>
+                </div>
+                <div class="review-actions">
+                    link_button(href: &detail_href, "Compare ↗")
+                </div>
+            </header>
+            if let Some(pair) = fix.comparisons.first() {
+                let after = effective_after_url(fix, pair);
+                let before_video = is_video_url(&pair.before_url);
+                let after_video = is_video_url(&after);
+                <a class="fix-preview-strip" href=(&detail_href) data-nav-partial="" aria-label=(format!("Compare before and after for {}", fix.title))>
+                    <div class="fix-preview-thumb">
+                        if before_video {
+                            <video src=(&pair.before_url) muted="" playsinline="" preload="metadata"></video>
+                        } else {
+                            <img src=(&pair.before_url) alt="Before fix preview" loading="lazy">
+                        }
+                        <span class="split-tag tag-before">"BEFORE"</span>
+                    </div>
+                    <div class="fix-preview-thumb">
+                        if after_video {
+                            <video src=(&after) muted="" playsinline="" preload="metadata"></video>
+                        } else {
+                            <img src=(&after) alt="After fix preview" loading="lazy">
+                        }
+                        <span class="split-tag tag-after">"AFTER"</span>
+                    </div>
+                </a>
+            } else if let Some(ev) = baseline {
+                let before_video = is_video_url(&ev.url);
+                <a class="fix-preview-strip" href=(&detail_href) data-nav-partial="" aria-label=(format!("Inspect baseline evidence for {}", fix.title))>
+                    <div class="fix-preview-thumb">
+                        if before_video {
+                            <video src=(&ev.url) muted="" playsinline="" preload="metadata"></video>
+                        } else {
+                            <img src=(&ev.url) alt=(format!("Before fix baseline: {}", ev.label)) loading="lazy">
+                        }
+                        <span class="split-tag tag-before">"BEFORE"</span>
+                    </div>
+                    <div class="fix-preview-thumb fix-preview-pending">
+                        <span class="split-tag tag-after">"AFTER"</span>
+                        <span class="muted">"Awaiting after capture"</span>
+                    </div>
+                </a>
+            }
+        </article>
+    })
+}
+
+/// Full detail page for a single fix (`/projects/{project}/fixes/{fix}`).
+#[component]
+pub async fn fix_detail(
+    cx: &Cx,
+    role: Role,
+    base: &str,
+    fix: FixRecord,
+    job: Option<Job>,
+    baseline: Vec<EvidenceAsset>,
+) -> Result<impl View> {
+    let account = context::<Account>(cx);
+    let token = &account.csrf;
+    let job_text = job.as_ref().map(|j| {
+        if j.status == JobStatus::Queued {
+            "Queued for recapture".to_owned()
+        } else {
+            format!("Recapturing · {}/{}", j.cells_done, j.cells_total)
+        }
+    });
+    Ok(view! {
+        <div class="propose-toolbar">
+            <a class="button button-ghost" href=(format!("{base}/fixes")) data-nav-partial="">"← All fixes"</a>
+            moment(epoch_ms: fix.created_at_ms)
+        </div>
         <article class="surface fix-card" id=(format!("fix-{}", fix.id)) data-fix-card=(&fix.id)>
             <header class="propose-head">
                 <div>
@@ -171,7 +327,7 @@ async fn fix_card(
                         badge(variant: fix_status_badge(fix.status), (fix.status.label()))
                         <span class="fix-job-badge" data-fix-job-badge=(&fix.id) if job_text.is_none() { hidden="" }>(job_text.as_deref().unwrap_or(""))</span>
                         for pid in &fix.problem_ids {
-                            <a class="tactic-chip" href=(format!("{base}/problems#problem-{pid}"))>"Problem #" (pid.chars().take(10).collect::<String>()) " ↗"</a>
+                            <a class="tactic-chip" href=(format!("{base}/problems/{pid}")) data-nav-partial="">"Problem #" (pid.chars().take(10).collect::<String>()) " ↗"</a>
                         }
                         for file in &fix.modified_files {
                             <code class="tactic-chip">(file)</code>
@@ -180,10 +336,15 @@ async fn fix_card(
                     <h2>(&fix.title)</h2>
                     <p class="muted">(&fix.summary)</p>
                 </div>
-                moment(epoch_ms: fix.created_at_ms)
             </header>
             if let Some(pair) = fix.comparisons.first() {
-                comparator(fix: fix, pair: pair)
+                comparator(fix: &fix, pair: pair)
+            } else if !baseline.is_empty() {
+                baseline_stage(baseline: &baseline)
+            } else {
+                <div class="empty">
+                    <p class="muted">"No before/after capture pair attached to this fix yet."</p>
+                </div>
             }
             if !fix.tactics.is_empty() {
                 <div class="tactic-chips">
@@ -233,6 +394,34 @@ async fn fix_card(
                 </footer>
             }
         </article>
+    })
+}
+
+#[component]
+async fn baseline_stage(cx: &Cx, baseline: &[EvidenceAsset]) -> Result<impl View> {
+    Ok(view! {
+        <section class="fix-comparator" aria-label="Baseline capture evidence">
+            <div class="stage-bar">
+                <span class="tactic-chip">"Baseline evidence from linked problem (BEFORE)"</span>
+                <span class="tactic-chip">"Awaiting AFTER capture to enable Split Slider"</span>
+            </div>
+            <div class="compare-side">
+                for ev in baseline.iter().take(4) {
+                    let is_vid = is_video_url(&ev.url);
+                    <figure class="checkpoint">
+                        if is_vid {
+                            <video src=(&ev.url) controls="" autoplay="" loop="" muted="" playsinline=""></video>
+                        } else {
+                            <img src=(&ev.url) alt=(format!("Baseline before fix: {}", ev.label))>
+                        }
+                        <figcaption>
+                            "BEFORE · " (&ev.label)
+                            " · " <a href=(format!("/run/{}", ev.run_key))>"Open capture ↗"</a>
+                        </figcaption>
+                    </figure>
+                }
+            </div>
+        </section>
     })
 }
 

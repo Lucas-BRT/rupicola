@@ -260,7 +260,9 @@ pub async fn fixes(cx: &Cx, project: &str) -> PageResult<Vec<FixRecord>> {
         .await
         .as_ref()
         .map_err(|e| *e)?;
-    Ok(detailed.iter().cloned().map(fix_of).collect())
+    let mut list: Vec<FixRecord> = detailed.iter().cloned().map(fix_of).collect();
+    list.sort_by_key(|fix| std::cmp::Reverse(fix.created_at_ms));
+    Ok(list)
 }
 
 /// Every problem of `project`, most recently updated first. `fixes` says which fix each
@@ -285,14 +287,16 @@ pub async fn problems(
             linked.entry(problem).or_insert(&fix.id);
         }
     }
-    Ok(detailed
+    let mut list: Vec<Problem> = detailed
         .iter()
         .cloned()
         .map(|problem| {
             let fix = linked.get(&problem.id).copied();
             problem_of(problem, assets, fix)
         })
-        .collect())
+        .collect();
+    list.sort_by_key(|problem| std::cmp::Reverse(problem.created_at_ms));
+    Ok(list)
 }
 
 /// The design records of `project`, newest first.
@@ -301,7 +305,9 @@ pub async fn problems(
 ///
 /// The status of a failed call to the backend.
 pub async fn design(cx: &Cx, project: &str) -> PageResult<Vec<DesignEntry>> {
-    backend::design(cx, project).await.clone()
+    let mut entries = backend::design(cx, project).await.clone()?;
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.created_at));
+    Ok(entries)
 }
 
 #[cfg(test)]

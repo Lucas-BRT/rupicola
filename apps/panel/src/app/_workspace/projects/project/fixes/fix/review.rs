@@ -59,7 +59,5 @@ pub async fn review_fix_action(
         .review_fix(&account.session, &fix_id, &review)
         .await
         .map_err(|e| auth::api_error(&e))?;
-    Ok(redirect(&format!(
-        "/projects/{project_id}/fixes#fix-{fix_id}"
-    )))
+    Ok(redirect(&format!("/projects/{project_id}/fixes/{fix_id}")))
 }

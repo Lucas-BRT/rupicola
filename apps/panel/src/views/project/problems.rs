@@ -4,6 +4,7 @@ use super::{
 };
 use crate::Account;
 use crate::components::{
+    controls::{SelectOption, select_menu},
     display::{chip, counts, kind_label, link_button, metric, moment},
     form::{csrf, field, select_field, stack_form, text_area},
 };
@@ -60,17 +61,36 @@ pub async fn problems_tab(
             .filter(|p| p.status == ProblemStatus::Resolved)
             .count();
 
-        let filtered: Vec<&Problem> = problems
-            .iter()
-            .filter(|p| {
-                (status_filter.is_empty() || p.status.as_str() == status_filter)
-                    && (severity_filter.is_empty() || p.severity.as_str() == severity_filter)
-                    && (q.is_empty()
-                        || p.title.to_lowercase().contains(&q)
-                        || p.diagnosis.to_lowercase().contains(&q)
-                        || p.route.to_lowercase().contains(&q))
-            })
-            .collect();
+        let sort_key = filter.sort_key();
+        let filtered: Vec<&Problem> = {
+            let mut list: Vec<&Problem> = problems
+                .iter()
+                .filter(|p| {
+                    (status_filter.is_empty() || p.status.as_str() == status_filter)
+                        && (severity_filter.is_empty() || p.severity.as_str() == severity_filter)
+                        && (q.is_empty()
+                            || p.title.to_lowercase().contains(&q)
+                            || p.diagnosis.to_lowercase().contains(&q)
+                            || p.route.to_lowercase().contains(&q))
+                })
+                .collect();
+            match sort_key {
+                "oldest" => list.sort_by_key(|p| p.created_at_ms),
+                "severity" => {
+                    list.sort_by_key(|p| {
+                        let rank = match p.severity {
+                            Severity::Critical => 0_u8,
+                            Severity::Major => 1,
+                            Severity::Minor => 2,
+                            Severity::Polish => 3,
+                        };
+                        (rank, std::cmp::Reverse(p.created_at_ms))
+                    });
+                }
+                _ => list.sort_by_key(|p| std::cmp::Reverse(p.created_at_ms)),
+            }
+            list
+        };
 
         counts(label: "Problem triage counts",
             metric(href: format!("{base}/problems?status=open"), value: open_count, featured: open_count > 0, arrow: false, "Open / Needs reprocess")
@@ -80,19 +100,23 @@ pub async fn problems_tab(
         if role != Role::Reader {
             report_form(base: base, token: &account.csrf, prefill_asset: prefill_asset, prefill_name: prefill_name, assets: &assets, design_entries: &design_entries)
         }
-        problem_toolbar(base: base, shown: filtered.len(), status_filter: status_filter, severity_filter: severity_filter)
-        if filtered.is_empty() {
-            <section class="empty">
-                <h2>"No problems match this filter"</h2>
-                <p>"Extract problems from a research capture run in Captures or report a visual issue above."</p>
-            </section>
-        } else {
-            <div class="problem-queue">
-                for item in &filtered {
-                    problem_card(item: item, base: base, role: role, token: &account.csrf)
+        <div id="problems-region" class="skel-stack">
+            problem_toolbar(base: base, shown: filtered.len(), status_filter: status_filter, severity_filter: severity_filter, query: filter.q.as_deref().unwrap_or(""), sort: sort_key, can_report: role != Role::Reader)
+            <div data-swap-body="rows">
+                if filtered.is_empty() {
+                    <section class="empty">
+                        <h2>"No problems match this filter"</h2>
+                        <p>"Extract problems from a research capture run in Captures or report a visual issue above."</p>
+                    </section>
+                } else {
+                    <div class="problem-queue">
+                        for item in &filtered {
+                            problem_card(item: item, base: base)
+                        }
+                    </div>
                 }
             </div>
-        }
+        </div>
         image_viewer()
     })
 }
@@ -109,8 +133,11 @@ async fn report_form(
     design_entries: &[DesignEntry],
 ) -> Result<impl View> {
     Ok(view! {
-        <details class="surface panel-padding design-editor" if !prefill_asset.is_empty() { open="" }>
-            <summary>"Report or register a problem from captures"</summary>
+        <dialog id="report-problem-modal" class="panel-modal" aria-labelledby="report-problem-title" if !prefill_asset.is_empty() { data-auto-open="" }>
+            <div class="panel-modal-head">
+                <h2 id="report-problem-title">"Report problem"</h2>
+                <form method="dialog"><button class="button" type="submit">"Close"</button></form>
+            </div>
             stack_form(action: format!("{base}/problems/create"), token: token,
                 <label for="prob-title">"Problem title"</label>
                 <input id="prob-title" name="title" required="" maxlength="200"
@@ -169,7 +196,7 @@ async fn report_form(
                     attrs: attributes! { required="" rows="3" maxlength="2000" placeholder="Concrete CSS/HTML/state fix to apply…" })
                 <button class="button primary" type="submit">"Add problem to queue"</button>
             )
-        </details>
+        </dialog>
     })
 }
 
@@ -181,56 +208,167 @@ async fn problem_toolbar(
     shown: usize,
     status_filter: &str,
     severity_filter: &str,
+    query: &str,
+    sort: &str,
+    can_report: bool,
 ) -> Result<impl View> {
+    let mut status_options = vec![SelectOption::new("", "All statuses")];
+    status_options.extend(
+        ProblemStatus::ALL
+            .iter()
+            .map(|st| SelectOption::new(st.as_str(), st.label())),
+    );
+    let mut severity_options = vec![SelectOption::new("", "All severities")];
+    severity_options.extend(
+        Severity::ALL
+            .iter()
+            .map(|sev| SelectOption::new(sev.as_str(), sev.label())),
+    );
+    let sort_options = [
+        SelectOption::new("newest", "Newest first"),
+        SelectOption::new("oldest", "Oldest first"),
+        SelectOption::new("severity", "Highest severity"),
+    ];
     Ok(view! {
         <div class="propose-toolbar">
-            <p class="muted">
-                (shown) " problems in queue · "
-                "triage states persist for CLI & agent sessions"
-            </p>
-            <form class="filters" method="get" action=(format!("{base}/problems"))>
-                <label for="p-status">"Status"</label>
-                <select id="p-status" name="status">
-                    <option value="">"All statuses"</option>
-                    for st in ProblemStatus::ALL {
-                        <option value=(st.as_str()) if status_filter == st.as_str() { selected="" }>(st.label())</option>
-                    }
-                </select>
-                <label for="p-sev">"Severity"</label>
-                <select id="p-sev" name="kind">
-                    <option value="">"All severities"</option>
-                    for sev in Severity::ALL {
-                        <option value=(sev.as_str()) if severity_filter == sev.as_str() { selected="" }>(sev.label())</option>
-                    }
-                </select>
+            <div class="toolbar-lead">
+                <p class="muted" data-swap-meta="count">
+                    (shown) (if shown == 1 { " problem" } else { " problems" })
+                </p>
+                if can_report {
+                    <button class="button primary" type="button" data-modal-open="report-problem-modal">"+ Report problem"</button>
+                }
+            </div>
+            <form class="filters" method="get" action=(format!("{base}/problems")) data-swap-target="problems-region">
+                select_menu(
+                    id: "p-status",
+                    name: "status",
+                    label: "Filter by status",
+                    selected: status_filter,
+                    options: &status_options,
+                    auto_submit: true,
+                    compact: true,
+                )
+                select_menu(
+                    id: "p-sev",
+                    name: "kind",
+                    label: "Filter by severity",
+                    selected: severity_filter,
+                    options: &severity_options,
+                    auto_submit: true,
+                    compact: true,
+                )
+                select_menu(
+                    id: "p-sort",
+                    name: "sort",
+                    label: "Sort problems",
+                    selected: sort,
+                    options: &sort_options,
+                    auto_submit: true,
+                    compact: true,
+                )
+                <label class="sr-only" for="p-q">"Search problems"</label>
+                <input id="p-q" name="q" type="search" maxlength="100" value=(query) placeholder="Title, route…">
                 <button class="button" type="submit">"Filter"</button>
             </form>
         </div>
     })
 }
 
-/// One problem: its labels, evidence, rules, diagnosis, discussion and triage controls.
+fn problem_meta(item: &Problem) -> String {
+    [item.route.trim(), item.viewport.trim(), item.theme.trim()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 #[component]
-async fn problem_card(
-    cx: &Cx,
-    item: &Problem,
-    base: &str,
-    role: Role,
-    token: &str,
-) -> Result<impl View> {
+async fn problem_analysis(cx: &Cx, diagnosis: &str, solution: &str) -> Result<impl View> {
+    let has_diagnosis = !diagnosis.trim().is_empty();
+    let has_solution = !solution.trim().is_empty();
     Ok(view! {
+        if has_diagnosis || has_solution {
+            <div class="problem-analysis-grid">
+                if has_diagnosis {
+                    <div class="problem-box">
+                        kind_label("DIAGNOSIS")
+                        <p>(diagnosis)</p>
+                    </div>
+                }
+                if has_solution {
+                    <div class="problem-box solution-box">
+                        kind_label("PROPOSED SOLUTION")
+                        <p>(solution)</p>
+                    </div>
+                }
+            </div>
+        }
+    })
+}
+
+/// One problem in the list: minimal scannable summary linking to its detail page.
+#[component]
+async fn problem_card(cx: &Cx, item: &Problem, base: &str) -> Result<impl View> {
+    let detail_href = format!("{base}/problems/{}", item.id);
+    let ev_count = item.evidence_assets.len();
+    let comment_count = item.comments.len();
+    let summary_meta = match (ev_count, comment_count) {
+        (0, 0) => String::new(),
+        (e, 0) => format!("{e} evidence"),
+        (0, c) => format!("{c} comments"),
+        (e, c) => format!("{e} evidence · {c} comments"),
+    };
+    Ok(view! {
+        <article class="surface problem-card problem-card-compact" id=(format!("problem-{}", item.id)) data-problem-card=(&item.id)>
+            <header class="propose-head">
+                <div>
+                    <div class="propose-badges">
+                        badge(variant: severity_badge(item.severity), (item.severity.label()))
+                        badge(variant: problem_status_badge(item.status), (item.status.label()))
+                    </div>
+                    <h2>
+                        <a class="problem-title-link" href=(&detail_href) data-nav-partial="">(&item.title)</a>
+                    </h2>
+                    if !summary_meta.is_empty() {
+                        <p class="muted problem-summary-meta">(summary_meta)</p>
+                    }
+                </div>
+                <div class="review-actions">
+                    if let Some(fid) = &item.linked_fix_id {
+                        link_button(href: format!("{base}/fixes#fix-{fid}"), "Fix ↗")
+                    }
+                    link_button(href: &detail_href, "Details ↗")
+                </div>
+            </header>
+        </article>
+    })
+}
+
+/// Full detail page for a single problem (`/projects/{project}/problems/{problem}`).
+#[component]
+pub async fn problem_detail(cx: &Cx, role: Role, base: &str, item: Problem) -> Result<impl View> {
+    let account = context::<Account>(cx);
+    let token = &account.csrf;
+    let meta_chip = problem_meta(&item);
+    Ok(view! {
+        <div class="propose-toolbar">
+            <a class="button button-ghost" href=(format!("{base}/problems")) data-nav-partial="">"← All problems"</a>
+            moment(epoch_ms: item.created_at_ms)
+        </div>
         <article class="surface problem-card" id=(format!("problem-{}", item.id)) data-problem-card=(&item.id)>
             <header class="propose-head">
                 <div>
                     <div class="propose-badges">
                         badge(variant: severity_badge(item.severity), (item.severity.label()))
                         badge(variant: problem_status_badge(item.status), (item.status.label()))
-                        chip((&item.route) " · " (&item.viewport) " · " (&item.theme))
+                        if !meta_chip.is_empty() {
+                            chip((meta_chip))
+                        }
                         chip((item.origin.label()))
                     </div>
                     <h2>(&item.title)</h2>
                 </div>
-                moment(epoch_ms: item.created_at_ms)
             </header>
             if !item.evidence_assets.is_empty() {
                 <div class="problem-evidence-strip">
@@ -242,24 +380,17 @@ async fn problem_card(
                     }
                 </div>
             }
-            <div class="problem-rules">
-                for violation in &item.violated_rules {
-                    <span class=(if violation.scope == "project" { "rule-chip project-rule" } else { "rule-chip global-rule" })>
-                        <strong>(if violation.scope == "project" { "Project Norm" } else { "Global Norm" })</strong>
-                        " · " (&violation.code) " — " (&violation.title)
-                    </span>
-                }
-            </div>
-            <div class="problem-analysis-grid">
-                <div class="problem-box">
-                    kind_label("DIAGNOSIS")
-                    <p>(&item.diagnosis)</p>
+            if !item.violated_rules.is_empty() {
+                <div class="problem-rules">
+                    for violation in &item.violated_rules {
+                        <span class=(if violation.scope == "project" { "rule-chip project-rule" } else { "rule-chip global-rule" })>
+                            <strong>(if violation.scope == "project" { "Project Norm" } else { "Global Norm" })</strong>
+                            " · " (&violation.code) " — " (&violation.title)
+                        </span>
+                    }
                 </div>
-                <div class="problem-box solution-box">
-                    kind_label("PROPOSED SOLUTION")
-                    <p>(&item.proposed_solution)</p>
-                </div>
-            </div>
+            }
+            problem_analysis(diagnosis: &item.diagnosis, solution: &item.proposed_solution)
             if !item.comments.is_empty() {
                 <ul class="problem-comments">
                     for c in &item.comments {
@@ -303,6 +434,7 @@ async fn problem_card(
                 }
             </footer>
         </article>
+        image_viewer()
     })
 }
 

@@ -15,6 +15,7 @@ mod videos;
 use crate::app::{_workspace::title, fail};
 use crate::{
     backend::Failure,
+    components::skeleton::overview_skeleton,
     project::{Context, ProjectMeta, Proof},
     records,
     views::project::{
@@ -28,7 +29,7 @@ use topcoat::{
     context::{Cx, memoize},
     metadata::Metadata,
     router::{Slot, layout, module_param, page, request},
-    view::{View, view},
+    view::{View, component, error_boundary, suspense, view},
 };
 
 module_param!(pub project);
@@ -70,7 +71,10 @@ async fn frame(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
         .ok()
         .cloned()
         .unwrap_or_default();
-    Ok(view! { project_frame(project: project, tab: tab, open_jobs: open_jobs, (slot)) })
+    let partial = crate::app::_workspace::is_partial(cx);
+    Ok(
+        view! { project_frame(project: project, tab: tab, open_jobs: open_jobs, partial: partial, (slot)) },
+    )
 }
 
 /// Recent captures listed on the overview.
@@ -78,6 +82,21 @@ const RECENT_CAPTURES: usize = 8;
 
 #[page(with(Metadata::from_fn(async |cx| tab_metadata(cx, Tab::Overview).await)))]
 async fn overview(cx: &Cx) -> Result<impl View> {
+    Ok(view! {
+        suspense(
+            fallback: view! { overview_skeleton() },
+            error_boundary(
+                fallback: |_| Ok(view! {
+                    <p class="notice" role="alert">"Project overview could not be loaded. Try again in a moment."</p>
+                }),
+                loaded_overview()
+            )
+        )
+    })
+}
+
+#[component]
+async fn loaded_overview(cx: &Cx) -> Result<impl View> {
     let project = current(cx).await.as_ref().map_err(|e| fail(*e))?;
     let id = &project.id;
     let related = project.related();

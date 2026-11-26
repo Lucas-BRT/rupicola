@@ -1,4 +1,7 @@
-use crate::components::form::{csrf, stack_form};
+use crate::components::{
+    controls::{SelectOption, select_menu},
+    form::{csrf, stack_form},
+};
 use crate::{Account, Panel};
 use std::sync::Arc;
 use topcoat::{
@@ -30,12 +33,24 @@ pub async fn settings_page(cx: &Cx) -> Result<impl View> {
 /// The theme choice, kept on the device.
 #[component]
 async fn appearance(cx: &Cx) -> Result<impl View> {
+    let themes = [
+        SelectOption::new("dark", "Dark"),
+        SelectOption::new("light", "Light"),
+        SelectOption::new("system", "System"),
+    ];
     Ok(view! {
         <section class="surface panel-padding">
             <h2>"Appearance"</h2>
             <div class="stack-form">
-                <label for="appearance">"Theme on this device"</label>
-                <select id="appearance" data-theme-choice=""><option value="dark">"Dark"</option><option value="light">"Light"</option><option value="system">"System"</option></select>
+                <label for="appearance-trigger">"Theme on this device"</label>
+                select_menu(
+                    id: "appearance",
+                    name: "theme",
+                    label: "Theme on this device",
+                    selected: "dark",
+                    options: &themes,
+                    theme_choice: true,
+                )
             </div>
         </section>
     })

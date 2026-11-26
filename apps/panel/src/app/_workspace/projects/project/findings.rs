@@ -12,5 +12,5 @@ use topcoat::{
 
 #[page(with(Metadata::from_fn(async |cx| tab_metadata(cx, Tab::Problems).await)))]
 async fn page(cx: &Cx) -> Result<impl View> {
-    super::problems::show(cx, parse_query_params(cx)?).await
+    Ok(super::problems::show(cx, parse_query_params(cx)?))
 }

@@ -1,5 +1,9 @@
 use crate::Account;
-use crate::components::{display::empty, form::stack_form};
+use crate::components::{
+    controls::{SelectOption, select_menu},
+    display::empty,
+    form::stack_form,
+};
 use std::collections::BTreeMap;
 use topcoat::{
     Result,
@@ -17,6 +21,8 @@ pub struct ProjectName {
 pub struct Projects {
     /// The search the visitor typed, as typed.
     pub query: String,
+    /// Selected sort order key.
+    pub sort: String,
     /// The search, trimmed and lower-cased.
     pub search: String,
     /// The projects that match.
@@ -31,6 +37,7 @@ pub struct Projects {
 pub async fn projects_page(cx: &Cx, data: &Projects) -> Result<impl View> {
     let Projects {
         query,
+        sort,
         search,
         visible,
         total,
@@ -39,20 +46,24 @@ pub async fn projects_page(cx: &Cx, data: &Projects) -> Result<impl View> {
     } = data;
     let account = context::<Account>(cx);
     Ok(view! {
-        <div class="page-title studio-heading">
-            <div>
-                <h1>"Projects"</h1>
-                <p class="muted">(visible.len()) " of " (total) (if *total == 1 { " project" } else { " projects" })</p>
+        <div id="projects-region">
+            <div class="page-title studio-heading">
+                <div>
+                    <h1>"Projects"</h1>
+                    <p class="muted" data-swap-meta="count">(visible.len()) " of " (total) (if *total == 1 { " project" } else { " projects" })</p>
+                </div>
+                search_form(query: query, sort: sort)
             </div>
-            search_form(query: query)
-        </div>
-        if visible.is_empty() {
-            empty(message: if search.is_empty() { "No projects yet." } else { "No projects match that search." })
-        }
-        <div class="project-index">
-            for ProjectName { id, label } in visible {
-                project_card(id: id, label: label, summary: summaries.get(id).map(String::as_str))
-            }
+            <div data-swap-body="cards">
+                if visible.is_empty() {
+                    empty(message: if search.is_empty() { "No projects yet." } else { "No projects match that search." })
+                }
+                <div class="project-index">
+                    for ProjectName { id, label } in visible {
+                        project_card(id: id, label: label, summary: summaries.get(id).map(String::as_str))
+                    }
+                </div>
+            </div>
         </div>
         if account.owner {
             new_project(token: &account.csrf, open: *empty_catalog)
@@ -62,11 +73,25 @@ pub async fn projects_page(cx: &Cx, data: &Projects) -> Result<impl View> {
 
 /// The project search box.
 #[component]
-async fn search_form(cx: &Cx, query: &str) -> Result<impl View> {
+async fn search_form(cx: &Cx, query: &str, sort: &str) -> Result<impl View> {
+    let sort_options = [
+        SelectOption::new("newest", "Newest first"),
+        SelectOption::new("oldest", "Oldest first"),
+        SelectOption::new("name", "Name A–Z"),
+    ];
     Ok(view! {
-        <form class="filters" method="get" action="/projects">
+        <form class="filters" method="get" action="/projects" data-swap-target="projects-region">
             <label for="q">"Search"</label>
-            <input type="search" id="q" name="q" value=(query) maxlength="100">
+            <input type="search" id="q" name="q" value=(query) maxlength="100" placeholder="Filter projects…">
+            select_menu(
+                id: "proj-sort",
+                name: "sort",
+                label: "Sort projects",
+                selected: sort,
+                options: &sort_options,
+                auto_submit: true,
+                compact: true,
+            )
             <button type="submit" class="button">"Search"</button>
         </form>
     })

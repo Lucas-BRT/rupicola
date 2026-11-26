@@ -6,6 +6,7 @@
 use super::{AssetOption, BadgeVariant, Cx, Problem, ProblemStatus, Role, Run, badge, view};
 use crate::Account;
 use crate::components::{
+    controls::{SegmentedOption, SelectOption, query_url, segmented_control, select_menu},
     display::{counts, empty, metric, moment, section_head, stat},
     form::csrf,
 };
@@ -55,42 +56,52 @@ pub async fn captures_tab(
             .flat_map(|p| p.evidence_assets.iter().map(|a| a.run_key.as_str()))
             .collect();
 
-        let filtered_runs: Vec<&Run> = runs
-            .iter()
-            .copied()
-            .filter(|r| {
-                let has_prob = problem_runs.contains(r.key.as_str()) || r.status == "blocked";
-                let matches_health = match health {
-                    "problems" => has_prob,
-                    "clean" => !has_prob && r.inspection == "reviewed",
-                    "unanalyzed" => r.inspection == "pending",
-                    _ => true,
-                };
-                matches_health && filter.accepts(r)
-            })
-            .collect();
+        let filtered_runs: Vec<&Run> = {
+            let mut list: Vec<&Run> = runs
+                .iter()
+                .copied()
+                .filter(|r| {
+                    let has_prob = problem_runs.contains(r.key.as_str()) || r.status == "blocked";
+                    let matches_health = match health {
+                        "problems" => has_prob,
+                        "clean" => !has_prob && r.inspection == "reviewed",
+                        "unanalyzed" => r.inspection == "pending",
+                        _ => true,
+                    };
+                    matches_health && filter.accepts(r)
+                })
+                .collect();
+            filter.sort_runs(&mut list);
+            list
+        };
 
-        let filtered_assets: Vec<&AssetOption> = assets
-            .iter()
-            .filter(|a| {
-                let has_prob =
-                    problem_urls.contains(a.url.as_str()) || problem_runs.contains(a.run_key.as_str());
-                let matches_health = match health {
-                    "problems" => has_prob,
-                    "clean" => !has_prob,
-                    _ => true,
-                };
-                let matches_view = match subview {
-                    "images" => a.kind != "Recording",
-                    "videos" => a.kind == "Recording",
-                    _ => true,
-                };
-                let matches_q = q.is_empty()
-                    || a.name.to_lowercase().contains(&q)
-                    || a.scenario.to_lowercase().contains(&q);
-                matches_health && matches_view && matches_q
-            })
-            .collect();
+        let filtered_assets: Vec<&AssetOption> = {
+            let mut list: Vec<&AssetOption> = assets
+                .iter()
+                .filter(|a| {
+                    let has_prob = problem_urls.contains(a.url.as_str())
+                        || problem_runs.contains(a.run_key.as_str());
+                    let matches_health = match health {
+                        "problems" => has_prob,
+                        "clean" => !has_prob,
+                        _ => true,
+                    };
+                    let matches_view = match subview {
+                        "images" => a.kind != "Recording",
+                        "videos" => a.kind == "Recording",
+                        _ => true,
+                    };
+                    let matches_q = q.is_empty()
+                        || a.name.to_lowercase().contains(&q)
+                        || a.scenario.to_lowercase().contains(&q);
+                    matches_health && matches_view && matches_q
+                })
+                .collect();
+            if filter.sort_key() == "oldest" {
+                list.reverse();
+            }
+            list
+        };
 
         let open_problems = problems
             .iter()
@@ -107,37 +118,41 @@ pub async fn captures_tab(
             stat(value: assets.len(), "Visual assets (shots & clips)")
             metric(href: format!("{base}/problems"), value: open_problems, featured: open_problems > 0, "Problems identified")
         )
-        capture_toolbar(base: base, subview: subview, health: health, query: filter.q.as_deref().unwrap_or(""))
-        if subview == "all" || subview == "runs" {
-            <section class="surface captures-ledger">
-                section_head(title: format!("Research runs ({})", filtered_runs.len()))
-                if filtered_runs.is_empty() {
-                    empty(message: "No capture runs match this filter.")
-                } else {
-                    <ul class="run-list">
-                        for run in &filtered_runs {
-                            <li>
-                                run_row(run: run, base: base, problem_runs: &problem_runs, can_extract: role != Role::Reader, token: &account.csrf)
-                            </li>
+        <div id="captures-region" class="skel-stack">
+            capture_toolbar(base: base, subview: subview, health: health, query: filter.q.as_deref().unwrap_or(""), sort: filter.sort_key())
+            <div class="skel-stack" data-swap-body="rows">
+                if subview == "all" || subview == "runs" {
+                    <section class="surface captures-ledger">
+                        section_head(title: format!("Research runs ({})", filtered_runs.len()))
+                        if filtered_runs.is_empty() {
+                            empty(message: "No capture runs match this filter.")
+                        } else {
+                            <ul class="run-list">
+                                for run in &filtered_runs {
+                                    <li>
+                                        run_row(run: run, base: base, problem_runs: &problem_runs, can_extract: role != Role::Reader, token: &account.csrf)
+                                    </li>
+                                }
+                            </ul>
                         }
-                    </ul>
+                    </section>
                 }
-            </section>
-        }
-        if subview != "runs" {
-            <section class="captures-ledger">
-                section_head(title: format!("Captured visual assets ({})", filtered_assets.len()))
-                if filtered_assets.is_empty() {
-                    empty(message: "No visual assets match this filter.")
-                } else {
-                    <div class="gallery image-gallery">
-                        for (index, item) in filtered_assets.iter().take(120).enumerate() {
-                            asset_card(item: item, index: index, base: base, problem_urls: &problem_urls, can_flag: role != Role::Reader)
+                if subview != "runs" {
+                    <section class="captures-ledger">
+                        section_head(title: format!("Captured visual assets ({})", filtered_assets.len()))
+                        if filtered_assets.is_empty() {
+                            empty(message: "No visual assets match this filter.")
+                        } else {
+                            <div class="gallery image-gallery">
+                                for (index, item) in filtered_assets.iter().take(120).enumerate() {
+                                    asset_card(item: item, index: index, base: base, problem_urls: &problem_urls, can_flag: role != Role::Reader)
+                                }
+                            </div>
                         }
-                    </div>
+                    </section>
                 }
-            </section>
-        }
+            </div>
+        </div>
         if !filtered_assets.is_empty() {
             image_dialog()
         }
@@ -152,31 +167,92 @@ async fn capture_toolbar(
     subview: &str,
     health: &str,
     query: &str,
+    sort: &str,
 ) -> Result<impl View> {
+    let captures_url = format!("{base}/captures");
+    let sort_param = if sort == "newest" { "" } else { sort };
+    let view_tabs = [
+        ("all", "All research"),
+        ("runs", "Matrix runs"),
+        ("images", "Screenshots"),
+        ("videos", "Clips"),
+    ]
+    .into_iter()
+    .map(|(slug, label)| {
+        let view_param = if slug == "all" { "" } else { slug };
+        let href = query_url(
+            &captures_url,
+            &[
+                ("view", view_param),
+                ("health", health),
+                ("q", query),
+                ("sort", sort_param),
+            ],
+        );
+        SegmentedOption::new(label, href, subview == slug)
+    })
+    .collect::<Vec<_>>();
+    let health_options = [
+        SelectOption::new("", "All captured screens"),
+        SelectOption::new("clean", "Clean / verified only"),
+        SelectOption::new("problems", "With problems only"),
+        SelectOption::new("unanalyzed", "Unanalyzed"),
+    ];
+    let sort_options = [
+        SelectOption::new("newest", "Newest first"),
+        SelectOption::new("oldest", "Oldest first"),
+        SelectOption::new("scenario", "Scenario A–Z"),
+        SelectOption::new("findings", "Most findings"),
+    ];
     Ok(view! {
         <div class="propose-toolbar">
-            <div class="stage-viewports" role="group" aria-label="Capture view">
-                for (slug, label) in [("all", "All research"), ("runs", "Matrix runs"), ("images", "Screenshots & sheets"), ("videos", "Interaction clips")] {
-                    <a class=(if subview == slug { "button primary" } else { "button" })
-                       href=(format!("{base}/captures?view={slug}&health={health}&q={query}"))>
-                        (label)
-                    </a>
-                }
-            </div>
-            <form class="filters" method="get" action=(format!("{base}/captures"))>
-                <input type="hidden" name="view" value=(subview)>
-                <label for="cap-health">"Screen health"</label>
-                <select id="cap-health" name="health">
-                    for (val, text) in [("", "All captured screens"), ("clean", "Clean / verified only"), ("problems", "With problems only"), ("unanalyzed", "Unanalyzed")] {
-                        <option value=(val) if health == val { selected="" }>(text)</option>
-                    }
-                </select>
-                <label for="cap-q">"Search"</label>
+            segmented_control(
+                label: "Capture view",
+                options: &view_tabs,
+                swap_target: "captures-region",
+            )
+            <form class="filters" method="get" action=(&captures_url) data-swap-target="captures-region">
+                <input type="hidden" name="view" value=(if subview == "all" { "" } else { subview }) data-swap-meta="view">
+                select_menu(
+                    id: "cap-health",
+                    name: "health",
+                    label: "Screen health",
+                    selected: health,
+                    options: &health_options,
+                    auto_submit: true,
+                    compact: true,
+                )
+                select_menu(
+                    id: "cap-sort",
+                    name: "sort",
+                    label: "Sort captures",
+                    selected: sort,
+                    options: &sort_options,
+                    auto_submit: true,
+                    compact: true,
+                )
+                <label class="sr-only" for="cap-q">"Search"</label>
                 <input id="cap-q" name="q" type="search" maxlength="100" value=(query) placeholder="Route, viewport, scenario…">
                 <button class="button" type="submit">"Filter"</button>
             </form>
         </div>
     })
+}
+
+fn run_env_summary(run: &Run) -> String {
+    let env = &run.capture.environment;
+    let mut parts = Vec::new();
+    if let (Some(w), Some(h)) = (env.width, env.height) {
+        parts.push(format!("{w}×{h}"));
+    }
+    if let Some(scheme) = &env.color_scheme {
+        parts.push(scheme.clone());
+    }
+    if parts.is_empty() {
+        run.key.clone()
+    } else {
+        parts.join(" · ")
+    }
 }
 
 /// One capture run, with the button that extracts problems from it.
@@ -194,7 +270,7 @@ async fn run_row(
             <a class="run-link" href=(format!("/run/{}", run.key))>
                 <span class="run-title">
                     <strong>(&run.scenario)</strong>
-                    <small>(&run.project) " · " (&run.key)</small>
+                    <small>(run_env_summary(run))</small>
                 </span>
                 <span class="run-state">
                     let finding_count = run.capture.findings.len();
@@ -229,7 +305,7 @@ async fn run_row(
                 <form method="post" action=(format!("{base}/problems/analyze")) class="inline-action">
                     csrf(token: token)
                     <input type="hidden" name="run_key" value=(&run.key)>
-                    <button class="button" type="submit">"Extract problems"</button>
+                    <button class="button button-ghost" type="submit" aria-label="Extract problems from capture">"Extract"</button>
                 </form>
             }
         </div>

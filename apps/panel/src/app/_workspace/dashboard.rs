@@ -3,6 +3,7 @@
 use crate::app::{_workspace::title, fail};
 use crate::{
     PageResult,
+    components::skeleton::dashboard_skeleton,
     project::{self, Filter, Proof},
     records,
     views::dashboard::{Activity, Dashboard, dashboard_board, dashboard_frame},
@@ -12,11 +13,11 @@ use topcoat::{
     context::Cx,
     metadata::Metadata,
     router::{page, parse_query_params},
-    view::{View, component, error_boundary, view},
+    view::{View, component, error_boundary, suspense, view},
 };
 
 /// Captures listed in the queue.
-const QUEUE_LEN: usize = 30;
+const QUEUE_LEN: usize = 10;
 /// Design records listed as recent activity.
 const ACTIVITY_LEN: usize = 8;
 
@@ -25,11 +26,14 @@ async fn dashboard(cx: &Cx) -> Result<impl View> {
     let filter: Filter = parse_query_params(cx)?;
     Ok(view! {
         dashboard_frame(
-            error_boundary(
-                fallback: |_| Ok(view! {
-                    <p class="notice" role="alert">"The captures could not be loaded. Try again in a moment."</p>
-                }),
-                loaded_board(filter: filter)
+            suspense(
+                fallback: view! { dashboard_skeleton() },
+                error_boundary(
+                    fallback: |_| Ok(view! {
+                        <p class="notice" role="alert">"The captures could not be loaded. Try again in a moment."</p>
+                    }),
+                    loaded_board(filter: filter)
+                )
             )
         )
     })
@@ -66,25 +70,30 @@ async fn load(cx: &Cx, filter: Filter) -> PageResult<Dashboard> {
     }
     activity.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp_ms));
     activity.truncate(ACTIVITY_LEN);
-    let pending = runs
-        .iter()
-        .filter(|r| r.status == "complete" && r.inspection == "pending")
-        .count();
-    let blocked = runs.iter().filter(|r| r.status == "blocked").count();
     let latest_evidence = Proof::newest(&runs);
-    let queue = runs
+    let mut matching: Vec<(usize, &crate::Run)> = runs
         .iter()
         .enumerate()
         .filter(|(_, r)| filter.accepts(r))
+        .collect();
+    match filter.sort_key() {
+        "oldest" => matching.sort_by_key(|(_, r)| r.created_at_ms),
+        "scenario" => matching.sort_by(|(_, a), (_, b)| {
+            a.scenario
+                .to_lowercase()
+                .cmp(&b.scenario.to_lowercase())
+                .then_with(|| b.created_at_ms.cmp(&a.created_at_ms))
+        }),
+        _ => matching.sort_by_key(|(_, r)| std::cmp::Reverse(r.created_at_ms)),
+    }
+    let queue = matching
+        .into_iter()
         .map(|(index, _)| index)
         .take(QUEUE_LEN)
         .collect();
     Ok(Dashboard {
         filter,
-        project_count: projects.len(),
         activity,
-        pending,
-        blocked,
         latest_evidence,
         runs,
         queue,

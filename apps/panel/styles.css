@@ -8,10 +8,10 @@
   --color-card: var(--surface);
   --color-card-foreground: var(--ink);
   --color-muted-foreground: var(--muted);
-  --color-primary: var(--copper);
-  --color-primary-foreground: var(--on-copper);
+  --color-primary: var(--bird-crest);
+  --color-primary-foreground: var(--on-crest);
   --color-border: var(--line);
   --color-ring: var(--copper);
-  --color-destructive: var(--danger);
-  --color-destructive-foreground: var(--on-copper);
+  --color-destructive: var(--danger-fill);
+  --color-destructive-foreground: var(--on-crest);
 }

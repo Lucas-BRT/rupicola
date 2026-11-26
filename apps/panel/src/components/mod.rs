@@ -4,6 +4,8 @@ pub mod button;
 pub mod card;
 
 // The panel's own components.
+pub mod controls;
 pub mod display;
 pub mod form;
 pub mod layout;
+pub mod skeleton;

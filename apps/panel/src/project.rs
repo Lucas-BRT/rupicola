@@ -31,9 +31,38 @@ pub struct Filter {
     pub health: Option<String>,
     pub asset: Option<String>,
     pub name: Option<String>,
+    pub sort: Option<String>,
 }
 
 impl Filter {
+    #[must_use]
+    pub fn sort_key(&self) -> &str {
+        self.sort.as_deref().unwrap_or("newest")
+    }
+
+    pub fn sort_runs(&self, runs: &mut [&Run]) {
+        match self.sort_key() {
+            "oldest" => runs.sort_by_key(|r| r.created_at_ms),
+            "scenario" => {
+                runs.sort_by(|a, b| {
+                    a.scenario
+                        .to_lowercase()
+                        .cmp(&b.scenario.to_lowercase())
+                        .then_with(|| b.created_at_ms.cmp(&a.created_at_ms))
+                });
+            }
+            "findings" => {
+                runs.sort_by_key(|r| {
+                    (
+                        std::cmp::Reverse(r.capture.findings.len()),
+                        std::cmp::Reverse(r.created_at_ms),
+                    )
+                });
+            }
+            _ => runs.sort_by_key(|r| std::cmp::Reverse(r.created_at_ms)),
+        }
+    }
+
     pub fn accepts(&self, run: &Run) -> bool {
         let state = self.state.as_deref().unwrap_or("");
         let query = self.q.as_deref().unwrap_or("").trim().to_lowercase();
