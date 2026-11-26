@@ -7,7 +7,7 @@ use crate::{
     media, redirect, runs,
     views::run::{Capture, run_page},
 };
-use rupicola_api::{CaptureStatus, NewFinding};
+use rupicola_api::{CaptureRemoval, CaptureStatus, NewFinding};
 use std::collections::BTreeMap;
 use topcoat::{
     Result,
@@ -74,6 +74,12 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
                 .map(|item| (item.id.clone(), media::url(&item.artifact.id)))
         })
         .collect();
+    let citations = if role == Role::Reader {
+        None
+    } else {
+        let (p, acc) = (panel(cx), account(cx));
+        p.api.capture_citations(&acc.session, &key).await.ok()
+    };
     Ok(Capture {
         width: run.environment.width.unwrap_or(640).max(1).to_string(),
         height: run.environment.height.unwrap_or(480).max(1).to_string(),
@@ -87,6 +93,7 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
         requested,
         before_images,
         environments_differ,
+        citations,
     })
 }
 
@@ -98,13 +105,41 @@ async fn inspect(cx: &Cx, Form(form): Form<Review>) -> Result<Response> {
 #[derive(Deserialize)]
 struct Review {
     csrf: String,
+    #[serde(default)]
+    action: String,
+    #[serde(default)]
     note: String,
     evidence: Option<String>,
+    #[serde(default)]
+    reason: String,
+    confirm: Option<String>,
 }
 async fn review(cx: &Cx, id: String, form: Review) -> PageResult<Response> {
     let (panel, account) = (panel(cx), account(cx));
     auth::check_csrf(&account, &form.csrf)?;
     let run = runs::find(cx, &id).await?;
+    if form.action == "delete" {
+        let reason = form.reason.trim();
+        if reason.is_empty() {
+            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        panel
+            .api
+            .delete_capture(
+                &account.session,
+                &id,
+                &CaptureRemoval {
+                    reason: reason.to_owned(),
+                    confirm: form.confirm.filter(|c| !c.trim().is_empty()),
+                },
+            )
+            .await
+            .map_err(|e| auth::api_error(&e))?;
+        return Ok(redirect(&format!(
+            "/projects/{}/captures",
+            run.capture.project_id
+        )));
+    }
     record_inspection(&panel, &account, &run, &form.note, form.evidence.as_deref()).await?;
     Ok(redirect(&format!("/run/{id}#review")))
 }

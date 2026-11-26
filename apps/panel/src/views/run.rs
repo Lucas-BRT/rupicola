@@ -4,7 +4,7 @@ use crate::components::{
     layout::{breadcrumbs, page_title},
 };
 use crate::{Account, media};
-use rupicola_api::{Capture as ApiCapture, CaptureSummary, Checkpoint, Clip, Finding};
+use rupicola_api::{Capture as ApiCapture, CaptureSummary, Checkpoint, Citations, Clip, Finding};
 use std::collections::BTreeMap;
 use topcoat::{
     Result,
@@ -26,6 +26,7 @@ pub struct Capture {
     pub height: String,
     pub project_url: String,
     pub form_url: String,
+    pub citations: Option<Citations>,
 }
 
 /// The capture page's content.
@@ -44,6 +45,7 @@ pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
         height,
         project_url,
         form_url,
+        citations,
     } = data;
     let account = context::<Account>(cx);
     Ok(view! {
@@ -93,6 +95,9 @@ pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
                 }
                 if *may_review {
                     review_form(form_url: form_url, token: &account.csrf, checkpoints: &run.checkpoints)
+                }
+                if let Some(cit) = citations {
+                    delete_capture_section(form_url: form_url, token: &account.csrf, citations: cit)
                 }
             </aside>
         </div>
@@ -297,6 +302,46 @@ async fn review_form(
                 }
                 <button type="submit" class="button primary">"Save inspection"</button>
             )
+        </section>
+    })
+}
+
+/// Danger zone for removing a capture, listing any citations and carrying the confirmation token.
+#[component]
+async fn delete_capture_section(
+    cx: &Cx,
+    form_url: &str,
+    token: &str,
+    citations: &Citations,
+) -> Result<impl View> {
+    Ok(view! {
+        <section class="surface danger-zone" id="delete-capture">
+            <h2>"Delete capture"</h2>
+            if !citations.citations.is_empty() {
+                <p class="notice">
+                    (format!("Cited by {} record(s). Removing leaves a tombstone and reopens uncited problems.", citations.citations.len()))
+                </p>
+                <ul class="audit">
+                    for c in &citations.citations {
+                        <li><strong class="mono">(c.kind.as_str())</strong> " · " <span class="mono">(&c.id)</span></li>
+                    }
+                </ul>
+            }
+            if !citations.allowed {
+                <p class="muted">"Deletion is blocked by project or server policy for this capture."</p>
+            } else {
+                stack_form(action: form_url, token: token,
+                    <input type="hidden" name="action" value="delete">
+                    if let Some(confirm) = &citations.confirm {
+                        <input type="hidden" name="confirm" value=(confirm)>
+                    }
+                    <label for="delete-reason">"Reason for removal"</label>
+                    <input id="delete-reason" name="reason" type="text" required="" maxlength="500" placeholder="Superseded or captured with wrong env">
+                    <button type="submit" class="button button-danger">
+                        if citations.confirm.is_some() { "Confirm & delete cited capture" } else { "Delete capture" }
+                    </button>
+                )
+            }
         </section>
     })
 }
