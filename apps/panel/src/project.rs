@@ -32,6 +32,7 @@ pub struct Filter {
     pub asset: Option<String>,
     pub name: Option<String>,
     pub sort: Option<String>,
+    pub topic: Option<String>,
 }
 
 impl Filter {

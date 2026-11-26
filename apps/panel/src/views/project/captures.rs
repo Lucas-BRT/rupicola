@@ -11,6 +11,7 @@ use crate::components::{
     form::csrf,
 };
 use crate::project::Filter;
+use rupicola_api::Topic;
 use std::collections::BTreeSet;
 use topcoat::{
     Result,
@@ -28,11 +29,14 @@ pub async fn captures_tab(
     runs: Vec<&Run>,
     assets: Vec<AssetOption>,
     problems: Vec<Problem>,
+    topics: Vec<Topic>,
+    topic_run_ids: Option<BTreeSet<String>>,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
     Ok(view! {
         let subview = filter.view.as_deref().unwrap_or("all");
         let health = filter.health.as_deref().unwrap_or("");
+        let topic_id = filter.topic.as_deref().unwrap_or("");
         let q = filter.q.as_deref().unwrap_or("").trim().to_lowercase();
 
         let problem_urls: std::collections::BTreeSet<&str> = problems
@@ -68,7 +72,10 @@ pub async fn captures_tab(
                         "unanalyzed" => r.inspection == "pending",
                         _ => true,
                     };
-                    matches_health && filter.accepts(r)
+                    let matches_topic = topic_run_ids
+                        .as_ref()
+                        .is_none_or(|ids| ids.contains(&r.key));
+                    matches_health && matches_topic && filter.accepts(r)
                 })
                 .collect();
             filter.sort_runs(&mut list);
@@ -94,7 +101,10 @@ pub async fn captures_tab(
                     let matches_q = q.is_empty()
                         || a.name.to_lowercase().contains(&q)
                         || a.scenario.to_lowercase().contains(&q);
-                    matches_health && matches_view && matches_q
+                    let matches_topic = topic_run_ids
+                        .as_ref()
+                        .is_none_or(|ids| ids.contains(&a.run_key));
+                    matches_health && matches_view && matches_q && matches_topic
                 })
                 .collect();
             if filter.sort_key() == "oldest" {
@@ -119,7 +129,20 @@ pub async fn captures_tab(
             metric(href: format!("{base}/problems"), value: open_problems, featured: open_problems > 0, "Problems identified")
         )
         <div id="captures-region" class="skel-stack">
-            capture_toolbar(base: base, subview: subview, health: health, query: filter.q.as_deref().unwrap_or(""), sort: filter.sort_key())
+            capture_toolbar(base: base, subview: subview, health: health, topic: topic_id, query: filter.q.as_deref().unwrap_or(""), sort: filter.sort_key())
+            if !topics.is_empty() || role != Role::Reader {
+                topics_bar(
+                    base: base,
+                    topics: &topics,
+                    active_topic: topic_id,
+                    subview: subview,
+                    health: health,
+                    query: filter.q.as_deref().unwrap_or(""),
+                    sort: filter.sort_key(),
+                    can_create: role != Role::Reader,
+                    token: &account.csrf,
+                )
+            }
             <div class="skel-stack" data-swap-body="rows">
                 if subview == "all" || subview == "runs" {
                     <section class="surface captures-ledger">
@@ -166,6 +189,7 @@ async fn capture_toolbar(
     base: &str,
     subview: &str,
     health: &str,
+    topic: &str,
     query: &str,
     sort: &str,
 ) -> Result<impl View> {
@@ -185,6 +209,7 @@ async fn capture_toolbar(
             &[
                 ("view", view_param),
                 ("health", health),
+                ("topic", topic),
                 ("q", query),
                 ("sort", sort_param),
             ],
@@ -213,6 +238,9 @@ async fn capture_toolbar(
             )
             <form class="filters" method="get" action=(&captures_url) data-swap-target="captures-region">
                 <input type="hidden" name="view" value=(if subview == "all" { "" } else { subview }) data-swap-meta="view">
+                if !topic.is_empty() {
+                    <input type="hidden" name="topic" value=(topic)>
+                }
                 select_menu(
                     id: "cap-health",
                     name: "health",
@@ -235,6 +263,74 @@ async fn capture_toolbar(
                 <input id="cap-q" name="q" type="search" maxlength="100" value=(query) placeholder="Route, viewport, scenario…">
                 <button class="button" type="submit">"Filter"</button>
             </form>
+        </div>
+    })
+}
+
+/// Topic filter chips and inline topic creation form.
+#[component]
+async fn topics_bar(
+    cx: &Cx,
+    base: &str,
+    topics: &[Topic],
+    active_topic: &str,
+    subview: &str,
+    health: &str,
+    query: &str,
+    sort: &str,
+    can_create: bool,
+    token: &str,
+) -> Result<impl View> {
+    let captures_url = format!("{base}/captures");
+    let view_param = if subview == "all" { "" } else { subview };
+    let sort_param = if sort == "newest" { "" } else { sort };
+    let all_href = query_url(
+        &captures_url,
+        &[
+            ("view", view_param),
+            ("health", health),
+            ("q", query),
+            ("sort", sort_param),
+        ],
+    );
+    Ok(view! {
+        <div class="propose-toolbar" aria-label="Topics">
+            <nav class="filters" aria-label="Filter by topic">
+                <a
+                    class=(if active_topic.is_empty() { "button primary" } else { "button" })
+                    href=(all_href)
+                    data-swap-target="captures-region"
+                >
+                    "All topics"
+                </a>
+                for t in topics {
+                    let href = query_url(
+                        &captures_url,
+                        &[
+                            ("view", view_param),
+                            ("health", health),
+                            ("topic", t.id.as_str()),
+                            ("q", query),
+                            ("sort", sort_param),
+                        ],
+                    );
+                    <a
+                        class=(if active_topic == t.id { "button primary" } else { "button" })
+                        href=(href)
+                        data-swap-target="captures-region"
+                    >
+                        (format!("{} ({})", t.path, t.captures))
+                    </a>
+                }
+            </nav>
+            if can_create {
+                <form class="filters" method="post" action=(&captures_url)>
+                    csrf(token: token)
+                    <label class="sr-only" for="new-topic-path">"New topic path"</label>
+                    <input id="new-topic-path" name="path" type="text" required="" maxlength="120" placeholder="auth/login">
+                    <button class="button" type="submit">"New topic"</button>
+                </form>
+            }
         </div>
     })
 }
