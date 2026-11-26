@@ -7,7 +7,10 @@ use crate::{
     media, redirect, runs,
     views::run::{Capture, run_page},
 };
-use rupicola_api::{CaptureRemoval, CaptureStatus, NewFinding};
+use rupicola_api::{
+    CaptureRemoval, CaptureStatus, MotionDiffReport, NewFinding, NewSelection, SelectionItem,
+    SelectionMark,
+};
 use std::collections::BTreeMap;
 use topcoat::{
     Result,
@@ -22,6 +25,8 @@ module_param!(pub capture_id);
 #[derive(Deserialize)]
 struct Comparison {
     before: Option<String>,
+    motion: Option<String>,
+    diff_art: Option<String>,
 }
 
 #[page(with(Metadata::from_fn(async |cx| {
@@ -60,25 +65,50 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
         Some(before) => {
             let before = runs::find(cx, before).await?.capture;
             let differs = before.environment != run.environment;
-            Some((before.checkpoints, differs))
+            Some((before, differs))
         }
         None => None,
     };
     let environments_differ = before.as_ref().is_some_and(|(_, differs)| *differs);
-    let before_images: BTreeMap<_, _> = before
-        .as_ref()
-        .into_iter()
-        .flat_map(|(checkpoints, _)| {
-            checkpoints
-                .iter()
-                .map(|item| (item.id.clone(), media::url(&item.artifact.id)))
-        })
-        .collect();
+    let (before_images, before_artifact_ids) =
+        before_checkpoint_maps(before.as_ref().map(|(c, _)| c));
+    let (p, acc) = (panel(cx), account(cx));
     let citations = if role == Role::Reader {
         None
     } else {
-        let (p, acc) = (panel(cx), account(cx));
         p.api.capture_citations(&acc.session, &key).await.ok()
+    };
+    let lineage = p
+        .api
+        .capture_lineage(&acc.session, &key, Some(2))
+        .await
+        .ok();
+    let diff = if let Some((before_cap, _)) = &before {
+        p.api
+            .compare_captures(&acc.session, &before_cap.id, &key)
+            .await
+            .ok()
+    } else {
+        None
+    };
+    let topics = p
+        .api
+        .topic_tree(&acc.session, &run.project_id)
+        .await
+        .map(|t| t.topics)
+        .unwrap_or_default();
+    let open_problems = if role == Role::Reader {
+        Vec::new()
+    } else {
+        p.api
+            .problems(&acc.session, &run.project_id)
+            .await
+            .unwrap_or_default()
+    };
+    let motion_report = if let Some(art_id) = comparison.motion.as_deref() {
+        fetch_motion_diff(&p, &acc, art_id).await
+    } else {
+        None
     };
     Ok(Capture {
         width: run.environment.width.unwrap_or(640).max(1).to_string(),
@@ -92,9 +122,54 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
         candidates,
         requested,
         before_images,
+        before_artifact_ids,
         environments_differ,
         citations,
+        lineage,
+        diff,
+        diff_artifact_id: comparison.diff_art,
+        motion_report,
+        topics,
+        open_problems,
     })
+}
+
+fn before_checkpoint_maps(
+    before: Option<&rupicola_api::Capture>,
+) -> (BTreeMap<String, String>, BTreeMap<String, String>) {
+    let mut images = BTreeMap::new();
+    let mut artifact_ids = BTreeMap::new();
+    if let Some(cap) = before {
+        for item in &cap.checkpoints {
+            images.insert(item.id.clone(), media::url(&item.artifact.id));
+            artifact_ids.insert(item.id.clone(), item.artifact.id.clone());
+        }
+    }
+    (images, artifact_ids)
+}
+
+async fn fetch_motion_diff(
+    panel: &Panel,
+    account: &Account,
+    artifact_id: &str,
+) -> Option<MotionDiffReport> {
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "media_motion_diff",
+            "arguments": {"artifact_id": artifact_id, "threshold": 0.12}
+        }
+    })
+    .to_string();
+    let reply = panel.api.mcp(&account.session, &payload).await.ok()?;
+    let body: serde_json::Value = serde_json::from_str(&reply.body).ok()?;
+    if body["result"]["isError"].as_bool() == Some(true) {
+        return None;
+    }
+    let text = body["result"]["content"][0]["text"].as_str()?;
+    serde_json::from_str(text).ok()
 }
 
 #[route(POST)]
@@ -113,35 +188,150 @@ struct Review {
     #[serde(default)]
     reason: String,
     confirm: Option<String>,
+    #[serde(default)]
+    topic_id: String,
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    artifact_id: String,
+    #[serde(default)]
+    problem_id: String,
+    #[serde(default)]
+    before_artifact_id: String,
+    #[serde(default)]
+    after_artifact_id: String,
+    #[serde(default)]
+    before_capture_id: String,
+    #[serde(default)]
+    mode: String,
 }
+
 async fn review(cx: &Cx, id: String, form: Review) -> PageResult<Response> {
     let (panel, account) = (panel(cx), account(cx));
     auth::check_csrf(&account, &form.csrf)?;
     let run = runs::find(cx, &id).await?;
-    if form.action == "delete" {
-        let reason = form.reason.trim();
-        if reason.is_empty() {
-            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    match form.action.as_str() {
+        "delete" => {
+            let reason = form.reason.trim();
+            if reason.is_empty() {
+                return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            }
+            panel
+                .api
+                .delete_capture(
+                    &account.session,
+                    &id,
+                    &CaptureRemoval {
+                        reason: reason.to_owned(),
+                        confirm: form.confirm.filter(|c| !c.trim().is_empty()),
+                    },
+                )
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(redirect(&format!(
+                "/projects/{}/captures",
+                run.capture.project_id
+            )))
         }
+        "file-topic" => {
+            panel
+                .api
+                .file_topic_capture(&account.session, form.topic_id.trim(), &id)
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(redirect(&format!("/run/{id}#organize")))
+        }
+        "create-selection" => {
+            create_selection_action(&panel, &account, &run, &id, &form).await?;
+            Ok(redirect(&format!("/run/{id}#organize")))
+        }
+        "visual-diff" => {
+            let diff_art = render_visual_diff(&panel, &account, &form).await?;
+            Ok(redirect(&format!(
+                "/run/{id}?before={}&diff_art={diff_art}#visual-diff",
+                form.before_capture_id.trim(),
+            )))
+        }
+        _ => {
+            record_inspection(&panel, &account, &run, &form.note, form.evidence.as_deref()).await?;
+            Ok(redirect(&format!("/run/{id}#review")))
+        }
+    }
+}
+
+async fn create_selection_action(
+    panel: &Panel,
+    account: &Account,
+    run: &Run,
+    capture_id: &str,
+    form: &Review,
+) -> PageResult<()> {
+    let label = form.label.trim();
+    if label.is_empty() || form.artifact_id.trim().is_empty() {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let sel = panel
+        .api
+        .create_selection(
+            &account.session,
+            &run.capture.project_id,
+            &NewSelection {
+                label: label.to_owned(),
+                items: vec![SelectionItem {
+                    capture: capture_id.to_owned(),
+                    artifact: Some(form.artifact_id.trim().to_owned()),
+                    path: None,
+                    mark: SelectionMark::Proof,
+                    fragment: None,
+                }],
+            },
+        )
+        .await
+        .map_err(|e| auth::api_error(&e))?;
+    let prob_id = form.problem_id.trim();
+    if !prob_id.is_empty() {
         panel
             .api
-            .delete_capture(
-                &account.session,
-                &id,
-                &CaptureRemoval {
-                    reason: reason.to_owned(),
-                    confirm: form.confirm.filter(|c| !c.trim().is_empty()),
-                },
-            )
+            .cite_problem_selection(&account.session, prob_id, &sel.id)
             .await
             .map_err(|e| auth::api_error(&e))?;
-        return Ok(redirect(&format!(
-            "/projects/{}/captures",
-            run.capture.project_id
-        )));
     }
-    record_inspection(&panel, &account, &run, &form.note, form.evidence.as_deref()).await?;
-    Ok(redirect(&format!("/run/{id}#review")))
+    Ok(())
+}
+
+async fn render_visual_diff(panel: &Panel, account: &Account, form: &Review) -> PageResult<String> {
+    let mode = match form.mode.as_str() {
+        "heatmap" => "heatmap",
+        "side_by_side" => "side_by_side",
+        _ => "highlight",
+    };
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "visual_diff_images",
+            "arguments": {
+                "before_artifact_id": form.before_artifact_id.trim(),
+                "after_artifact_id": form.after_artifact_id.trim(),
+                "mode": mode
+            }
+        }
+    })
+    .to_string();
+    let reply = panel
+        .api
+        .mcp(&account.session, &payload)
+        .await
+        .map_err(|e| auth::api_error(&e))?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&reply.body).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let text = parsed["result"]["content"][0]["text"]
+        .as_str()
+        .ok_or(StatusCode::BAD_GATEWAY)?;
+    let report: rupicola_api::VisualDiffReport =
+        serde_json::from_str(text).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    Ok(report.diff_artifact_id)
 }
 
 /// Records a review note on a capture; the evidence is the id of one of its artifacts.

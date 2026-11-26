@@ -4,7 +4,10 @@ use crate::components::{
     layout::{breadcrumbs, page_title},
 };
 use crate::{Account, media};
-use rupicola_api::{Capture as ApiCapture, CaptureSummary, Checkpoint, Citations, Clip, Finding};
+use rupicola_api::{
+    Capture as ApiCapture, CaptureDiff, CaptureSummary, Checkpoint, Citations, Clip, Finding,
+    LineageGraph, MotionDiffReport, ProblemSummary, Topic,
+};
 use std::collections::BTreeMap;
 use topcoat::{
     Result,
@@ -19,6 +22,7 @@ pub struct Capture {
     pub candidates: Vec<CaptureSummary>,
     pub requested: Option<String>,
     pub before_images: BTreeMap<String, String>,
+    pub before_artifact_ids: BTreeMap<String, String>,
     pub environments_differ: bool,
     pub comparing: bool,
     pub may_review: bool,
@@ -27,6 +31,12 @@ pub struct Capture {
     pub project_url: String,
     pub form_url: String,
     pub citations: Option<Citations>,
+    pub lineage: Option<LineageGraph>,
+    pub diff: Option<CaptureDiff>,
+    pub diff_artifact_id: Option<String>,
+    pub motion_report: Option<MotionDiffReport>,
+    pub topics: Vec<Topic>,
+    pub open_problems: Vec<ProblemSummary>,
 }
 
 /// The capture page's content.
@@ -35,19 +45,14 @@ pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
     let Capture {
         record: run,
         project_label,
-        candidates,
-        requested,
         before_images,
         environments_differ,
         comparing,
-        may_review,
         width,
         height,
         project_url,
-        form_url,
-        citations,
+        ..
     } = data;
-    let account = context::<Account>(cx);
     Ok(view! {
         breadcrumbs(
             <a href="/projects">"Projects"</a><span aria-hidden="true">"/"</span>
@@ -85,21 +90,7 @@ pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
                     }
                 </div>
             </section>
-            <aside class="canvas-rail" aria-label="Inspection and comparison controls">
-                summary(run: run, width: width, height: height)
-                if !candidates.is_empty() {
-                    comparison_control(form_url: form_url, candidates: candidates, requested: requested.as_deref())
-                }
-                if !run.findings.is_empty() {
-                    findings(items: &run.findings)
-                }
-                if *may_review {
-                    review_form(form_url: form_url, token: &account.csrf, checkpoints: &run.checkpoints)
-                }
-                if let Some(cit) = citations {
-                    delete_capture_section(form_url: form_url, token: &account.csrf, citations: cit)
-                }
-            </aside>
+            inspector_rail(data: data)
         </div>
         if !run.checkpoints.is_empty() || !run.clips.is_empty() {
             <nav class="filmstrip" aria-label="Capture filmstrip">
@@ -119,6 +110,72 @@ pub async fn run_page(cx: &Cx, data: &Capture) -> Result<impl View> {
                 }
             </nav>
         }
+    })
+}
+
+#[component]
+async fn inspector_rail(cx: &Cx, data: &Capture) -> Result<impl View> {
+    let Capture {
+        record: run,
+        candidates,
+        requested,
+        before_artifact_ids,
+        may_review,
+        width,
+        height,
+        form_url,
+        citations,
+        lineage,
+        diff,
+        diff_artifact_id,
+        motion_report,
+        topics,
+        open_problems,
+        ..
+    } = data;
+    let account = context::<Account>(cx);
+    Ok(view! {
+        <aside class="canvas-rail" aria-label="Inspection and comparison controls">
+            summary(run: run, width: width, height: height)
+            if !candidates.is_empty() {
+                comparison_control(form_url: form_url, candidates: candidates, requested: requested.as_deref())
+            }
+            if let Some(diff) = diff {
+                capture_diff_section(
+                    form_url: form_url,
+                    token: &account.csrf,
+                    diff: diff,
+                    checkpoints: &run.checkpoints,
+                    before_artifact_ids: before_artifact_ids,
+                    requested_before: requested.as_deref().unwrap_or(""),
+                    diff_artifact_id: diff_artifact_id.as_deref(),
+                )
+            }
+            if !run.clips.is_empty() {
+                motion_spikes_section(form_url: form_url, clips: &run.clips, motion_report: motion_report.as_ref())
+            }
+            if let Some(graph) = lineage
+                && graph.nodes.len() > 1
+            {
+                lineage_section(graph: graph)
+            }
+            if !run.findings.is_empty() {
+                findings(items: &run.findings)
+            }
+            if *may_review {
+                review_form(form_url: form_url, token: &account.csrf, checkpoints: &run.checkpoints)
+                organize_section(
+                    form_url: form_url,
+                    token: &account.csrf,
+                    checkpoints: &run.checkpoints,
+                    topics: topics,
+                    problems: open_problems,
+                )
+            }
+            if let Some(cit) = citations {
+                delete_capture_section(form_url: form_url, token: &account.csrf, citations: cit)
+            }
+        </aside>
     })
 }
 
@@ -340,6 +397,166 @@ async fn delete_capture_section(
                     <button type="submit" class="button button-danger">
                         if citations.confirm.is_some() { "Confirm & delete cited capture" } else { "Delete capture" }
                     </button>
+                )
+            }
+        </section>
+    })
+}
+
+/// Lineage graph links (parents & children) around this capture.
+#[component]
+async fn lineage_section(cx: &Cx, graph: &LineageGraph) -> Result<impl View> {
+    Ok(view! {
+        <section class="surface" id="lineage">
+            <h2>"Lineage"</h2>
+            <ul class="audit">
+                for node in &graph.nodes {
+                    if node.id != graph.root {
+                        <li>
+                            <a href=(format!("/run/{}", node.id)) class="mono">(&node.scenario) " · " (node.id.chars().take(12).collect::<String>())</a>
+                            if node.deleted { <span class="muted">" (removed)"</span> }
+                        </li>
+                    }
+                }
+            </ul>
+        </section>
+    })
+}
+
+/// File-level diff summary and on-demand visual diff renderer when comparing two captures.
+#[component]
+#[allow(clippy::too_many_arguments)]
+async fn capture_diff_section(
+    cx: &Cx,
+    form_url: &str,
+    token: &str,
+    diff: &CaptureDiff,
+    checkpoints: &[Checkpoint],
+    before_artifact_ids: &BTreeMap<String, String>,
+    requested_before: &str,
+    diff_artifact_id: Option<&str>,
+) -> Result<impl View> {
+    let first_pair = checkpoints.iter().find_map(|cp| {
+        before_artifact_ids
+            .get(cp.id.as_str())
+            .map(|before_id| (before_id.clone(), cp.artifact.id.clone()))
+    });
+    Ok(view! {
+        <section class="surface" id="visual-diff">
+            <h2>"Capture diff"</h2>
+            <p class="muted">
+                (format!("{} changed · {} added · {} removed · {} same", diff.changed.len(), diff.added.len(), diff.removed.len(), diff.same.len()))
+            </p>
+            if let Some((before_art, after_art)) = first_pair {
+                stack_form(action: form_url, token: token,
+                    <input type="hidden" name="action" value="visual-diff">
+                    <input type="hidden" name="before_capture_id" value=(requested_before)>
+                    <input type="hidden" name="before_artifact_id" value=(before_art)>
+                    <input type="hidden" name="after_artifact_id" value=(after_art)>
+                    <label for="diff-mode">"Visual diff mode"</label>
+                    <select id="diff-mode" name="mode">
+                        <option value="highlight">"Highlight"</option>
+                        <option value="heatmap">"Heatmap"</option>
+                        <option value="side_by_side">"Side by side"</option>
+                    </select>
+                    <button type="submit" class="button primary">"Generate visual diff"</button>
+                )
+            }
+            if let Some(art_id) = diff_artifact_id {
+                <figure>
+                    <a href=(media::url(art_id))>
+                        <img src=(media::url(art_id)) alt="Generated visual diff" loading="lazy">
+                    </a>
+                    <figcaption>"Rendered visual diff"</figcaption>
+                </figure>
+            }
+        </section>
+    })
+}
+
+/// On-demand numeric motion/flicker spike detection for recorded clips.
+#[component]
+async fn motion_spikes_section(
+    cx: &Cx,
+    form_url: &str,
+    clips: &[Clip],
+    motion_report: Option<&MotionDiffReport>,
+) -> Result<impl View> {
+    Ok(view! {
+        <section class="surface" id="motion-spikes">
+            <h2>"Motion spikes"</h2>
+            for clip in clips {
+                if let Some(video) = &clip.video {
+                    <a class="button" href=(format!("{form_url}?motion={}#motion-spikes", video.id))>
+                        (format!("Detect spikes · {}", clip.id))
+                    </a>
+                }
+            }
+            if let Some(report) = motion_report {
+                if report.spikes.is_empty() {
+                    <p class="muted">"No motion or flicker spikes above threshold."</p>
+                } else {
+                    <ul class="audit">
+                        for spike in &report.spikes {
+                            <li>
+                                <button type="button" class="button" data-seek=(format!("{}.{:03}", spike.timestamp_ms / 1000, spike.timestamp_ms % 1000))>
+                                    (format!("F{} · {} ms · Δluma {:+.2}", spike.frame_index, spike.timestamp_ms, spike.luma_delta))
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                }
+            }
+        </section>
+    })
+}
+
+/// File capture under a topic or create a standalone selection (optionally cited on a problem).
+#[component]
+async fn organize_section(
+    cx: &Cx,
+    form_url: &str,
+    token: &str,
+    checkpoints: &[Checkpoint],
+    topics: &[Topic],
+    problems: &[ProblemSummary],
+) -> Result<impl View> {
+    Ok(view! {
+        <section class="surface" id="organize">
+            <h2>"Topics & selections"</h2>
+            if !topics.is_empty() {
+                stack_form(action: form_url, token: token,
+                    <input type="hidden" name="action" value="file-topic">
+                    <label for="topic-id">"File under topic"</label>
+                    <select id="topic-id" name="topic_id">
+                        for t in topics {
+                            <option value=(&t.id)>(&t.path)</option>
+                        }
+                    </select>
+                    <button type="submit" class="button">"File in topic"</button>
+                )
+            }
+            if !checkpoints.is_empty() {
+                stack_form(action: form_url, token: token,
+                    <input type="hidden" name="action" value="create-selection">
+                    <label for="sel-label">"New selection label"</label>
+                    <input id="sel-label" name="label" type="text" required="" maxlength="120" placeholder="Header contrast proof">
+                    <label for="sel-art">"Artifact"</label>
+                    <select id="sel-art" name="artifact_id">
+                        for cp in checkpoints {
+                            <option value=(&cp.artifact.id)>(&cp.id)</option>
+                        }
+                    </select>
+                    if !problems.is_empty() {
+                        <label for="sel-prob">"Attach to problem (optional)"</label>
+                        <select id="sel-prob" name="problem_id">
+                            <option value="">"Standalone selection"</option>
+                            for p in problems {
+                                <option value=(&p.id)>(&p.title)</option>
+                            }
+                        </select>
+                    }
+                    <button type="submit" class="button">"Create selection"</button>
                 )
             }
         </section>
