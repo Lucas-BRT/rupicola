@@ -347,7 +347,13 @@ async fn problem_card(cx: &Cx, item: &Problem, base: &str) -> Result<impl View> 
 
 /// Full detail page for a single problem (`/projects/{project}/problems/{problem}`).
 #[component]
-pub async fn problem_detail(cx: &Cx, role: Role, base: &str, item: Problem) -> Result<impl View> {
+pub async fn problem_detail(
+    cx: &Cx,
+    role: Role,
+    base: &str,
+    item: Problem,
+    selections: Vec<rupicola_api::Selection>,
+) -> Result<impl View> {
     let account = context::<Account>(cx);
     let token = &account.csrf;
     let meta_chip = problem_meta(&item);
@@ -391,6 +397,15 @@ pub async fn problem_detail(cx: &Cx, role: Role, base: &str, item: Problem) -> R
                 </div>
             }
             problem_analysis(diagnosis: &item.diagnosis, solution: &item.proposed_solution)
+            if !selections.is_empty() {
+                problem_selections(
+                    base: base,
+                    problem_id: &item.id,
+                    selections: &selections,
+                    can_uncite: role != Role::Reader,
+                    token: token,
+                )
+            }
             if !item.comments.is_empty() {
                 <ul class="problem-comments">
                     for c in &item.comments {
@@ -435,6 +450,47 @@ pub async fn problem_detail(cx: &Cx, role: Role, base: &str, item: Problem) -> R
             </footer>
         </article>
         image_viewer()
+    })
+}
+
+/// Cited selections on a problem detail page, with optional uncite action.
+#[component]
+async fn problem_selections(
+    cx: &Cx,
+    base: &str,
+    problem_id: &str,
+    selections: &[rupicola_api::Selection],
+    can_uncite: bool,
+    token: &str,
+) -> Result<impl View> {
+    let triage_url = format!("{base}/problems/{problem_id}/triage");
+    Ok(view! {
+        <section class="problem-box">
+            kind_label("CITED SELECTIONS")
+            <ul class="audit">
+                for sel in selections {
+                    <li>
+                        <span>
+                            <strong>(&sel.label)</strong>
+                            " · "
+                            (format!("{} anchor{}", sel.items.len(), if sel.items.len() == 1 { "" } else { "s" }))
+                            for anchor in sel.items.iter().take(3) {
+                                " · "
+                                <a href=(format!("/run/{}", anchor.capture)) class="mono">(&anchor.capture)</a>
+                            }
+                        </span>
+                        if can_uncite {
+                            <form method="post" action=(&triage_url) class="inline-action">
+                                csrf(token: token)
+                                <input type="hidden" name="action" value="uncite-selection">
+                                <input type="hidden" name="selection_id" value=(&sel.id)>
+                                <button class="button button-ghost" type="submit">"Uncite"</button>
+                            </form>
+                        }
+                    </li>
+                }
+            </ul>
+        </section>
     })
 }
 

@@ -31,6 +31,11 @@ async fn triage(cx: &Cx, Form(form): Form<TriageProblemForm>) -> Result<Response
 pub struct TriageProblemForm {
     #[serde(default)]
     pub csrf: String,
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
+    pub selection_id: String,
+    #[serde(default)]
     pub status: String,
     pub comment: Option<String>,
     pub solution: Option<String>,
@@ -45,6 +50,20 @@ pub async fn triage_problem_action(
     auth::check_csrf(&account, &form.csrf)?;
     if !safe_name(&project_id) {
         return Err(StatusCode::NOT_FOUND);
+    }
+    if form.action == "uncite-selection" {
+        let sel_id = form.selection_id.trim();
+        if sel_id.is_empty() {
+            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        panel
+            .api
+            .uncite_problem_selection(&account.session, &problem_id, sel_id)
+            .await
+            .map_err(|e| auth::api_error(&e))?;
+        return Ok(redirect(&format!(
+            "/projects/{project_id}/problems/{problem_id}"
+        )));
     }
     let status = form
         .status

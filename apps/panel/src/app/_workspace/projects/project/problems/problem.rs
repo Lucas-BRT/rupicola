@@ -4,7 +4,7 @@ mod triage;
 
 use super::super::{current, tab_metadata};
 use crate::StatusCode;
-use crate::app::fail;
+use crate::app::{account, fail, panel};
 use crate::components::skeleton::list_tab_skeleton;
 use crate::records;
 use crate::views::project::{Tab, problem_detail};
@@ -46,7 +46,14 @@ async fn loaded_problem(cx: &Cx) -> Result<impl View> {
         .into_iter()
         .find(|p| p.id == target)
         .ok_or_else(|| fail(StatusCode::NOT_FOUND))?;
+    let (p, acc) = (panel(cx), account(cx));
+    let selections = p
+        .api
+        .problem(&acc.session, target)
+        .await
+        .map(|prob| prob.selections)
+        .unwrap_or_default();
     Ok(view! {
-        problem_detail(role: project.role, base: &project.base, item: item)
+        problem_detail(role: project.role, base: &project.base, item: item, selections: selections)
     })
 }
