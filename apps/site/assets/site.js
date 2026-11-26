@@ -15,9 +15,12 @@
     const order = ["dark", "light", "system"];
     const curr = root.getAttribute("data-theme") || "dark";
     const next = order[(order.indexOf(curr) + 1) % order.length];
+    root.classList.add("theme-switching");
     root.setAttribute("data-theme", next);
     localStorage.setItem("rupicola-theme", next);
     updateThemeLabel(next);
+    void root.offsetHeight;
+    requestAnimationFrame(() => root.classList.remove("theme-switching"));
   });
 
   const navToggle = document.querySelector("[data-nav-toggle]");
@@ -64,7 +67,12 @@
   document.querySelectorAll("[data-hero-vp]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const vp = btn.getAttribute("data-hero-vp") || "1440";
-      if (heroDiff) heroDiff.setAttribute("data-vp", vp);
+      if (heroDiff) {
+        heroDiff.setAttribute("data-vp", vp);
+        heroDiff.classList.remove("is-settling");
+        void heroDiff.offsetWidth;
+        heroDiff.classList.add("is-settling");
+      }
       document.querySelectorAll("[data-hero-vp]").forEach((b) =>
         b.classList.toggle("btn-primary", b === btn)
       );
