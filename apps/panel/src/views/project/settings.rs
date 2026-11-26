@@ -4,14 +4,16 @@ use crate::components::{
     form::csrf,
 };
 use crate::{Account, auth::Role, project::AccessItem};
-use rupicola_api::{Credential, DeletionPolicy, LimitSettings, PolicyView, RecaptureSettings};
+use rupicola_api::{
+    Credential, DeletionPolicy, LimitSettings, PolicyView, RecaptureSettings, ScenarioSummary,
+};
 use topcoat::{
     Result,
     context::{Cx, context},
     view::{View, component, view},
 };
 
-/// The settings tab's content: members, runner devices, capture settings, deletion policy, limits, and activity.
+/// The settings tab's content: members, runner devices, capture settings, deletion policy, limits, scenarios, and activity.
 #[component]
 #[allow(clippy::too_many_arguments)]
 pub async fn settings_tab(
@@ -24,6 +26,7 @@ pub async fn settings_tab(
     devices: Vec<Credential>,
     policy: Option<PolicyView>,
     limits: Option<LimitSettings>,
+    scenarios: Vec<(ScenarioSummary, Option<String>)>,
 ) -> Result<impl View> {
     let account = context::<Account>(cx);
     let role_options = [
@@ -78,6 +81,7 @@ pub async fn settings_tab(
                     policy: policy.as_ref(),
                     limits: limits.as_ref(),
                 )
+                scenarios_card(scenarios: &scenarios)
             </div>
             <section class="surface panel-padding">
                 <h3>"Recent activity"</h3>
@@ -198,6 +202,39 @@ async fn policy_and_limits_card(
                     <input type="number" id="limit-val" name="value" min="1" required="">
                     <button class="button primary" type="submit">"Save limit"</button>
                 </form>
+            }
+        </section>
+    })
+}
+
+/// Stored capture scenarios with expandable definition preview.
+#[component]
+async fn scenarios_card(
+    cx: &Cx,
+    scenarios: &[(ScenarioSummary, Option<String>)],
+) -> Result<impl View> {
+    Ok(view! {
+        <section class="surface panel-padding">
+            <h3>"Stored scenarios"</h3>
+            if scenarios.is_empty() {
+                <p class="muted">"No scenarios synced yet. Push definitions with `rupicola scenario put`."</p>
+            } else {
+                for (s, preview) in scenarios {
+                    <details class="triage-note-drawer">
+                        <summary>
+                            <strong>(&s.name)</strong>
+                            " · "
+                            <span class="mono">(&s.url)</span>
+                            " · "
+                            (format!("{} cell{}", s.cells, if s.cells == 1 { "" } else { "s" }))
+                            " · "
+                            <code class="mono">(s.hash.chars().take(8).collect::<String>())</code>
+                        </summary>
+                        if let Some(json) = preview {
+                            <pre class="mono">(json)</pre>
+                        }
+                    </details>
+                }
             }
         </section>
     })

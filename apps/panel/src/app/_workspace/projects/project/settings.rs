@@ -13,6 +13,7 @@ use crate::{
 use rupicola_api::{
     Credential, DEFAULT_AUTO_RECAPTURE, DEFAULT_BASE_REF, DeletionPolicy, LimitValue,
     NewCredential, NewInvite, PolicyView, RecaptureSettings, RecaptureSettingsPatch,
+    ScenarioSummary,
 };
 use topcoat::{
     Result,
@@ -25,40 +26,59 @@ use topcoat::{
 #[page(with(Metadata::from_fn(async |cx| tab_metadata(cx, Tab::Settings).await)))]
 async fn page(cx: &Cx) -> Result<impl View> {
     let project = current_meta(cx).await.as_ref().map_err(|e| fail(*e))?;
-    let (members, audit, capture, devices, policy, limits) = if project.role == Role::Owner {
-        let p = panel(cx);
-        let acc = account(cx);
-        let (m, a) = access_lists(&p, &acc, &project.id).await.map_err(fail)?;
-        let cap = crate::backend::capture_settings(cx, &project.id)
-            .await
-            .as_ref()
-            .ok()
-            .cloned()
-            .unwrap_or_else(|| RecaptureSettings {
-                auto_recapture: DEFAULT_AUTO_RECAPTURE,
-                base_ref: DEFAULT_BASE_REF.to_owned(),
-            });
-        let devs: Vec<Credential> = p
-            .api
-            .list_devices(&acc.session, &project.id)
-            .await
-            .unwrap_or_default();
-        let pol = p.api.deletion_policy(&acc.session, &project.id).await.ok();
-        let lim = p.api.project_settings(&acc.session, &project.id).await.ok();
-        (m, a, cap, devs, pol, lim)
-    } else {
-        (
-            Vec::new(),
-            Vec::new(),
-            RecaptureSettings {
-                auto_recapture: DEFAULT_AUTO_RECAPTURE,
-                base_ref: DEFAULT_BASE_REF.to_owned(),
-            },
-            Vec::new(),
-            None,
-            None,
-        )
-    };
+    let (members, audit, capture, devices, policy, limits, scenarios) =
+        if project.role == Role::Owner {
+            let p = panel(cx);
+            let acc = account(cx);
+            let (m, a) = access_lists(&p, &acc, &project.id).await.map_err(fail)?;
+            let cap = crate::backend::capture_settings(cx, &project.id)
+                .await
+                .as_ref()
+                .ok()
+                .cloned()
+                .unwrap_or_else(|| RecaptureSettings {
+                    auto_recapture: DEFAULT_AUTO_RECAPTURE,
+                    base_ref: DEFAULT_BASE_REF.to_owned(),
+                });
+            let devs: Vec<Credential> = p
+                .api
+                .list_devices(&acc.session, &project.id)
+                .await
+                .unwrap_or_default();
+            let pol = p.api.deletion_policy(&acc.session, &project.id).await.ok();
+            let lim = p.api.project_settings(&acc.session, &project.id).await.ok();
+            let mut scens: Vec<(ScenarioSummary, Option<String>)> = Vec::new();
+            for summary in p
+                .api
+                .scenarios(&acc.session, &project.id)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .take(20)
+            {
+                let preview = p
+                    .api
+                    .scenario(&acc.session, &project.id, &summary.name)
+                    .await
+                    .ok()
+                    .and_then(|v| serde_json::to_string_pretty(&v.scenario).ok());
+                scens.push((summary, preview));
+            }
+            (m, a, cap, devs, pol, lim, scens)
+        } else {
+            (
+                Vec::new(),
+                Vec::new(),
+                RecaptureSettings {
+                    auto_recapture: DEFAULT_AUTO_RECAPTURE,
+                    base_ref: DEFAULT_BASE_REF.to_owned(),
+                },
+                Vec::new(),
+                None,
+                None,
+                Vec::new(),
+            )
+        };
     Ok(view! {
         settings_tab(
             base: &project.base,
@@ -69,6 +89,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
             devices: devices,
             policy: policy,
             limits: limits,
+            scenarios: scenarios,
         )
     })
 }
