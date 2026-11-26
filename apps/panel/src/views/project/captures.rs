@@ -143,6 +143,16 @@ pub async fn captures_tab(
                     token: &account.csrf,
                 )
             }
+            if role != Role::Reader
+                && let Some(active) = topics.iter().find(|t| t.id == topic_id)
+            {
+                topic_manage_drawer(
+                    base: base,
+                    active: active,
+                    topics: &topics,
+                    token: &account.csrf,
+                )
+            }
             <div class="skel-stack" data-swap-body="rows">
                 if subview == "all" || subview == "runs" {
                     <section class="surface captures-ledger">
@@ -153,7 +163,7 @@ pub async fn captures_tab(
                             <ul class="run-list">
                                 for run in &filtered_runs {
                                     <li>
-                                        run_row(run: run, base: base, problem_runs: &problem_runs, can_extract: role != Role::Reader, token: &account.csrf)
+                                        run_row(run: run, base: base, problem_runs: &problem_runs, can_extract: role != Role::Reader, active_topic: topic_id, token: &account.csrf)
                                     </li>
                                 }
                             </ul>
@@ -335,6 +345,61 @@ async fn topics_bar(
     })
 }
 
+/// Rename, move, or delete the currently selected topic.
+#[component]
+async fn topic_manage_drawer(
+    cx: &Cx,
+    base: &str,
+    active: &Topic,
+    topics: &[Topic],
+    token: &str,
+) -> Result<impl View> {
+    let captures_url = format!("{base}/captures");
+    let gen_str = active.generation.to_string();
+    Ok(view! {
+        <details class="surface panel-padding">
+            <summary>(format!("Manage topic \"{}\"", active.path))</summary>
+            <div class="filters">
+                <form class="filters" method="post" action=(&captures_url)>
+                    csrf(token: token)
+                    <input type="hidden" name="action" value="rename">
+                    <input type="hidden" name="topic_id" value=(&active.id)>
+                    <input type="hidden" name="generation" value=(&gen_str)>
+                    <label class="sr-only" for="rename-topic">"New topic name"</label>
+                    <input id="rename-topic" name="name" type="text" required="" maxlength="64" value=(&active.name)>
+                    <button class="button" type="submit">"Rename"</button>
+                </form>
+                <form class="filters" method="post" action=(&captures_url)>
+                    csrf(token: token)
+                    <input type="hidden" name="action" value="move">
+                    <input type="hidden" name="topic_id" value=(&active.id)>
+                    <input type="hidden" name="generation" value=(&gen_str)>
+                    <label class="sr-only" for="move-topic-parent">"Parent topic"</label>
+                    <select id="move-topic-parent" name="parent_id">
+                        <option value="">"Root (top level)"</option>
+                        for t in topics {
+                            if t.id != active.id {
+                                <option value=(&t.id) if active.parent_id.as_deref() == Some(t.id.as_str()) { selected="" }>(&t.path)</option>
+                            }
+                        }
+                    </select>
+                    <button class="button" type="submit">"Move"</button>
+                </form>
+                <form class="filters" method="post" action=(&captures_url)>
+                    csrf(token: token)
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="topic_id" value=(&active.id)>
+                    <label class="checkbox-row" for="del-topic-rec">
+                        <input id="del-topic-rec" type="checkbox" name="recursive" value="true">
+                        <span>"Include subtopics"</span>
+                    </label>
+                    <button class="button" type="submit">"Delete topic"</button>
+                </form>
+            </div>
+        </details>
+    })
+}
+
 fn run_env_summary(run: &Run) -> String {
     let env = &run.capture.environment;
     let mut parts = Vec::new();
@@ -359,6 +424,7 @@ async fn run_row(
     base: &str,
     problem_runs: &BTreeSet<&str>,
     can_extract: bool,
+    active_topic: &str,
     token: &str,
 ) -> Result<impl View> {
     Ok(view! {
@@ -403,6 +469,15 @@ async fn run_row(
                     <input type="hidden" name="run_key" value=(&run.key)>
                     <button class="button button-ghost" type="submit" aria-label="Extract problems from capture">"Extract"</button>
                 </form>
+                if !active_topic.is_empty() {
+                    <form method="post" action=(format!("{base}/captures")) class="inline-action">
+                        csrf(token: token)
+                        <input type="hidden" name="action" value="unfile">
+                        <input type="hidden" name="topic_id" value=(active_topic)>
+                        <input type="hidden" name="capture_id" value=(&run.key)>
+                        <button class="button button-ghost" type="submit" aria-label="Remove capture from topic">"Unfile"</button>
+                    </form>
+                }
             }
         </div>
     })

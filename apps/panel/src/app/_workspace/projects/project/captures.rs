@@ -8,7 +8,7 @@ use crate::{
     PageResult, StatusCode, auth, auth::Role, project::Filter, records, redirect,
     views::project::captures_tab,
 };
-use rupicola_api::NewTopic;
+use rupicola_api::{NewTopic, TopicMove, TopicRename};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use topcoat::{
@@ -22,7 +22,22 @@ use topcoat::{
 #[derive(Deserialize)]
 struct TopicForm {
     csrf: String,
+    #[serde(default)]
+    action: String,
+    #[serde(default)]
     path: String,
+    #[serde(default)]
+    topic_id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    parent_id: String,
+    #[serde(default)]
+    generation: i64,
+    #[serde(default)]
+    recursive: Option<String>,
+    #[serde(default)]
+    capture_id: String,
 }
 
 #[page(with(Metadata::from_fn(async |cx| tab_metadata(cx, Tab::Captures).await)))]
@@ -32,31 +47,98 @@ async fn page(cx: &Cx) -> Result<impl View> {
 
 #[route(POST)]
 async fn post(cx: &Cx, Form(form): Form<TopicForm>) -> Result<Response> {
-    respond(cx, create_topic(cx, form).await)
+    respond(cx, handle_topic_action(cx, form).await)
 }
 
-async fn create_topic(cx: &Cx, form: TopicForm) -> PageResult<Response> {
+async fn handle_topic_action(cx: &Cx, form: TopicForm) -> PageResult<Response> {
     let project_id = project(cx);
     let (p, acc) = (panel(cx), account(cx));
     auth::check_csrf(&acc, &form.csrf)?;
     if auth::role_of(cx, project_id).await? == Role::Reader {
         return Err(StatusCode::FORBIDDEN);
     }
-    let path = form.path.trim();
-    if path.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+    let base_captures = format!("/projects/{project_id}/captures");
+    match form.action.as_str() {
+        "rename" => {
+            let tid = form.topic_id.trim();
+            let name = form.name.trim();
+            if tid.is_empty() || name.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            p.api
+                .rename_topic(
+                    &acc.session,
+                    tid,
+                    &TopicRename {
+                        name: name.to_owned(),
+                        generation: form.generation,
+                    },
+                )
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(redirect(&format!("{base_captures}?topic={tid}")))
+        }
+        "move" => {
+            let tid = form.topic_id.trim();
+            if tid.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            let parent_id = Some(form.parent_id.trim().to_owned()).filter(|s| !s.is_empty());
+            p.api
+                .move_topic(
+                    &acc.session,
+                    tid,
+                    &TopicMove {
+                        parent_id,
+                        generation: form.generation,
+                    },
+                )
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(redirect(&format!("{base_captures}?topic={tid}")))
+        }
+        "delete" => {
+            let tid = form.topic_id.trim();
+            if tid.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            let recursive = form.recursive.as_deref() == Some("true");
+            p.api
+                .delete_topic(&acc.session, tid, recursive)
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(redirect(&base_captures))
+        }
+        "unfile" => {
+            let tid = form.topic_id.trim();
+            let cid = form.capture_id.trim();
+            if tid.is_empty() || cid.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            p.api
+                .unfile_topic_capture(&acc.session, tid, cid)
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(redirect(&format!("{base_captures}?topic={tid}")))
+        }
+        _ => {
+            let path = form.path.trim();
+            if path.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            p.api
+                .create_topic(
+                    &acc.session,
+                    project_id,
+                    &NewTopic {
+                        path: path.to_owned(),
+                    },
+                )
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(redirect(&base_captures))
+        }
     }
-    p.api
-        .create_topic(
-            &acc.session,
-            project_id,
-            &NewTopic {
-                path: path.to_owned(),
-            },
-        )
-        .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
-    Ok(redirect(&format!("/projects/{project_id}/captures")))
 }
 
 /// The captures tab, which `runs`, `images` and `videos` also open with another view.
