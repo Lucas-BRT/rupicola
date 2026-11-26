@@ -644,3 +644,24 @@ category = "implicit"
 expect = true
 split = "holdout"
 prompt = "Our desktop settings window embeds a webview. Smooth its close animation and preserve keyboard focus."
+
+[[prompt]]
+id = "mcp-video-01"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "The tab transition in the sidebar flickers at 60 FPS; inspect the recorded clip progressively without wasting tokens."
+
+[[prompt]]
+id = "mcp-publish-02"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Publish these captured PNG screenshots to Rupicola via MCP and open a visual contrast problem with evidence."
+
+[[prompt]]
+id = "mcp-diff-03"
+category = "explicit"
+expect = true
+split = "dev"
+prompt = "Compare the before and after screenshots of the header fix and crop only the changed region to verify alignment."
