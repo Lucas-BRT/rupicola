@@ -366,3 +366,230 @@ async fn record_inspection(
         .map(|_| ())
         .map_err(|e| auth::api_error(&e))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rupicola_api::{
+        Artifact, Capture as ApiCapture, Checkpoint, Environment, Inspection, MotionSpike, Problem,
+        ProblemOrigin, ProblemStatus, Selection, Severity, VisualDiffReport,
+    };
+    use rupicola_client::{McpReply, MockApi};
+
+    fn test_account() -> Account {
+        Account {
+            handle: "rev".to_owned(),
+            owner: false,
+            session: "sess-1".to_owned(),
+            csrf: "csrf-ok".to_owned(),
+        }
+    }
+
+    fn sample_run() -> Run {
+        let capture = ApiCapture {
+            id: "cap-1".to_owned(),
+            project_id: "demo".to_owned(),
+            scenario: "home".to_owned(),
+            revision: None,
+            status: CaptureStatus::Complete,
+            blocker: None,
+            inspection: Inspection::Pending,
+            environment: Environment::default(),
+            created_at: 0,
+            checkpoints: vec![Checkpoint {
+                id: "hero".to_owned(),
+                artifact: Artifact {
+                    id: "art-1".to_owned(),
+                    path: "checkpoints/hero.png".to_owned(),
+                    mime: "image/png".to_owned(),
+                    bytes: 100,
+                    sha256: "0".repeat(64),
+                },
+            }],
+            clips: Vec::new(),
+            findings: Vec::new(),
+            deleted: None,
+        };
+        Run {
+            key: "cap-1".to_owned(),
+            project_id: "demo".to_owned(),
+            project: "Demo".to_owned(),
+            scenario: "home".to_owned(),
+            status: "complete".to_owned(),
+            inspection: "pending".to_owned(),
+            created_at_ms: 0,
+            capture,
+        }
+    }
+
+    fn empty_review() -> Review {
+        Review {
+            csrf: "csrf-ok".to_owned(),
+            action: String::new(),
+            note: String::new(),
+            evidence: None,
+            reason: String::new(),
+            confirm: None,
+            topic_id: String::new(),
+            label: String::new(),
+            artifact_id: String::new(),
+            problem_id: String::new(),
+            before_artifact_id: String::new(),
+            after_artifact_id: String::new(),
+            before_capture_id: String::new(),
+            mode: String::new(),
+        }
+    }
+
+    #[test]
+    fn before_checkpoint_maps_extracts_urls_and_artifact_ids() {
+        let run = sample_run();
+        let (images, ids) = before_checkpoint_maps(Some(&run.capture));
+        assert_eq!(
+            images.get("hero").map(String::as_str),
+            Some("/media/a/art-1")
+        );
+        assert_eq!(ids.get("hero").map(String::as_str), Some("art-1"));
+
+        let (empty_imgs, empty_ids) = before_checkpoint_maps(None);
+        assert!(empty_imgs.is_empty() && empty_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_selection_action_handles_standalone_attached_and_invalid() {
+        let mut api = MockApi::new();
+        api.expect_create_selection()
+            .times(2)
+            .returning(|_, _, form| {
+                Ok(Selection {
+                    id: "sel-1".to_owned(),
+                    label: form.label.clone(),
+                    items: form.items.clone(),
+                    author: None,
+                    created_at: 0,
+                })
+            });
+        api.expect_cite_problem_selection()
+            .times(1)
+            .withf(|_, prob, sel| prob == "prob-5" && sel == "sel-1")
+            .returning(|_, _, _| {
+                Ok(Problem {
+                    id: "prob-5".to_owned(),
+                    project_id: "demo".to_owned(),
+                    title: "T".to_owned(),
+                    status: ProblemStatus::Open,
+                    severity: Severity::Minor,
+                    origin: ProblemOrigin::UserReported,
+                    route: String::new(),
+                    viewport: String::new(),
+                    theme: String::new(),
+                    diagnosis: String::new(),
+                    proposed_solution: String::new(),
+                    rules: Vec::new(),
+                    evidence: Vec::new(),
+                    selections: Vec::new(),
+                    comments: Vec::new(),
+                    author: None,
+                    created_at: 0,
+                    updated_at: 0,
+                })
+            });
+
+        let panel = Panel::for_test(api);
+        let acc = test_account();
+        let run = sample_run();
+
+        assert_eq!(
+            create_selection_action(&panel, &acc, &run, "cap-1", &empty_review()).await,
+            Err(StatusCode::UNPROCESSABLE_ENTITY)
+        );
+
+        let mut standalone = empty_review();
+        standalone.label = "Header proof".to_owned();
+        standalone.artifact_id = "art-1".to_owned();
+        create_selection_action(&panel, &acc, &run, "cap-1", &standalone)
+            .await
+            .unwrap();
+
+        let mut attached = standalone;
+        attached.problem_id = "prob-5".to_owned();
+        create_selection_action(&panel, &acc, &run, "cap-1", &attached)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn render_visual_diff_and_fetch_motion_diff_parse_mcp_replies() {
+        let mut api = MockApi::new();
+        let diff_json = serde_json::to_string(&VisualDiffReport {
+            before_artifact_id: "art-0".to_owned(),
+            after_artifact_id: "art-1".to_owned(),
+            diff_artifact_id: "art-diff-9".to_owned(),
+            changed_ratio: 0.0042,
+            changed_regions: Vec::new(),
+        })
+        .unwrap();
+        let motion_json = serde_json::to_string(&MotionDiffReport {
+            artifact_id: "art-vid-1".to_owned(),
+            threshold: 0.1,
+            spikes: vec![MotionSpike {
+                frame_index: 4,
+                timestamp_ms: 1250,
+                delta_ratio: 0.25,
+                luma_delta: 0.42,
+            }],
+        })
+        .unwrap();
+
+        api.expect_mcp().times(1).returning(move |_, payload| {
+            assert!(payload.contains("\"mode\":\"highlight\""));
+            Ok(McpReply {
+                status: 200,
+                body: serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": { "content": [{ "type": "text", "text": diff_json }] }
+                })
+                .to_string(),
+            })
+        });
+        api.expect_mcp().times(1).returning(move |_, _| {
+            Ok(McpReply {
+                status: 200,
+                body: serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": { "content": [{ "type": "text", "text": motion_json }] }
+                })
+                .to_string(),
+            })
+        });
+        api.expect_mcp().times(1).returning(|_, _| {
+            Ok(McpReply {
+                status: 200,
+                body: "not-json".to_owned(),
+            })
+        });
+
+        let panel = Panel::for_test(api);
+        let acc = test_account();
+
+        let mut form = empty_review();
+        form.before_artifact_id = "art-0".to_owned();
+        form.after_artifact_id = "art-1".to_owned();
+        form.mode = "unknown-mode".to_owned();
+        assert_eq!(
+            render_visual_diff(&panel, &acc, &form).await.unwrap(),
+            "art-diff-9"
+        );
+
+        let report = fetch_motion_diff(&panel, &acc, "art-vid-1").await.unwrap();
+        assert_eq!(report.spikes.len(), 1);
+        assert_eq!(report.spikes[0].timestamp_ms, 1250);
+
+        assert_eq!(
+            render_visual_diff(&panel, &acc, &form).await,
+            Err(StatusCode::BAD_GATEWAY)
+        );
+    }
+}

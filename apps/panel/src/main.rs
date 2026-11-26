@@ -64,6 +64,19 @@ struct Panel {
     api: Arc<dyn Api>,
 }
 
+#[cfg(test)]
+impl Panel {
+    fn for_test(api: impl Api + 'static) -> Arc<Self> {
+        Arc::new(Self {
+            origin: "http://127.0.0.1:4731".to_owned(),
+            localhost_origin: "http://localhost:4731".to_owned(),
+            host: "127.0.0.1:4731".to_owned(),
+            secure: false,
+            api: Arc::new(api),
+        })
+    }
+}
+
 struct Run {
     key: String,
     project_id: String,
