@@ -445,6 +445,54 @@ mod tests {
     }
 
     #[test]
+    fn repo_dogfooding_scenarios_parse_and_compile_every_matrix_cell() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.rupicola/scenarios");
+        let mut count = 0usize;
+        for entry in std::fs::read_dir(&dir).expect("read .rupicola/scenarios") {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+                continue;
+            }
+            let raw = std::fs::read_to_string(&path).unwrap();
+            let scenario = Scenario::from_toml(&raw)
+                .unwrap_or_else(|e| panic!("invalid scenario {}: {e}", path.display()));
+            let viewports = if scenario.matrix.viewports.is_empty() {
+                vec![DEFAULT_VIEWPORT]
+            } else {
+                scenario.matrix.viewports.clone()
+            };
+            let themes: Vec<Option<&str>> = if scenario.matrix.themes.is_empty() {
+                vec![None]
+            } else {
+                scenario
+                    .matrix
+                    .themes
+                    .iter()
+                    .map(String::as_str)
+                    .map(Some)
+                    .collect()
+            };
+            for vp in &viewports {
+                for theme in &themes {
+                    let plan = scenario_cell_plan(&scenario, "http://127.0.0.1:4731", *vp, *theme)
+                        .unwrap_or_else(|e| panic!("{} plan failed: {e}", path.display()));
+                    assert!(
+                        !plan.steps.is_empty(),
+                        "{} produced empty plan",
+                        path.display()
+                    );
+                }
+            }
+            count += 1;
+        }
+        assert!(
+            count >= 3,
+            "expected at least 3 dogfooding scenarios, found {count}"
+        );
+    }
+
+    #[test]
     fn theme_without_steps_sets_color_scheme() {
         let scenario = Scenario::from_toml(
             r#"

@@ -1,0 +1,35 @@
+# Panel sidebar tab-switch 60 FPS motion regression scenario (paired with media_motion_diff).
+name = "panel-tab-transition"
+url = "/projects/rupicola-panel/problems"
+
+[environment]
+reduced_motion = false
+locale = "en-US"
+
+[matrix]
+viewports = ["1440x900"]
+themes = ["dark"]
+
+[[steps]]
+kind = "ready"
+selector = ".project-rail"
+
+[[steps]]
+kind = "checkpoint"
+id = "before-switch"
+
+[[steps]]
+kind = "clip"
+id = "tab-switch"
+samples = 30
+interval_ms = 17
+trigger = { kind = "click", selector = ".project-rail a[href$='/fixes']" }
+
+[[steps]]
+kind = "checkpoint"
+id = "after-switch"
+
+[checks]
+no_horizontal_overflow = true
+accessible_names = true
+contrast = "aa"

@@ -1,0 +1,26 @@
+# Panel dashboard visual & accessibility dogfooding scenario across desktop and mobile.
+name = "panel-dashboard"
+url = "/dashboard"
+
+[environment]
+reduced_motion = true
+locale = "en-US"
+
+[matrix]
+viewports = ["390x844@2", "1440x900"]
+themes = ["dark", "light"]
+
+[[steps]]
+kind = "ready"
+selector = "main"
+
+[[steps]]
+kind = "checkpoint"
+id = "dashboard"
+full_page = true
+
+[checks]
+no_horizontal_overflow = true
+min_target_size = 24
+accessible_names = true
+contrast = "aa"
