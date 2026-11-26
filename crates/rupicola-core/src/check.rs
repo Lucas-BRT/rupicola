@@ -13,6 +13,7 @@ pub const DEFAULT_ALLOWED_SCRIPTS: &[&str] = &[
     "apps/panel/dev.sh",
     "apps/site/assets/site.js",
     "apps/site/assets/install.sh",
+    "dev.sh",
 ];
 
 /// Options controlling repository checks.
