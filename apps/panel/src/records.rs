@@ -412,6 +412,7 @@ mod tests {
                 comment: "ok".to_owned(),
                 created_at: SECOND_MS,
             }],
+            mismatch_override_reason: None,
             author: None,
             created_at: SECOND_MS,
             updated_at: SECOND_MS,

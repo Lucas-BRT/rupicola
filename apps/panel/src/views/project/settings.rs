@@ -70,6 +70,10 @@ pub async fn settings_tab(
                             <input type="checkbox" id="auto-recapture" name="auto_recapture" value="true" if capture.auto_recapture { checked="" }>
                             <span>"Automatically recapture pending fixes when a fix is approved"</span>
                         </label>
+                        <label class="checkbox-row" for="allow-agent-mismatch">
+                            <input type="checkbox" id="allow-agent-mismatch" name="allow_agent_mismatch_override" value="true" if capture.allow_agent_mismatch_override { checked="" }>
+                            <span>"Allow AI/machine tokens to override before/after plan parity (human-only by default)"</span>
+                        </label>
                         <label for="base-ref">"Base Git ref"</label>
                         <input type="text" id="base-ref" name="base_ref" value=(&capture.base_ref) maxlength="200" required="">
                         <button class="button primary" type="submit">"Save capture settings"</button>

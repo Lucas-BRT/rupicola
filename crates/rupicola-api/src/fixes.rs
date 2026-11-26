@@ -159,6 +159,9 @@ pub struct NewFix {
     /// Selections that show the fix works, made with it.
     #[serde(default)]
     pub proof: Vec<crate::NewSelection>,
+    /// Explicit reason when before/after captures intentionally differ in `plan_spec` (human-only by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mismatch_override_reason: Option<String>,
 }
 
 /// `POST /v1/fixes/{id}/reviews`: the outcome moves the fix and, for approval or
@@ -195,6 +198,8 @@ pub struct Fix {
     pub selections: Vec<FixSelection>,
     pub steps: Vec<Step>,
     pub reviews: Vec<Review>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mismatch_override_reason: Option<String>,
     pub author: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,

@@ -17,8 +17,9 @@ use crate::{
     state::AppState,
 };
 use rupicola_api::{
-    ComparisonView, Fix, FixSelectionLink, FixSelectionRole, FixStatus, FixSummary, NewFix,
-    NewReview, NewSelection, NewStep, ProblemStatus, Role, SelectionItem, SelectionMark, Step,
+    CapturePlanSpec, ComparisonView, Fix, FixSelectionLink, FixSelectionRole, FixStatus,
+    FixSummary, NewFix, NewReview, NewSelection, NewStep, ProblemStatus, Role, SelectionItem,
+    SelectionMark, Step, TokenKind,
 };
 use sqlx::SqliteConnection;
 use std::collections::BTreeSet;
@@ -146,6 +147,99 @@ async fn proofs(
     Ok(all)
 }
 
+/// Verifies before/after capture plan parity and problem-baseline binding to prevent AI
+/// proof hallucinations (e.g. comparing different routes, viewports, zoom levels, or themes).
+async fn verify_comparison_parity(
+    state: &AppState,
+    principal: &Principal,
+    project: &str,
+    form: &NewFix,
+    problems: &BTreeSet<&str>,
+) -> Result<(), ApiError> {
+    let has_override = form
+        .mismatch_override_reason
+        .as_deref()
+        .is_some_and(|r| !r.trim().is_empty());
+    if has_override {
+        if principal.kind != TokenKind::Session
+            && !settings::agent_mismatch_override_allowed(state, project).await?
+        {
+            return Err(ApiError::Forbidden);
+        }
+        return Ok(());
+    }
+
+    let isolated: Vec<_> = form
+        .comparisons
+        .iter()
+        .filter(|c| c.view == ComparisonView::Isolated)
+        .collect();
+    if isolated.is_empty() {
+        return Ok(());
+    }
+
+    let prob_ids: Vec<&str> = problems.iter().copied().collect();
+    let prob_evidence = fixes::problem_evidence_plans(&state.db, &prob_ids).await?;
+    let prob_captures: BTreeSet<&str> = prob_evidence.iter().map(|(c, _)| c.as_str()).collect();
+    let prob_digests: BTreeSet<&str> = prob_evidence
+        .iter()
+        .filter_map(|(_, d)| d.as_deref())
+        .collect();
+
+    for cmp in isolated {
+        let before = fixes::artifact_plan_meta(&state.db, project, &cmp.before)
+            .await?
+            .ok_or_else(|| ApiError::invalid("before artifact not found in project"))?;
+        let after = fixes::artifact_plan_meta(&state.db, project, &cmp.after)
+            .await?
+            .ok_or_else(|| ApiError::invalid("after artifact not found in project"))?;
+
+        let (Some(b_json), Some(b_digest)) = (&before.plan_json, &before.plan_digest) else {
+            return Err(ApiError::invalid(
+                "before capture lacks a canonical plan_spec; recapture deterministically first",
+            ));
+        };
+        let (Some(a_json), Some(a_digest)) = (&after.plan_json, &after.plan_digest) else {
+            return Err(ApiError::invalid(
+                "after capture lacks a canonical plan_spec; recapture deterministically first",
+            ));
+        };
+
+        if b_digest != a_digest {
+            let b_spec: CapturePlanSpec =
+                serde_json::from_str(b_json).map_err(anyhow::Error::from)?;
+            let a_spec: CapturePlanSpec =
+                serde_json::from_str(a_json).map_err(anyhow::Error::from)?;
+            let diffs: Vec<String> = b_spec
+                .diff(&a_spec)
+                .into_iter()
+                .map(|m| format!("{}: {} != {}", m.field, m.before, m.after))
+                .collect();
+            return Err(ApiError::invalid(format!(
+                "before/after capture plan mismatch ({}); re-run capture_recapture on the baseline capture or request a human mismatch_override_reason",
+                diffs.join(", ")
+            )));
+        }
+
+        if before.owner_id != after.owner_id {
+            return Err(ApiError::invalid(format!(
+                "before/after checkpoint mismatch: '{}' != '{}'",
+                before.owner_id, after.owner_id
+            )));
+        }
+
+        if !prob_evidence.is_empty()
+            && !prob_captures.contains(before.capture_id.as_str())
+            && !prob_digests.contains(b_digest.as_str())
+        {
+            return Err(ApiError::invalid(
+                "fix baseline capture does not match any linked problem's evidence capture or plan_digest",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Files a new fix in `project`, moving its problems to `in-progress` and citing its proofs.
 pub async fn create(
     state: &AppState,
@@ -156,6 +250,7 @@ pub async fn create(
     require_publisher(state, principal, project, Role::Reviewer).await?;
     validate(form)?;
     let problems = check_references(state, project, form).await?;
+    verify_comparison_parity(state, principal, project, form, &problems).await?;
     let id = uuid::Uuid::now_v7().to_string();
     let now = now_ms();
     let mut tx = state.db.begin().await?;

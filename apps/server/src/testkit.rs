@@ -206,12 +206,32 @@ const DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000
 
 async fn insert_capture(db: &sqlx::SqlitePool, project: &str, artifact: &str) {
     let capture = format!("capture-{artifact}");
+    let spec = rupicola_api::CapturePlanSpec {
+        url_path: "/".to_owned(),
+        viewport: [1440, 900],
+        scale_milli: rupicola_api::DEFAULT_SCALE_MILLI,
+        zoom_milli: rupicola_api::DEFAULT_ZOOM_MILLI,
+        color_scheme: None,
+        reduced_motion: false,
+        locale: None,
+        timezone: None,
+        steps: vec![rupicola_api::CaptureStep::Checkpoint {
+            id: "home".to_owned(),
+            full_page: false,
+        }],
+        scenario_name: Some("home".to_owned()),
+        scenario_hash: None,
+    };
+    let plan_json = serde_json::to_string(&spec).unwrap();
+    let plan_digest = spec.digest();
     sqlx::query(
-        "INSERT INTO captures (id, project_id, scenario, status, inspection, environment, created_at)
-         VALUES (?1, ?2, 'home', 'complete', 'pending', '{}', 0)",
+        "INSERT INTO captures (id, project_id, scenario, status, inspection, environment, created_at, plan_json, plan_digest)
+         VALUES (?1, ?2, 'home', 'complete', 'pending', '{}', 0, ?3, ?4)",
     )
     .bind(&capture)
     .bind(project)
+    .bind(&plan_json)
+    .bind(&plan_digest)
     .execute(db)
     .await
     .unwrap();

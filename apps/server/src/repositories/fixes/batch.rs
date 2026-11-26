@@ -136,7 +136,7 @@ async fn batch_comparisons(
 /// Lists every fix of `project` in full, newest first, in bounded batch queries.
 pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Fix>, ApiError> {
     let fix_rows: Vec<KeyedFixRow> = sqlx::query_as(
-        "SELECT id, project_id, title, summary, git_ref, status, author, created_at, updated_at
+        "SELECT id, project_id, title, summary, git_ref, status, mismatch_override_reason, author, created_at, updated_at
          FROM fixes WHERE project_id = ?1 ORDER BY updated_at DESC, id DESC LIMIT ?2",
     )
     .bind(project)
@@ -232,6 +232,7 @@ pub async fn list_details(db: &SqlitePool, project: &str) -> Result<Vec<Fix>, Ap
                 .map(Step::from)
                 .collect(),
             reviews,
+            mismatch_override_reason: row.mismatch_override_reason,
             author: row.author,
             created_at: row.created_at,
             updated_at: row.updated_at,

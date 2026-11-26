@@ -113,12 +113,16 @@ pub struct JobFailure {
 pub const DEFAULT_BASE_REF: &str = "develop";
 /// Default automatic recapture setting after a fix is approved.
 pub const DEFAULT_AUTO_RECAPTURE: bool = true;
+/// Default policy for whether non-human tokens (AI/machine) may pass `mismatch_override_reason`.
+pub const DEFAULT_ALLOW_AGENT_MISMATCH_OVERRIDE: bool = false;
 
-/// Project or server capture settings controlling automatic recapture and base branch.
+/// Project or server capture settings controlling automatic recapture, base branch, and parity override policy.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct RecaptureSettings {
     pub auto_recapture: bool,
     pub base_ref: String,
+    #[serde(default)]
+    pub allow_agent_mismatch_override: bool,
 }
 
 /// `PATCH /v1/projects/{id}/capture-settings` or `PATCH /v1/settings/capture`
@@ -128,4 +132,6 @@ pub struct RecaptureSettingsPatch {
     pub auto_recapture: Option<bool>,
     #[serde(default)]
     pub base_ref: Option<String>,
+    #[serde(default)]
+    pub allow_agent_mismatch_override: Option<bool>,
 }

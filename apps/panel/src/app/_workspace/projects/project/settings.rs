@@ -11,9 +11,9 @@ use crate::{
     views::project::{Tab, settings::settings_tab},
 };
 use rupicola_api::{
-    Credential, DEFAULT_AUTO_RECAPTURE, DEFAULT_BASE_REF, DeletionPolicy, LimitValue,
-    NewCredential, NewInvite, PolicyView, RecaptureSettings, RecaptureSettingsPatch,
-    ScenarioSummary,
+    Credential, DEFAULT_ALLOW_AGENT_MISMATCH_OVERRIDE, DEFAULT_AUTO_RECAPTURE, DEFAULT_BASE_REF,
+    DeletionPolicy, LimitValue, NewCredential, NewInvite, PolicyView, RecaptureSettings,
+    RecaptureSettingsPatch, ScenarioSummary,
 };
 use topcoat::{
     Result,
@@ -39,6 +39,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
                 .unwrap_or_else(|| RecaptureSettings {
                     auto_recapture: DEFAULT_AUTO_RECAPTURE,
                     base_ref: DEFAULT_BASE_REF.to_owned(),
+                    allow_agent_mismatch_override: DEFAULT_ALLOW_AGENT_MISMATCH_OVERRIDE,
                 });
             let devs: Vec<Credential> = p
                 .api
@@ -72,6 +73,7 @@ async fn page(cx: &Cx) -> Result<impl View> {
                 RecaptureSettings {
                     auto_recapture: DEFAULT_AUTO_RECAPTURE,
                     base_ref: DEFAULT_BASE_REF.to_owned(),
+                    allow_agent_mismatch_override: DEFAULT_ALLOW_AGENT_MISMATCH_OVERRIDE,
                 },
                 Vec::new(),
                 None,
@@ -124,6 +126,8 @@ struct ProjectAction {
     key: String,
     #[serde(default)]
     auto_recapture: Option<String>,
+    #[serde(default)]
+    allow_agent_mismatch_override: Option<String>,
     #[serde(default)]
     base_ref: Option<String>,
 }
@@ -184,6 +188,7 @@ async fn change_project_access(
         }
         "capture-settings" => {
             let auto_recapture = Some(form.auto_recapture.is_some());
+            let allow_agent_mismatch_override = Some(form.allow_agent_mismatch_override.is_some());
             let base_ref = form
                 .base_ref
                 .as_deref()
@@ -196,6 +201,7 @@ async fn change_project_access(
                 &RecaptureSettingsPatch {
                     auto_recapture,
                     base_ref,
+                    allow_agent_mismatch_override,
                 },
             )
             .await
@@ -278,6 +284,7 @@ mod tests {
             value: value.to_owned(),
             key: key.to_owned(),
             auto_recapture: None,
+            allow_agent_mismatch_override: None,
             base_ref: None,
         }
     }

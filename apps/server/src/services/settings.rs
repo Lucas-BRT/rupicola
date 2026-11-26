@@ -12,12 +12,13 @@ use crate::{
     state::AppState,
 };
 use rupicola_api::{
-    DEFAULT_AUTO_RECAPTURE, DEFAULT_BASE_REF, LimitSettings, LimitValue, RecaptureSettings,
-    RecaptureSettingsPatch, Role,
+    DEFAULT_ALLOW_AGENT_MISMATCH_OVERRIDE, DEFAULT_AUTO_RECAPTURE, DEFAULT_BASE_REF, LimitSettings,
+    LimitValue, RecaptureSettings, RecaptureSettingsPatch, Role,
 };
 
 const KEY_AUTO_RECAPTURE: &str = "auto_recapture";
 const KEY_BASE_REF: &str = "base_ref";
+const KEY_ALLOW_AGENT_MISMATCH_OVERRIDE: &str = "allow_agent_mismatch_override";
 
 /// Only an administrator changes the server; the name they act under.
 fn administrator(principal: &Principal) -> Result<&str, ApiError> {
@@ -202,7 +203,28 @@ pub async fn project_base_ref(state: &AppState, project: &str) -> Result<String,
     Ok(DEFAULT_BASE_REF.to_owned())
 }
 
-/// Reads the effective capture settings (`auto_recapture`, `base_ref`) for the server.
+/// Whether non-human tokens (`Machine` / `Device`) may pass `mismatch_override_reason` on `project`.
+/// Project setting overrides the server setting; defaults to `false` (human sessions only).
+pub async fn agent_mismatch_override_allowed(
+    state: &AppState,
+    project: &str,
+) -> Result<bool, ApiError> {
+    let proj_rows = settings::project(&state.db, project).await?;
+    if let Some(val) = find_setting(&proj_rows, KEY_ALLOW_AGENT_MISMATCH_OVERRIDE)
+        && let Ok(parsed) = val.parse::<bool>()
+    {
+        return Ok(parsed);
+    }
+    let srv_rows = settings::server(&state.db).await?;
+    if let Some(val) = find_setting(&srv_rows, KEY_ALLOW_AGENT_MISMATCH_OVERRIDE)
+        && let Ok(parsed) = val.parse::<bool>()
+    {
+        return Ok(parsed);
+    }
+    Ok(DEFAULT_ALLOW_AGENT_MISMATCH_OVERRIDE)
+}
+
+/// Reads the effective capture settings (`auto_recapture`, `base_ref`, `allow_agent_mismatch_override`) for the server.
 pub async fn capture_server(
     state: &AppState,
     principal: &Principal,
@@ -215,13 +237,17 @@ pub async fn capture_server(
     let base_ref = find_setting(&srv_rows, KEY_BASE_REF)
         .and_then(decode_base_ref)
         .unwrap_or_else(|| DEFAULT_BASE_REF.to_owned());
+    let allow_agent_mismatch_override = find_setting(&srv_rows, KEY_ALLOW_AGENT_MISMATCH_OVERRIDE)
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(DEFAULT_ALLOW_AGENT_MISMATCH_OVERRIDE);
     Ok(RecaptureSettings {
         auto_recapture,
         base_ref,
+        allow_agent_mismatch_override,
     })
 }
 
-/// Updates server-wide capture settings (`auto_recapture`, `base_ref`).
+/// Updates server-wide capture settings (`auto_recapture`, `base_ref`, `allow_agent_mismatch_override`).
 pub async fn update_capture_server(
     state: &AppState,
     principal: &Principal,
@@ -244,11 +270,21 @@ pub async fn update_capture_server(
         let encoded = encode_base_ref(base)?;
         settings::set_server(&mut *tx, KEY_BASE_REF, &encoded, actor, now).await?;
     }
+    if let Some(allow_override) = patch.allow_agent_mismatch_override {
+        settings::set_server(
+            &mut *tx,
+            KEY_ALLOW_AGENT_MISMATCH_OVERRIDE,
+            &allow_override.to_string(),
+            actor,
+            now,
+        )
+        .await?;
+    }
     tx.commit().await?;
     capture_server(state, principal).await
 }
 
-/// Reads the effective capture settings (`auto_recapture`, `base_ref`) for `project`.
+/// Reads the effective capture settings (`auto_recapture`, `base_ref`, `allow_agent_mismatch_override`) for `project`.
 pub async fn capture_project(
     state: &AppState,
     principal: &Principal,
@@ -258,10 +294,11 @@ pub async fn capture_project(
     Ok(RecaptureSettings {
         auto_recapture: auto_recapture_enabled(state, project).await?,
         base_ref: project_base_ref(state, project).await?,
+        allow_agent_mismatch_override: agent_mismatch_override_allowed(state, project).await?,
     })
 }
 
-/// Updates capture settings (`auto_recapture`, `base_ref`) for `project`.
+/// Updates capture settings (`auto_recapture`, `base_ref`, `allow_agent_mismatch_override`) for `project`.
 pub async fn update_capture_project(
     state: &AppState,
     principal: &Principal,
@@ -286,6 +323,17 @@ pub async fn update_capture_project(
     if let Some(base) = &patch.base_ref {
         let encoded = encode_base_ref(base)?;
         settings::set_project(&mut *tx, project, KEY_BASE_REF, &encoded, actor, now).await?;
+    }
+    if let Some(allow_override) = patch.allow_agent_mismatch_override {
+        settings::set_project(
+            &mut *tx,
+            project,
+            KEY_ALLOW_AGENT_MISMATCH_OVERRIDE,
+            &allow_override.to_string(),
+            actor,
+            now,
+        )
+        .await?;
     }
     tx.commit().await?;
     capture_project(state, principal, project).await

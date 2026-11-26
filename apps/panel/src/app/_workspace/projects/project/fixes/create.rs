@@ -114,6 +114,7 @@ pub async fn create_fix_action(
         steps,
         baseline: Vec::new(),
         proof: Vec::new(),
+        mismatch_override_reason: None,
     };
     let fix = panel
         .api

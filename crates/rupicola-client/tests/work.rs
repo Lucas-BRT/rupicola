@@ -160,6 +160,7 @@ async fn work_calls_reach_their_routes() {
         steps: vec![],
         baseline: vec![],
         proof: vec![],
+        mismatch_override_reason: None,
     };
     api.create_fix(TOKEN, PROJECT, &new_fix).await.unwrap();
     let step = NewStep {

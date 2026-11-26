@@ -521,4 +521,281 @@ mod tests {
         let outsider = call(port, "PUT", &path, Some(&carla), Some(&as_role("baseline"))).await;
         assert_eq!(status(&outsider), StatusCode::NOT_FOUND);
     }
+
+    async fn publish_with_spec(
+        port: u16,
+        token: &str,
+        id: &str,
+        spec: Option<rupicola_api::CapturePlanSpec>,
+    ) -> rupicola_api::Capture {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let sha = stream_blob(port, token, "demo", png).await;
+        let mut rec = capture_record(id, &sha, png.len() as u64, vec![]);
+        rec.plan_spec = spec;
+        let resp = publish_record(port, token, &rec).await;
+        assert_eq!(status(&resp), StatusCode::CREATED, "{resp}");
+        json(&resp)
+    }
+
+    fn spec(url_path: &str, zoom_milli: u32) -> rupicola_api::CapturePlanSpec {
+        rupicola_api::CapturePlanSpec {
+            url_path: url_path.to_owned(),
+            viewport: [1280, 720],
+            scale_milli: 2000,
+            zoom_milli,
+            color_scheme: Some("dark".to_owned()),
+            reduced_motion: false,
+            locale: None,
+            timezone: None,
+            steps: vec![rupicola_api::CaptureStep::Checkpoint {
+                id: "home".to_owned(),
+                full_page: false,
+            }],
+            scenario_name: Some("Home".to_owned()),
+            scenario_hash: None,
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn parity_guard_rejects_mismatched_url_zoom_and_baseline_and_accepts_matching_plan() {
+        let (port, [ana, _, _]) = demo_with_artifacts().await;
+        let base_cap = publish_with_spec(
+            port,
+            &ana,
+            "01936f2c-1111-7bbb-8ccc-000000000001",
+            Some(spec("/settings", 1000)),
+        )
+        .await;
+        let matching_after = publish_with_spec(
+            port,
+            &ana,
+            "01936f2c-1111-7bbb-8ccc-000000000002",
+            Some(spec("http://preview.local:9000/settings", 1000)),
+        )
+        .await;
+        let wrong_zoom = publish_with_spec(
+            port,
+            &ana,
+            "01936f2c-1111-7bbb-8ccc-000000000003",
+            Some(spec("/settings", 1250)),
+        )
+        .await;
+        let wrong_page = publish_with_spec(
+            port,
+            &ana,
+            "01936f2c-1111-7bbb-8ccc-000000000004",
+            Some(spec("/projects", 1000)),
+        )
+        .await;
+        let no_plan =
+            publish_with_spec(port, &ana, "01936f2c-1111-7bbb-8ccc-000000000005", None).await;
+
+        let problem: Problem = json(
+            &call(
+                port,
+                "POST",
+                "/v1/projects/demo/problems",
+                Some(&ana),
+                Some(&format!(
+                    r#"{{"title":"Contrast","severity":"major","origin":"agent-visual","evidence":["{}"]}}"#,
+                    base_cap.checkpoints[0].artifact.id
+                )),
+            )
+            .await,
+        );
+
+        let fix_body = |before: &str, after: &str| {
+            format!(
+                r#"{{"title":"Fix","problems":["{}"],"comparisons":[{{"label":"main","before":"{before}","after":"{after}"}}]}}"#,
+                problem.id
+            )
+        };
+
+        let r_zoom = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&ana),
+            Some(&fix_body(
+                &base_cap.checkpoints[0].artifact.id,
+                &wrong_zoom.checkpoints[0].artifact.id,
+            )),
+        )
+        .await;
+        assert_eq!(
+            status(&r_zoom),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{r_zoom}"
+        );
+        assert!(r_zoom.contains("zoom_milli"), "{r_zoom}");
+
+        let r_page = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&ana),
+            Some(&fix_body(
+                &base_cap.checkpoints[0].artifact.id,
+                &wrong_page.checkpoints[0].artifact.id,
+            )),
+        )
+        .await;
+        assert_eq!(
+            status(&r_page),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{r_page}"
+        );
+        assert!(r_page.contains("url_path"), "{r_page}");
+
+        let r_no_plan = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&ana),
+            Some(&fix_body(
+                &base_cap.checkpoints[0].artifact.id,
+                &no_plan.checkpoints[0].artifact.id,
+            )),
+        )
+        .await;
+        assert_eq!(
+            status(&r_no_plan),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{r_no_plan}"
+        );
+
+        // Baseline from unrelated page (even if before==after) fails Problem <-> Baseline check
+        let r_wrong_base = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&ana),
+            Some(&fix_body(
+                &wrong_page.checkpoints[0].artifact.id,
+                &wrong_page.checkpoints[0].artifact.id,
+            )),
+        )
+        .await;
+        assert_eq!(
+            status(&r_wrong_base),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{r_wrong_base}"
+        );
+
+        let r_ok = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&ana),
+            Some(&fix_body(
+                &base_cap.checkpoints[0].artifact.id,
+                &matching_after.checkpoints[0].artifact.id,
+            )),
+        )
+        .await;
+        assert_eq!(status(&r_ok), StatusCode::CREATED, "{r_ok}");
+    }
+
+    #[tokio::test]
+    async fn mismatch_override_is_human_only_by_default_and_configurable_per_project() {
+        let (port, [ana, _, _]) = demo_with_artifacts().await;
+        let base_cap = publish_with_spec(
+            port,
+            &ana,
+            "01936f2c-2222-7bbb-8ccc-000000000001",
+            Some(spec("/old-route", 1000)),
+        )
+        .await;
+        let new_route_cap = publish_with_spec(
+            port,
+            &ana,
+            "01936f2c-2222-7bbb-8ccc-000000000002",
+            Some(spec("/new-route", 1000)),
+        )
+        .await;
+        let problem: Problem = json(
+            &call(
+                port,
+                "POST",
+                "/v1/projects/demo/problems",
+                Some(&ana),
+                Some(&format!(
+                    r#"{{"title":"Route moved","severity":"minor","origin":"agent-visual","evidence":["{}"]}}"#,
+                    base_cap.checkpoints[0].artifact.id
+                )),
+            )
+            .await,
+        );
+        // Issue a machine token (AI agent) for Ana
+        let issued: rupicola_api::IssuedCredential = json(
+            &call(
+                port,
+                "POST",
+                "/v1/tokens",
+                Some(&ana),
+                Some(r#"{"label":"ai-agent"}"#),
+            )
+            .await,
+        );
+        let machine = issued.token;
+        let override_body = format!(
+            r#"{{"title":"Move route","problems":["{}"],"comparisons":[{{"label":"main","before":"{}","after":"{}"}}],"mismatch_override_reason":"Intentional route rename"}}"#,
+            problem.id,
+            base_cap.checkpoints[0].artifact.id,
+            new_route_cap.checkpoints[0].artifact.id
+        );
+
+        // Machine token is forbidden from overriding by default
+        let r_machine_blocked = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&machine),
+            Some(&override_body),
+        )
+        .await;
+        assert_eq!(
+            status(&r_machine_blocked),
+            StatusCode::FORBIDDEN,
+            "{r_machine_blocked}"
+        );
+
+        // Human session can override by default and reason is persisted
+        let r_human = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&ana),
+            Some(&override_body),
+        )
+        .await;
+        assert_eq!(status(&r_human), StatusCode::CREATED, "{r_human}");
+        let created: Fix = json(&r_human);
+        assert_eq!(
+            created.mismatch_override_reason.as_deref(),
+            Some("Intentional route rename")
+        );
+
+        // Owner enables allow_agent_mismatch_override for the project -> machine token now allowed
+        let r_cfg = call(
+            port,
+            "PATCH",
+            "/v1/projects/demo/capture-settings",
+            Some(&ana),
+            Some(r#"{"allow_agent_mismatch_override":true}"#),
+        )
+        .await;
+        assert_eq!(status(&r_cfg), StatusCode::OK, "{r_cfg}");
+
+        let r_machine_ok = call(
+            port,
+            "POST",
+            "/v1/projects/demo/fixes",
+            Some(&machine),
+            Some(&override_body),
+        )
+        .await;
+        assert_eq!(status(&r_machine_ok), StatusCode::CREATED, "{r_machine_ok}");
+    }
 }

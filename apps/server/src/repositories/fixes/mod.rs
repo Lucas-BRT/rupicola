@@ -46,6 +46,7 @@ pub(super) struct FixRow {
     summary: String,
     git_ref: Option<String>,
     status: String,
+    mismatch_override_reason: Option<String>,
     author: Option<String>,
     created_at: i64,
     updated_at: i64,
@@ -206,6 +207,53 @@ pub async fn capture_of_artifact(
     Ok(capture)
 }
 
+/// Capture & plan metadata for one artifact, used by the anti-hallucination parity guard.
+#[derive(sqlx::FromRow)]
+pub struct ArtifactPlanMeta {
+    pub capture_id: String,
+    pub owner_id: String,
+    pub plan_json: Option<String>,
+    pub plan_digest: Option<String>,
+}
+
+/// Loads the owning capture, checkpoint/clip `owner_id`, and frozen plan metadata for `artifact`.
+pub async fn artifact_plan_meta(
+    db: &SqlitePool,
+    project: &str,
+    artifact: &str,
+) -> Result<Option<ArtifactPlanMeta>, ApiError> {
+    Ok(sqlx::query_as(
+        "SELECT a.capture_id, a.owner_id, c.plan_json, c.plan_digest
+         FROM artifacts a
+         JOIN captures c ON c.id = a.capture_id
+         WHERE a.id = ?1 AND c.project_id = ?2",
+    )
+    .bind(artifact)
+    .bind(project)
+    .fetch_optional(db)
+    .await?)
+}
+
+/// Returns `(capture_id, plan_digest)` for every evidence selection anchor cited by `problems`.
+pub async fn problem_evidence_plans(
+    db: &SqlitePool,
+    problems: &[&str],
+) -> Result<Vec<(String, Option<String>)>, ApiError> {
+    if problems.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<String> = problems.iter().map(|s| (*s).to_owned()).collect();
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT DISTINCT si.capture_id, c.plan_digest
+         FROM problem_selections ps
+         JOIN selection_items si ON si.selection_id = ps.selection_id
+         JOIN captures c ON c.id = si.capture_id
+         WHERE ps.problem_id",
+    );
+    super::push_in(&mut qb, &ids);
+    Ok(qb.build_query_as().fetch_all(db).await?)
+}
+
 /// Inserts a fix header row inside `tx`.
 pub async fn insert(
     tx: &mut SqliteConnection,
@@ -215,15 +263,21 @@ pub async fn insert(
     author: Option<&str>,
     now: i64,
 ) -> Result<(), ApiError> {
+    let override_reason = form
+        .mismatch_override_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     sqlx::query(
-        "INSERT INTO fixes (id, project_id, title, summary, git_ref, status, author, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'pending-review', ?6, ?7, ?7)",
+        "INSERT INTO fixes (id, project_id, title, summary, git_ref, status, mismatch_override_reason, author, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'pending-review', ?6, ?7, ?8, ?8)",
     )
     .bind(id)
     .bind(project)
     .bind(form.title.trim())
     .bind(&form.summary)
     .bind(form.git_ref.as_deref().map(str::trim))
+    .bind(override_reason)
     .bind(author)
     .bind(now)
     .execute(&mut *tx)
@@ -447,7 +501,7 @@ pub async fn apply_review(
 /// Loads one fix with its problems, tactics, files, comparisons, selections, steps and reviews.
 pub async fn load(db: &SqlitePool, id: &str) -> Result<Fix, ApiError> {
     let row: FixRow = sqlx::query_as(
-        "SELECT project_id, title, summary, git_ref, status, author, created_at, updated_at
+        "SELECT project_id, title, summary, git_ref, status, mismatch_override_reason, author, created_at, updated_at
          FROM fixes WHERE id = ?1",
     )
     .bind(id)
@@ -531,6 +585,7 @@ pub async fn load(db: &SqlitePool, id: &str) -> Result<Fix, ApiError> {
             .into_iter()
             .map(Review::try_from)
             .collect::<Result<_, _>>()?,
+        mismatch_override_reason: row.mismatch_override_reason,
         author: row.author,
         created_at: row.created_at,
         updated_at: row.updated_at,
