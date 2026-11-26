@@ -33,7 +33,7 @@ pub async fn search(
 
 /// Reads a query string; a parameter it does not know, or a value it cannot read, is an
 /// error rather than something silently ignored.
-fn parse_query(query: Option<&str>) -> Result<Search, ApiError> {
+pub(crate) fn parse_query(query: Option<&str>) -> Result<Search, ApiError> {
     let mut search = Search {
         limit: DEFAULT_LIMIT,
         ..Search::default()

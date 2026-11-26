@@ -89,6 +89,7 @@ struct ArtifactRow {
 /// Project, digest, media type and size of an artifact.
 #[derive(sqlx::FromRow)]
 pub struct ArtifactBlob {
+    pub capture_id: String,
     pub project_id: String,
     pub sha256: String,
     pub mime: String,
@@ -182,7 +183,7 @@ pub async fn artifact_blob(
     artifact: &str,
 ) -> sqlx::Result<Option<ArtifactBlob>> {
     sqlx::query_as(
-        "SELECT c.project_id, a.sha256, a.mime, a.bytes FROM artifacts a
+        "SELECT a.capture_id, c.project_id, a.sha256, a.mime, a.bytes FROM artifacts a
          JOIN captures c ON c.id = a.capture_id WHERE a.id = ?1",
     )
     .bind(artifact)

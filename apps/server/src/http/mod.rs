@@ -8,6 +8,7 @@ mod error;
 mod extract;
 mod handlers;
 pub mod mcp;
+mod ops;
 mod routes;
 pub mod security;
 

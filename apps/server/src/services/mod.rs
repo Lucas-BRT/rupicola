@@ -4,6 +4,7 @@
 
 pub mod access;
 pub mod auth;
+pub mod capture_exec;
 pub mod captures;
 pub mod credentials;
 pub mod design;
@@ -12,6 +13,7 @@ pub mod fixes;
 pub mod jobs;
 pub mod limits;
 pub mod lineage;
+pub mod media;
 pub mod passwords;
 pub mod problems;
 pub mod projects;
@@ -23,3 +25,4 @@ pub mod selections;
 pub mod settings;
 pub mod topics;
 pub mod uploads;
+pub mod visual;

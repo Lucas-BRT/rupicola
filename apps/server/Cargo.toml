@@ -9,6 +9,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+async-trait.workspace = true
 base64.workspace = true
 serde.workspace = true
 anyhow.workspace = true
@@ -20,6 +21,7 @@ http-body-util.workspace = true
 png.workspace = true
 rupicola-api = { workspace = true, features = ["capture"] }
 rupicola-capture.workspace = true
+rupicola-core.workspace = true
 rupicola-protocol.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
