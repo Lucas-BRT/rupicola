@@ -48,6 +48,8 @@ struct CaptureRow {
     deleted_at: Option<i64>,
     deleted_by: Option<String>,
     delete_reason: Option<String>,
+    plan_json: Option<String>,
+    plan_digest: Option<String>,
 }
 
 /// A `capture_findings` row.
@@ -319,6 +321,12 @@ fn build_capture(
         by: capture.deleted_by.clone().unwrap_or_default(),
         reason: capture.delete_reason.clone().unwrap_or_default(),
     });
+    let plan_spec = capture
+        .plan_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(anyhow::Error::from)?;
     Ok(Capture {
         id,
         project_id: capture.project_id,
@@ -339,6 +347,8 @@ fn build_capture(
         clips,
         findings: findings.into_iter().map(Finding::from).collect(),
         deleted,
+        plan_spec,
+        plan_digest: capture.plan_digest,
     })
 }
 
@@ -346,7 +356,7 @@ fn build_capture(
 pub async fn load(db: &sqlx::SqlitePool, id: &str) -> Result<Capture, ApiError> {
     let capture: CaptureRow = sqlx::query_as(
         "SELECT project_id, scenario, revision, status, blocker, inspection, environment,
-               created_at, digest, deleted_at, deleted_by, delete_reason
+               created_at, digest, deleted_at, deleted_by, delete_reason, plan_json, plan_digest
          FROM captures WHERE id = ?1",
     )
     .bind(id)
@@ -399,7 +409,7 @@ pub async fn load_many(db: &sqlx::SqlitePool, ids: &[String]) -> Result<Vec<Capt
     }
     let mut qb = sqlx::QueryBuilder::new(
         "SELECT id, project_id, scenario, revision, status, blocker, inspection, environment,
-                created_at, digest, deleted_at, deleted_by, delete_reason
+                created_at, digest, deleted_at, deleted_by, delete_reason, plan_json, plan_digest
          FROM captures WHERE id",
     );
     super::push_in(&mut qb, ids);

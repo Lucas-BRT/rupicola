@@ -295,6 +295,9 @@ pub struct CaptureRecord {
     pub blocker: Option<String>,
     #[serde(default)]
     pub environment: Environment,
+    /// Canonical execution plan used to take this capture, for deterministic recapture and proof parity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_spec: Option<crate::CapturePlanSpec>,
     /// Sorted by path, which is unique.
     pub members: Vec<Member>,
 }

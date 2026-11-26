@@ -290,6 +290,22 @@ pub fn capture_record(id: &str, sha: &str, bytes: u64, parents: Vec<ParentRef>) 
             }),
             ..Environment::default()
         },
+        plan_spec: Some(rupicola_api::CapturePlanSpec {
+            url_path: "/".to_owned(),
+            viewport: [800, 600],
+            scale_milli: 2000,
+            zoom_milli: rupicola_api::DEFAULT_ZOOM_MILLI,
+            color_scheme: Some("dark".to_owned()),
+            reduced_motion: false,
+            locale: None,
+            timezone: None,
+            steps: vec![rupicola_api::CaptureStep::Checkpoint {
+                id: "home".to_owned(),
+                full_page: false,
+            }],
+            scenario_name: Some("Home".to_owned()),
+            scenario_hash: None,
+        }),
         members: vec![Member {
             path: "checkpoints/home.png".to_owned(),
             sha256: sha.to_owned(),

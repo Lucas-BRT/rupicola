@@ -172,3 +172,42 @@ fn ui_tree_is_full_when_checks_are_configured_and_off_otherwise() {
         scenario_cell_plan(&checked, "http://127.0.0.1:5000", DEFAULT_VIEWPORT, None).unwrap();
     assert_eq!(checked_plan.environment.ui_tree, UiTreeMode::Full);
 }
+
+#[test]
+fn plan_from_spec_compiles_frozen_viewport_scale_theme_and_steps() {
+    let spec = crate::CapturePlanSpec {
+        url_path: "http://old-host:9999/settings?tab=limits".to_owned(),
+        viewport: [390, 844],
+        scale_milli: 2000,
+        zoom_milli: 1000,
+        color_scheme: Some("dark".to_owned()),
+        reduced_motion: true,
+        locale: Some("pt-BR".to_owned()),
+        timezone: None,
+        steps: vec![
+            CaptureStep::ScrollTo {
+                selector: None,
+                x: 0,
+                y: 300,
+            },
+            CaptureStep::Checkpoint {
+                id: "limits".to_owned(),
+                full_page: false,
+            },
+        ],
+        scenario_name: Some("settings".to_owned()),
+        scenario_hash: None,
+    };
+    let plan = plan_from_spec(&spec, "http://127.0.0.1:4731/", true).unwrap();
+    assert_eq!(
+        plan.target.command,
+        "http://127.0.0.1:4731/settings?tab=limits"
+    );
+    assert_eq!(plan.environment.viewport, [390, 844]);
+    assert!((plan.environment.scale - 2.0).abs() < f64::EPSILON);
+    assert_eq!(plan.environment.color_scheme, Some(ColorScheme::Dark));
+    assert!(plan.environment.reduced_motion);
+    assert_eq!(plan.environment.locale.as_deref(), Some("pt-BR"));
+    assert_eq!(plan.environment.ui_tree, UiTreeMode::Full);
+    assert_eq!(plan.steps.len(), 2);
+}

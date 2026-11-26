@@ -1,7 +1,9 @@
 //! Validation and translation of [`CaptureStep`] sequences and [`Scenario`] matrix cells
 //! into declarative `rupicola_capture::session::Plan` plans.
 
-use crate::{CaptureAction, CaptureStep, Checks, Scenario, Viewport};
+use crate::{
+    CaptureAction, CapturePlanSpec, CaptureStep, Checks, DEFAULT_SCALE_MILLI, Scenario, Viewport,
+};
 use rupicola_capture::session::{
     ColorScheme, Environment, NetworkPolicy, Plan, Step, Target, UiTreeMode, WaitCondition,
     valid_id,
@@ -411,6 +413,47 @@ pub fn scenario_cell_plan(
         combined
     };
 
+    Ok(Plan {
+        target: Target {
+            command: url,
+            args: Vec::new(),
+        },
+        environment: env,
+        steps,
+        allow_degraded: false,
+    })
+}
+
+/// Compiles a frozen [`CapturePlanSpec`] against `base_url` into a protocol [`Plan`],
+/// guaranteeing deterministic viewport, DPR, color scheme, reduced motion, locale, and steps.
+///
+/// # Errors
+///
+/// Returns [`PlanError`] if any step in `spec` is invalid.
+pub fn plan_from_spec(
+    spec: &CapturePlanSpec,
+    base_url: &str,
+    ui_tree: bool,
+) -> Result<Plan, PlanError> {
+    let norm = spec.normalized();
+    let url = format!("{}{}", base_url.trim_end_matches('/'), norm.url_path);
+    let mut env = Environment::new(norm.viewport);
+    env.scale = f64::from(norm.scale_milli) / f64::from(DEFAULT_SCALE_MILLI);
+    env.color_scheme = norm
+        .color_scheme
+        .as_deref()
+        .and_then(color_scheme_for_theme);
+    env.reduced_motion = norm.reduced_motion;
+    env.warmup_ms = 0;
+    env.locale = norm.locale;
+    env.network_policy = NetworkPolicy::Unrestricted;
+    env.ui_tree = if ui_tree {
+        UiTreeMode::Full
+    } else {
+        UiTreeMode::Off
+    };
+    let (steps, min_interval) = build_steps(&norm.steps)?;
+    env.frame_interval_ms = min_interval.map(u64::from);
     Ok(Plan {
         target: Target {
             command: url,

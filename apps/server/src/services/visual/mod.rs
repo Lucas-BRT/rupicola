@@ -329,6 +329,7 @@ pub async fn diff_images(
             device: None,
             extra: BTreeMap::new(),
         },
+        plan_spec: None,
         members: vec![Member {
             path: "checkpoints/diff.png".to_owned(),
             role: MemberRole::Checkpoint,

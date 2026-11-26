@@ -481,6 +481,7 @@ fn build_sampled_record(
             device: None,
             extra: BTreeMap::new(),
         },
+        plan_spec: None,
         members,
     }
 }

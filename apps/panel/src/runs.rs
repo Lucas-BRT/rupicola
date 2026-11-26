@@ -141,6 +141,8 @@ mod tests {
                 created_at: 8,
             }],
             deleted: None,
+            plan_spec: None,
+            plan_digest: None,
         }
     }
 

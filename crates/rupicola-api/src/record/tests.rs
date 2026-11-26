@@ -61,6 +61,7 @@ fn record() -> CaptureRecord {
             extra: BTreeMap::from([("android.api_level".to_owned(), "34".to_owned())]),
             ..Environment::default()
         },
+        plan_spec: None,
         members: vec![
             Member {
                 path: "checkpoints/home.png".to_owned(),

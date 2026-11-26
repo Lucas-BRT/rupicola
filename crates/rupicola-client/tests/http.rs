@@ -173,6 +173,8 @@ fn capture(id: &str) -> Capture {
         clips: vec![],
         findings: vec![],
         deleted: None,
+        plan_spec: None,
+        plan_digest: None,
     }
 }
 

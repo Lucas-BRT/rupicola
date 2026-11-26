@@ -498,7 +498,7 @@ async fn problems_and_fixes_cite_selections_of_their_own_project_only() {
     );
     run(
         &db,
-        "INSERT INTO fixes VALUES ('f1', 'demo', 'Raise contrast', '', 'pending-review', NULL, 0, 0, NULL);
+        "INSERT INTO fixes (id, project_id, title, summary, status, author, created_at, updated_at, git_ref) VALUES ('f1', 'demo', 'Raise contrast', '', 'pending-review', NULL, 0, 0, NULL);
          INSERT INTO fix_selections VALUES ('demo', 'f1', 's1', 'solution-proof', 0);",
     )
     .await;

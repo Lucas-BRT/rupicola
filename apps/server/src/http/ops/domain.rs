@@ -310,6 +310,7 @@ impl CapturePublishOps for ServerOps {
                 device: None,
                 extra: BTreeMap::new(),
             },
+            plan_spec: None,
             members,
         };
 

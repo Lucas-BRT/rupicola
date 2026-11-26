@@ -128,6 +128,8 @@ fn sample_capture(id: &str) -> Capture {
         clips: Vec::new(),
         findings: Vec::new(),
         deleted: None,
+        plan_spec: None,
+        plan_digest: None,
     }
 }
 

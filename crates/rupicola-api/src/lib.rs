@@ -16,6 +16,7 @@ mod lineage;
 mod ops;
 #[cfg(feature = "capture")]
 pub mod plan;
+mod plan_spec;
 mod problems;
 mod project_config;
 pub mod record;
@@ -30,6 +31,7 @@ pub use jobs::*;
 pub use limits::*;
 pub use lineage::*;
 pub use ops::*;
+pub use plan_spec::*;
 pub use problems::*;
 pub use project_config::*;
 pub use removal::*;
@@ -423,6 +425,12 @@ pub struct Capture {
     /// Set when the capture was removed; what cited it still resolves.
     #[serde(default)]
     pub deleted: Option<Tombstone>,
+    /// Canonical execution plan specification recorded when the capture was taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_spec: Option<CapturePlanSpec>,
+    /// Deterministic SHA-256 digest of `plan_spec`, used to verify before/after proof parity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_digest: Option<String>,
 }
 
 /// `GET /v1/projects/{id}/captures/search`: one page of captures, newest first.

@@ -409,6 +409,8 @@ mod tests {
             clips: Vec::new(),
             findings: Vec::new(),
             deleted: None,
+            plan_spec: None,
+            plan_digest: None,
         };
         Run {
             key: "cap-1".to_owned(),

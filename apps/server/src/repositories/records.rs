@@ -60,10 +60,20 @@ pub async fn insert(
     digest: &str,
     now: i64,
 ) -> Result<(), ApiError> {
+    let (plan_json, plan_digest) = match &record.plan_spec {
+        Some(spec) => {
+            let norm = spec.normalized();
+            (
+                Some(serde_json::to_string(&norm).map_err(anyhow::Error::from)?),
+                Some(norm.digest()),
+            )
+        }
+        None => (None, None),
+    };
     sqlx::query(
         "INSERT INTO captures (id, project_id, scenario, revision, status, blocker, inspection,
-           environment, created_at, kind, digest, series, captured_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?11, ?12)",
+           environment, created_at, kind, digest, series, captured_at, plan_json, plan_digest)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )
     .bind(&record.id)
     .bind(project)
@@ -77,6 +87,8 @@ pub async fn insert(
     .bind(digest)
     .bind(&record.series)
     .bind(record.captured_at)
+    .bind(&plan_json)
+    .bind(&plan_digest)
     .execute(db)
     .await?;
     Ok(())
