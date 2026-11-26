@@ -2249,3 +2249,7 @@ mod tests {
 #[cfg(test)]
 #[path = "mcp_p0_tests.rs"]
 mod p0_tests;
+
+#[cfg(test)]
+#[path = "mcp_p1_tests.rs"]
+mod p1_tests;
