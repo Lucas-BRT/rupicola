@@ -5,7 +5,6 @@
 pub mod account;
 pub mod blob;
 pub mod capture;
-pub mod capture_run;
 pub mod credential;
 pub mod design;
 pub mod design_system;

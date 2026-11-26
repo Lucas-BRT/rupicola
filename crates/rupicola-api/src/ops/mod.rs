@@ -120,21 +120,15 @@ pub const WORKSPACE_OP_NAMES: &[&str] = &[
     "visual_crop_region",
 ];
 
-/// Planned operations not yet promoted to [`WORKSPACE_OP_NAMES`].
-pub const PLANNED_OP_NAMES: &[&str] = &[];
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
     #[test]
-    fn workspace_op_names_are_unique_and_disjoint_from_planned() {
+    fn workspace_op_names_are_unique() {
         let unique: BTreeSet<&str> = WORKSPACE_OP_NAMES.iter().copied().collect();
         assert_eq!(unique.len(), WORKSPACE_OP_NAMES.len());
-        for planned in PLANNED_OP_NAMES {
-            assert!(!unique.contains(planned), "duplicate op `{planned}`");
-        }
     }
 
     #[test]

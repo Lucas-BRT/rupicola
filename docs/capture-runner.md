@@ -1,8 +1,6 @@
 # Scenarios, runners and fix comparisons
 
-Status: design, agreed in conversation; slices land one at a time on `feat/capture-runner`.
-Slices 1 and 2 are done. For the current state, decisions, gotchas and what to build next, read
-`capture-runner-handoff.md`.
+Status: implemented on `feat/capture-runner`.
 
 ## Why
 
@@ -18,7 +16,7 @@ comparison was taken on.
 repository is the source of truth; the server only holds copies that were pushed
 (`rupicola scenarios push`), content-addressed by the hash of the parsed definition, so a
 formatting change does not make a new version. A definition holds the page, the environment,
-a matrix of viewports and themes, steps (the same kinds `capture_run` takes) and checks. A
+a matrix of viewports and themes, declarative `CaptureStep` actions/checkpoints/clips and checks. A
 capture records the hash it came from, so repeating it is running that hash on another tree.
 
 **Runner.** `rupicola runner` is a process on a machine that has the code. It authenticates as

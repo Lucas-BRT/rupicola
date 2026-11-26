@@ -1,10 +1,7 @@
 //! Scenario rules: what a pushed definition must satisfy before the server keeps it.
 
-use super::{
-    ApiError,
-    capture_run::{check_setup_steps, check_steps},
-};
-use rupicola_api::{Scenario, Viewport};
+use super::ApiError;
+use rupicola_api::{Scenario, Viewport, plan};
 use rupicola_capture::session::valid_id;
 use std::collections::BTreeSet;
 
@@ -78,7 +75,7 @@ fn check_themes(scenario: &Scenario) -> Result<(), ApiError> {
                 "`themes.{theme}` is not in the matrix's themes"
             )));
         }
-        check_setup_steps(&setup.steps)?;
+        plan::build_setup_steps(&setup.steps).map_err(|err| invalid(err.to_string()))?;
     }
     Ok(())
 }
@@ -140,7 +137,7 @@ pub fn validate(scenario: &Scenario) -> Result<(), ApiError> {
     }
     check_viewports(&matrix.viewports)?;
     check_themes(scenario)?;
-    check_steps(&scenario.steps)?;
+    plan::build_steps(&scenario.steps).map_err(|err| invalid(err.to_string()))?;
     check_checks(scenario)
 }
 

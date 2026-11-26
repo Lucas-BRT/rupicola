@@ -3,7 +3,6 @@
 use crate::{
     domain::{
         ApiError, Principal,
-        capture_run::{DEFAULT_HEIGHT, DEFAULT_WIDTH},
         problem::{
             EVIDENCE_LABEL, infer_from_finding, is_suppressed, validate, validate_comment,
             validate_patch,
@@ -18,8 +17,8 @@ use crate::{
     state::AppState,
 };
 use rupicola_api::{
-    Comment, NewComment, NewProblem, NewSelection, Problem, ProblemPatch, ProblemStatus,
-    ProblemSummary, Role, SelectionItem, SelectionMark,
+    Comment, DEFAULT_VIEWPORT, NewComment, NewProblem, NewSelection, Problem, ProblemPatch,
+    ProblemStatus, ProblemSummary, Role, SelectionItem, SelectionMark,
 };
 use sqlx::SqliteConnection;
 use std::collections::HashSet;
@@ -156,8 +155,11 @@ pub async fn analyze_capture(
                 &format!(
                     "[{} @ {}×{} {}] Visual inspection requested on capture '{}'",
                     first.id,
-                    capture.environment.width.unwrap_or(DEFAULT_WIDTH),
-                    capture.environment.height.unwrap_or(DEFAULT_HEIGHT),
+                    capture.environment.width.unwrap_or(DEFAULT_VIEWPORT.width),
+                    capture
+                        .environment
+                        .height
+                        .unwrap_or(DEFAULT_VIEWPORT.height),
                     capture.environment.color_scheme.as_deref().unwrap_or(""),
                     capture.scenario
                 ),
