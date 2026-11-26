@@ -11,7 +11,8 @@ use crate::{
     views::project::{Tab, settings::settings_tab},
 };
 use rupicola_api::{
-    DEFAULT_AUTO_RECAPTURE, DEFAULT_BASE_REF, NewInvite, RecaptureSettings, RecaptureSettingsPatch,
+    Credential, DEFAULT_AUTO_RECAPTURE, DEFAULT_BASE_REF, DeletionPolicy, LimitValue,
+    NewCredential, NewInvite, PolicyView, RecaptureSettings, RecaptureSettingsPatch,
 };
 use topcoat::{
     Result,
@@ -24,10 +25,10 @@ use topcoat::{
 #[page(with(Metadata::from_fn(async |cx| tab_metadata(cx, Tab::Settings).await)))]
 async fn page(cx: &Cx) -> Result<impl View> {
     let project = current_meta(cx).await.as_ref().map_err(|e| fail(*e))?;
-    let (members, audit, capture) = if project.role == Role::Owner {
-        let (m, a) = access_lists(&panel(cx), &account(cx), &project.id)
-            .await
-            .map_err(fail)?;
+    let (members, audit, capture, devices, policy, limits) = if project.role == Role::Owner {
+        let p = panel(cx);
+        let acc = account(cx);
+        let (m, a) = access_lists(&p, &acc, &project.id).await.map_err(fail)?;
         let cap = crate::backend::capture_settings(cx, &project.id)
             .await
             .as_ref()
@@ -37,7 +38,14 @@ async fn page(cx: &Cx) -> Result<impl View> {
                 auto_recapture: DEFAULT_AUTO_RECAPTURE,
                 base_ref: DEFAULT_BASE_REF.to_owned(),
             });
-        (m, a, cap)
+        let devs: Vec<Credential> = p
+            .api
+            .list_devices(&acc.session, &project.id)
+            .await
+            .unwrap_or_default();
+        let pol = p.api.deletion_policy(&acc.session, &project.id).await.ok();
+        let lim = p.api.project_settings(&acc.session, &project.id).await.ok();
+        (m, a, cap, devs, pol, lim)
     } else {
         (
             Vec::new(),
@@ -46,10 +54,22 @@ async fn page(cx: &Cx) -> Result<impl View> {
                 auto_recapture: DEFAULT_AUTO_RECAPTURE,
                 base_ref: DEFAULT_BASE_REF.to_owned(),
             },
+            Vec::new(),
+            None,
+            None,
         )
     };
     Ok(view! {
-        settings_tab(base: &project.base, role: project.role, members: members, audit: audit, capture: capture)
+        settings_tab(
+            base: &project.base,
+            role: project.role,
+            members: members,
+            audit: audit,
+            capture: capture,
+            devices: devices,
+            policy: policy,
+            limits: limits,
+        )
     })
 }
 
@@ -80,12 +100,14 @@ struct ProjectAction {
     #[serde(default)]
     value: String,
     #[serde(default)]
+    key: String,
+    #[serde(default)]
     auto_recapture: Option<String>,
     #[serde(default)]
     base_ref: Option<String>,
 }
 
-/// Changes who can reach a project or its capture settings; returns the code of a new invitation.
+/// Changes who can reach a project, its runner devices, capture settings, deletion policy, or limits.
 async fn change_project_access(
     panel: &Panel,
     account: &Account,
@@ -113,6 +135,32 @@ async fn change_project_access(
                 .map_err(|e| auth::api_error(&e))?;
             Ok(None)
         }
+        "create-device" => {
+            if value.is_empty() {
+                return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            }
+            let issued = api
+                .create_device(
+                    &account.session,
+                    id,
+                    &NewCredential {
+                        label: value.to_owned(),
+                    },
+                )
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(Some(issued.token))
+        }
+        "revoke-device" => {
+            api.delete_device(&account.session, id, value)
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(None)
+        }
+        "deletion-policy" | "set-limit" | "reset-limit" => {
+            update_policy_or_limit(panel, account, id, form).await?;
+            Ok(None)
+        }
         "capture-settings" => {
             let auto_recapture = Some(form.auto_recapture.is_some());
             let base_ref = form
@@ -135,4 +183,53 @@ async fn change_project_access(
         }
         _ => Err(StatusCode::UNPROCESSABLE_ENTITY),
     }
+}
+
+async fn update_policy_or_limit(
+    panel: &Panel,
+    account: &Account,
+    id: &str,
+    form: &ProjectAction,
+) -> PageResult<()> {
+    let value = form.value.trim();
+    let api = &panel.api;
+    match form.action.as_str() {
+        "deletion-policy" => {
+            let policy = match value {
+                "forbid" => DeletionPolicy::Forbid,
+                "confirm" => DeletionPolicy::Confirm,
+                _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
+            };
+            api.set_deletion_policy(
+                &account.session,
+                id,
+                &PolicyView {
+                    policy,
+                    server_allows: true,
+                },
+            )
+            .await
+            .map_err(|e| auth::api_error(&e))?;
+        }
+        "set-limit" => {
+            let parsed: u64 = value
+                .parse()
+                .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+            api.set_project_setting(
+                &account.session,
+                id,
+                form.key.trim(),
+                &LimitValue { value: parsed },
+            )
+            .await
+            .map_err(|e| auth::api_error(&e))?;
+        }
+        "reset-limit" => {
+            api.reset_project_setting(&account.session, id, form.key.trim())
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+        }
+        _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
+    }
+    Ok(())
 }
