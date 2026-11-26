@@ -303,6 +303,12 @@ fn build_capture_record(
             }),
             extra: BTreeMap::new(),
         },
+        plan_spec: Some(rupicola_api::CapturePlanSpec::from_scenario_cell(
+            ctx.scenario,
+            Some(ctx.scenario_hash),
+            ctx.viewport,
+            ctx.theme,
+        )),
         members,
     }
 }

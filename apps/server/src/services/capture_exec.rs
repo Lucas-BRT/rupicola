@@ -135,6 +135,7 @@ async fn collect_bundle_members(
     Ok(members)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_and_publish(
     state: &Shared,
     principal: &Principal,
@@ -143,6 +144,7 @@ async fn execute_and_publish(
     viewport: Viewport,
     theme: Option<&str>,
     plan: &Plan,
+    plan_spec: rupicola_api::CapturePlanSpec,
 ) -> Result<Capture, ApiError> {
     access::require_publisher(state, principal, project, Role::Reviewer).await?;
     let backend = discover_cdp().await?;
@@ -202,6 +204,7 @@ async fn execute_and_publish(
             device: None,
             extra: BTreeMap::new(),
         },
+        plan_spec: Some(plan_spec.normalized()),
         members,
     };
 
@@ -226,6 +229,12 @@ pub async fn run_scenario(
         req.theme.as_deref(),
     )
     .map_err(|e| ApiError::invalid(e.to_string()))?;
+    let plan_spec = rupicola_api::CapturePlanSpec::from_scenario_cell(
+        &version.scenario,
+        Some(&version.hash),
+        viewport,
+        req.theme.as_deref(),
+    );
     execute_and_publish(
         state,
         principal,
@@ -234,6 +243,7 @@ pub async fn run_scenario(
         viewport,
         req.theme.as_deref(),
         &plan,
+        plan_spec,
     )
     .await
 }
@@ -256,6 +266,7 @@ pub async fn record_clip(
     let interval_ms = u64::from((1000 / fps).max(1));
     env.frame_interval_ms = Some(interval_ms);
     env.network_policy = NetworkPolicy::Unrestricted;
+    let duration_ms = req.duration_ms.clamp(50, 30_000);
     let plan = Plan {
         target: Target {
             command: req.url.clone(),
@@ -265,15 +276,30 @@ pub async fn record_clip(
         steps: vec![
             Step::StartRecording,
             Step::Wait {
-                condition: WaitCondition::Delay {
-                    ms: req.duration_ms.clamp(50, 30_000),
-                },
+                condition: WaitCondition::Delay { ms: duration_ms },
             },
             Step::StopRecording {
                 id: "clip".to_owned(),
             },
         ],
         allow_degraded: false,
+    };
+    let plan_spec = rupicola_api::CapturePlanSpec {
+        url_path: rupicola_api::normalize_url_path(&req.url),
+        viewport: [viewport.width, viewport.height],
+        scale_milli: viewport
+            .scale
+            .saturating_mul(rupicola_api::DEFAULT_SCALE_MILLI),
+        zoom_milli: rupicola_api::DEFAULT_ZOOM_MILLI,
+        color_scheme: req.theme.clone(),
+        reduced_motion: false,
+        locale: None,
+        timezone: None,
+        steps: vec![CaptureStep::Wait {
+            ms: u32::try_from(duration_ms).unwrap_or(30_000),
+        }],
+        scenario_name: Some("record-clip".to_owned()),
+        scenario_hash: None,
     };
     execute_and_publish(
         state,
@@ -283,6 +309,7 @@ pub async fn record_clip(
         viewport,
         req.theme.as_deref(),
         &plan,
+        plan_spec,
     )
     .await
 }
@@ -317,6 +344,12 @@ pub async fn snapshot_checkpoint(
     if req.include_ui_snapshot {
         plan.environment.ui_tree = UiTreeMode::Full;
     }
+    let plan_spec = rupicola_api::CapturePlanSpec::from_scenario_cell(
+        &scenario,
+        None,
+        viewport,
+        req.theme.as_deref(),
+    );
     execute_and_publish(
         state,
         principal,
@@ -325,6 +358,7 @@ pub async fn snapshot_checkpoint(
         viewport,
         req.theme.as_deref(),
         &plan,
+        plan_spec,
     )
     .await
 }
