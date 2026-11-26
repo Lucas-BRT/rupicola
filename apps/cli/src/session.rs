@@ -5,7 +5,7 @@
 
 use crate::service;
 use anyhow::{Context, Result, bail};
-use rupicola_client::HttpApi;
+use rupicola_client::{ClientError, CredentialStore, HttpApi, StoredSession};
 use std::{
     env, fs,
     io::{ErrorKind, Write},
@@ -206,7 +206,37 @@ impl Store {
         Self::remove(&self.server_path())?;
         Ok(had_token)
     }
+}
 
+impl CredentialStore for Store {
+    fn load(&self) -> rupicola_client::Result<StoredSession> {
+        let server_url = self
+            .server_url()
+            .map_err(|e| ClientError::Invalid(e.to_string()))?;
+        let token = self.token().ok();
+        Ok(StoredSession { server_url, token })
+    }
+
+    fn save(&self, server_url: Option<&str>, token: Option<&str>) -> rupicola_client::Result<()> {
+        if let Some(url) = server_url {
+            self.save_server_url(url)
+                .map_err(|e| ClientError::Invalid(e.to_string()))?;
+        }
+        if let Some(tok) = token {
+            self.save_token(tok)
+                .map_err(|e| ClientError::Invalid(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn clear(&self) -> rupicola_client::Result<()> {
+        Self::clear(self)
+            .map(|_| ())
+            .map_err(|e| ClientError::Invalid(e.to_string()))
+    }
+}
+
+impl Store {
     fn remove(path: &PathBuf) -> Result<bool> {
         match fs::remove_file(path) {
             Ok(()) => Ok(true),
@@ -316,5 +346,20 @@ mod tests {
         }
         assert_eq!(Server::none().url().unwrap(), None);
         assert!(Server::none().require_url().is_err());
+    }
+
+    #[test]
+    fn credential_store_trait_saves_loads_and_clears() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store {
+            dir: dir.path().to_path_buf(),
+        };
+        let cs: &dyn CredentialStore = &store;
+        cs.save(Some(URL), Some("abc123token")).unwrap();
+        let loaded = cs.load().unwrap();
+        assert_eq!(loaded.server_url.as_deref(), Some(URL));
+        assert_eq!(loaded.token.as_deref(), Some("abc123token"));
+        cs.clear().unwrap();
+        assert_eq!(cs.load().unwrap().server_url, None);
     }
 }
