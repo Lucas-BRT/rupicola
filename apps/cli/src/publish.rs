@@ -105,3 +105,42 @@ fn safe_relative(raw: &str) -> Result<PathBuf> {
     }
     Ok(clean)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::safe_relative;
+
+    #[test]
+    fn safe_relative_rejects_traversal_and_absolute_paths() {
+        for hostile in [
+            "",
+            ".",
+            "..",
+            "../secret.png",
+            "checkpoints/../../etc/passwd",
+            "/etc/passwd",
+        ] {
+            assert!(
+                safe_relative(hostile).is_err(),
+                "hostile path `{hostile}` must be rejected"
+            );
+        }
+        assert_eq!(
+            safe_relative("./checkpoints/home.png").unwrap(),
+            std::path::PathBuf::from("checkpoints/home.png")
+        );
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn proptest_any_parent_dir_or_leading_slash_is_rejected(
+            prefix in "[a-z0-9_-]{0,8}",
+            suffix in "[a-z0-9_.-]{0,8}",
+        ) {
+            let escaped = format!("{prefix}/../{suffix}");
+            proptest::prop_assert!(safe_relative(&escaped).is_err());
+            let absolute = format!("/{prefix}/{suffix}");
+            proptest::prop_assert!(safe_relative(&absolute).is_err());
+        }
+    }
+}

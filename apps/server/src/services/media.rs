@@ -667,4 +667,49 @@ mod tests {
         .unwrap();
         assert_eq!(extracted.frames.len(), 4);
     }
+
+    proptest::proptest! {
+        #[test]
+        fn proptest_coarse_and_bisect_invariants(
+            total_frames in 1u64..1000,
+            fps in 1.0f64..120.0,
+            count in 1u32..80,
+            start_ms in 0u64..10_000,
+            span_ms in 0u64..10_000,
+            exclude in proptest::collection::vec(0u64..1000, 0..30),
+        ) {
+            let coarse = select_indices(total_frames, fps, &FrameSampleStrategy::Coarse { count });
+            proptest::prop_assert!(!coarse.is_empty());
+            proptest::prop_assert!(coarse.len() <= (count.clamp(1, 60) as usize));
+            proptest::prop_assert!(coarse.windows(2).all(|w| w[0] < w[1]));
+            proptest::prop_assert!(coarse.iter().all(|&i| i < total_frames));
+
+            let bisect = select_indices(
+                total_frames,
+                fps,
+                &FrameSampleStrategy::Bisect {
+                    start_ms,
+                    end_ms: start_ms.saturating_add(span_ms),
+                    count,
+                    exclude_frames: exclude.clone(),
+                },
+            );
+            proptest::prop_assert!(bisect.len() <= (count.clamp(1, 60) as usize));
+            proptest::prop_assert!(bisect.windows(2).all(|w| w[0] < w[1]));
+            proptest::prop_assert!(bisect.iter().all(|&i| i < total_frames && !exclude.contains(&i)));
+
+            let window = select_indices(
+                total_frames,
+                fps,
+                &FrameSampleStrategy::Window {
+                    start_ms,
+                    end_ms: start_ms.saturating_add(span_ms),
+                    fps: count.clamp(1, 60),
+                },
+            );
+            proptest::prop_assert!(window.len() <= 120);
+            proptest::prop_assert!(window.windows(2).all(|w| w[0] < w[1]));
+            proptest::prop_assert!(window.iter().all(|&i| i < total_frames));
+        }
+    }
 }
