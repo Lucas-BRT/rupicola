@@ -13,6 +13,7 @@ mod fixes;
 mod jobs;
 mod limits;
 mod lineage;
+mod ops;
 #[cfg(feature = "capture")]
 pub mod plan;
 mod problems;
@@ -28,6 +29,7 @@ pub use fixes::*;
 pub use jobs::*;
 pub use limits::*;
 pub use lineage::*;
+pub use ops::*;
 pub use problems::*;
 pub use project_config::*;
 pub use removal::*;

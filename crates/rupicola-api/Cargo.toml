@@ -12,6 +12,7 @@ publish = false
 capture = ["dep:rupicola-capture", "dep:rupicola-protocol"]
 
 [dependencies]
+async-trait.workspace = true
 rupicola-capture = { workspace = true, optional = true }
 rupicola-protocol = { workspace = true, optional = true }
 serde.workspace = true
