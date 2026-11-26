@@ -1,121 +1,23 @@
+mod transport;
+
+pub use transport::HttpApi;
+
+use self::transport::{JSON, LONG_TIMEOUT, MCP_PATH, OCTET_STREAM, encode_segment};
 use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
-use reqwest::{Method, RequestBuilder, header};
+use reqwest::{Method, header};
 use rupicola_api::{
     AuditEvent, Capture, CaptureCapabilities, CaptureDiff, CapturePage, CaptureRemoval,
     CaptureSummary, Citations, Comment, Credential, Credentials, DesignEntry, DocumentEdit,
     Finding, Fix, FixSelectionLink, FixSummary, IssuedCredential, IssuedInvite, Job, JobFailure,
     JobProgress, JobResult, LimitSettings, LimitValue, Limits, Lineage, LineageGraph, Me, Member,
     Missing, MissingQuery, NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix,
-    NewInvite, NewJob, NewProblem, NewProject, NewReview, NewSelection, NewStep, NewTopic, PREFIX,
+    NewInvite, NewJob, NewProblem, NewProject, NewReview, NewSelection, NewStep, NewTopic,
     ParentsEdit, PasswordChange, PolicyView, Problem, ProblemPatch, ProblemSummary, Project,
     ProjectUpdate, RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, Scenario,
     ScenarioSummary, ScenarioVersion, Selection, SessionToken, Setup, SetupStatus, Step,
     SystemActionForm, SystemList, SystemVersion, Topic, TopicMove, TopicRename, TopicTree,
 };
-use serde::de::DeserializeOwned;
-use std::time::Duration;
-
-/// Path of the MCP endpoint, which sits outside the versioned prefix.
-const MCP_PATH: &str = "/mcp";
-const OCTET_STREAM: &str = "application/octet-stream";
-const JSON: &str = "application/json";
-const HEX_UPPER: &[u8; 16] = b"0123456789ABCDEF";
-const HIGH_NIBBLE_SHIFT: u8 = 4;
-const LOW_NIBBLE_MASK: u8 = 0x0F;
-
-/// Longest standard API calls may take.
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-/// Longest blob uploads, artifact downloads, `run_capture`, and `mcp` calls may take.
-const LONG_TIMEOUT: Duration = Duration::from_secs(600);
-/// Longest the backend gets to accept a connection.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Percent-encodes a single URL path segment per RFC 3986, also escaping `.` and `..`
-/// dot-segments so they cannot traverse paths.
-fn encode_segment(segment: &str) -> String {
-    if segment == "." {
-        return "%2E".to_owned();
-    }
-    if segment == ".." {
-        return "%2E%2E".to_owned();
-    }
-    let mut encoded = String::with_capacity(segment.len());
-    for &byte in segment.as_bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            encoded.push('%');
-            encoded.push(char::from(
-                HEX_UPPER[usize::from(byte >> HIGH_NIBBLE_SHIFT)],
-            ));
-            encoded.push(char::from(HEX_UPPER[usize::from(byte & LOW_NIBBLE_MASK)]));
-        }
-    }
-    encoded
-}
-
-/// The backend over HTTP.
-#[derive(Clone, Debug)]
-pub struct HttpApi {
-    base: String,
-    client: reqwest::Client,
-}
-
-impl HttpApi {
-    /// A client for the backend at `server_url`, such as `https://rupicola.example`.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the HTTP client cannot be built.
-    pub fn new(server_url: &str) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(DEFAULT_TIMEOUT)
-            .connect_timeout(CONNECT_TIMEOUT)
-            .build()
-            .map_err(|e| ClientError::Unavailable(e.to_string()))?;
-        Ok(Self {
-            base: server_url.trim_end_matches('/').to_owned(),
-            client,
-        })
-    }
-
-    fn request(&self, method: Method, path: &str, token: Option<&str>) -> RequestBuilder {
-        let builder = self
-            .client
-            .request(method, format!("{}{PREFIX}{path}", self.base));
-        match token {
-            Some(token) => builder.bearer_auth(token),
-            None => builder,
-        }
-    }
-
-    async fn send(request: RequestBuilder) -> Result<reqwest::Response> {
-        let response = request
-            .send()
-            .await
-            .map_err(|e| ClientError::Unavailable(e.to_string()))?;
-        let status = response.status();
-        if status.is_success() {
-            return Ok(response);
-        }
-        let retry_after = response
-            .headers()
-            .get(header::RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse().ok());
-        let body = response.text().await.unwrap_or_default();
-        Err(ClientError::from_response(status, retry_after, &body))
-    }
-
-    async fn read<T: DeserializeOwned>(request: RequestBuilder) -> Result<T> {
-        Self::send(request)
-            .await?
-            .json()
-            .await
-            .map_err(|e| ClientError::Malformed(e.to_string()))
-    }
-}
 
 #[async_trait]
 impl Api for HttpApi {
@@ -159,23 +61,19 @@ impl Api for HttpApi {
     }
 
     async fn me(&self, token: &str) -> Result<Me> {
-        Self::read(self.request(Method::GET, "/me", Some(token))).await
+        self.get_json(token, "/me").await
     }
 
     async fn projects(&self, token: &str) -> Result<Vec<Project>> {
-        Self::read(self.request(Method::GET, "/projects", Some(token))).await
+        self.get_json(token, "/projects").await
     }
 
     async fn tokens(&self, token: &str) -> Result<Vec<Credential>> {
-        Self::read(self.request(Method::GET, "/tokens", Some(token))).await
+        self.get_json(token, "/tokens").await
     }
 
     async fn create_token(&self, token: &str, form: &NewCredential) -> Result<IssuedCredential> {
-        Self::read(
-            self.request(Method::POST, "/tokens", Some(token))
-                .json(form),
-        )
-        .await
+        self.post_json(token, "/tokens", form).await
     }
 
     async fn delete_token(&self, token: &str, id: &str) -> Result<()> {
@@ -189,19 +87,14 @@ impl Api for HttpApi {
     }
 
     async fn create_project(&self, token: &str, form: &NewProject) -> Result<Project> {
-        Self::read(
-            self.request(Method::POST, "/projects", Some(token))
-                .json(form),
-        )
-        .await
+        self.post_json(token, "/projects", form).await
     }
 
     async fn members(&self, token: &str, project: &str) -> Result<Vec<Member>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/members", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -220,11 +113,10 @@ impl Api for HttpApi {
     }
 
     async fn audit(&self, token: &str, project: &str) -> Result<Vec<AuditEvent>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/audit", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -234,31 +126,23 @@ impl Api for HttpApi {
         project: &str,
         form: &NewInvite,
     ) -> Result<IssuedInvite> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/invites", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/projects/{}/invites", encode_segment(project)),
+            form,
         )
         .await
     }
 
     async fn redeem_invite(&self, token: &str, form: &Redeem) -> Result<Project> {
-        Self::read(
-            self.request(Method::POST, "/invites/redeem", Some(token))
-                .json(form),
-        )
-        .await
+        self.post_json(token, "/invites/redeem", form).await
     }
 
     async fn captures(&self, token: &str, project: &str) -> Result<Vec<CaptureSummary>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/captures", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -273,26 +157,19 @@ impl Api for HttpApi {
             Some(q) => format!("/projects/{project}/captures/search?{q}"),
             None => format!("/projects/{project}/captures/search"),
         };
-        Self::read(self.request(Method::GET, &path, Some(token))).await
+        self.get_json(token, &path).await
     }
 
     async fn capture(&self, token: &str, id: &str) -> Result<Capture> {
-        Self::read(self.request(
-            Method::GET,
-            &format!("/captures/{}", encode_segment(id)),
-            Some(token),
-        ))
-        .await
+        self.get_json(token, &format!("/captures/{}", encode_segment(id)))
+            .await
     }
 
     async fn add_finding(&self, token: &str, capture: &str, form: &NewFinding) -> Result<Finding> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/captures/{}/findings", encode_segment(capture)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/captures/{}/findings", encode_segment(capture)),
+            form,
         )
         .await
     }
@@ -316,30 +193,24 @@ impl Api for HttpApi {
     }
 
     async fn problems(&self, token: &str, project: &str) -> Result<Vec<ProblemSummary>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/problems", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn problems_detailed(&self, token: &str, project: &str) -> Result<Vec<Problem>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/problems/details", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn problem(&self, token: &str, id: &str) -> Result<Problem> {
-        Self::read(self.request(
-            Method::GET,
-            &format!("/problems/{}", encode_segment(id)),
-            Some(token),
-        ))
-        .await
+        self.get_json(token, &format!("/problems/{}", encode_segment(id)))
+            .await
     }
 
     async fn create_problem(
@@ -348,47 +219,33 @@ impl Api for HttpApi {
         project: &str,
         form: &NewProblem,
     ) -> Result<Problem> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/problems", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/projects/{}/problems", encode_segment(project)),
+            form,
         )
         .await
     }
 
     async fn update_problem(&self, token: &str, id: &str, patch: &ProblemPatch) -> Result<Problem> {
-        Self::read(
-            self.request(
-                Method::PATCH,
-                &format!("/problems/{}", encode_segment(id)),
-                Some(token),
-            )
-            .json(patch),
-        )
-        .await
+        self.patch_json(token, &format!("/problems/{}", encode_segment(id)), patch)
+            .await
     }
 
     async fn comment_problem(&self, token: &str, id: &str, form: &NewComment) -> Result<Comment> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/problems/{}/comments", encode_segment(id)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/problems/{}/comments", encode_segment(id)),
+            form,
         )
         .await
     }
 
     async fn design(&self, token: &str, project: &str) -> Result<Vec<DesignEntry>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/design", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -398,36 +255,31 @@ impl Api for HttpApi {
         project: &str,
         form: &NewDesignEntry,
     ) -> Result<DesignEntry> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/design", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/projects/{}/design", encode_segment(project)),
+            form,
         )
         .await
     }
 
     async fn design_systems(&self, token: &str, project: &str) -> Result<SystemList> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/design-systems", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn design_system(&self, token: &str, project: &str, id: &str) -> Result<SystemVersion> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!(
                 "/projects/{}/design-systems/{}",
                 encode_segment(project),
                 encode_segment(id)
             ),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -447,17 +299,14 @@ impl Api for HttpApi {
         id: &str,
         edit: &DocumentEdit,
     ) -> Result<SystemVersion> {
-        Self::read(
-            self.request(
-                Method::PUT,
-                &format!(
-                    "/projects/{}/design-systems/{}/document",
-                    encode_segment(project),
-                    encode_segment(id)
-                ),
-                Some(token),
-            )
-            .json(edit),
+        self.put_json(
+            token,
+            &format!(
+                "/projects/{}/design-systems/{}/document",
+                encode_segment(project),
+                encode_segment(id)
+            ),
+            edit,
         )
         .await
     }
@@ -469,89 +318,69 @@ impl Api for HttpApi {
         id: &str,
         form: &SystemActionForm,
     ) -> Result<SystemVersion> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!(
-                    "/projects/{}/design-systems/{}/actions",
-                    encode_segment(project),
-                    encode_segment(id)
-                ),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!(
+                "/projects/{}/design-systems/{}/actions",
+                encode_segment(project),
+                encode_segment(id)
+            ),
+            form,
         )
         .await
     }
 
     async fn fixes(&self, token: &str, project: &str) -> Result<Vec<FixSummary>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/fixes", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn fixes_detailed(&self, token: &str, project: &str) -> Result<Vec<Fix>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/fixes/details", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn fix(&self, token: &str, id: &str) -> Result<Fix> {
-        Self::read(self.request(
-            Method::GET,
-            &format!("/fixes/{}", encode_segment(id)),
-            Some(token),
-        ))
-        .await
+        self.get_json(token, &format!("/fixes/{}", encode_segment(id)))
+            .await
     }
 
     async fn create_fix(&self, token: &str, project: &str, form: &NewFix) -> Result<Fix> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/fixes", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/projects/{}/fixes", encode_segment(project)),
+            form,
         )
         .await
     }
 
     async fn jobs(&self, token: &str, project: &str, open_only: bool) -> Result<Vec<Job>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!(
                 "/projects/{}/jobs?open={open_only}",
                 encode_segment(project)
             ),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn job(&self, token: &str, id: &str) -> Result<Job> {
-        Self::read(self.request(
-            Method::GET,
-            &format!("/jobs/{}", encode_segment(id)),
-            Some(token),
-        ))
-        .await
+        self.get_json(token, &format!("/jobs/{}", encode_segment(id)))
+            .await
     }
 
     async fn create_job(&self, token: &str, project: &str, form: &NewJob) -> Result<Job> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/jobs", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/projects/{}/jobs", encode_segment(project)),
+            form,
         )
         .await
     }
@@ -574,37 +403,28 @@ impl Api for HttpApi {
     }
 
     async fn job_progress(&self, token: &str, id: &str, progress: &JobProgress) -> Result<Job> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/jobs/{}/progress", encode_segment(id)),
-                Some(token),
-            )
-            .json(progress),
+        self.post_json(
+            token,
+            &format!("/jobs/{}/progress", encode_segment(id)),
+            progress,
         )
         .await
     }
 
     async fn complete_job(&self, token: &str, id: &str, result: &JobResult) -> Result<Job> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/jobs/{}/complete", encode_segment(id)),
-                Some(token),
-            )
-            .json(result),
+        self.post_json(
+            token,
+            &format!("/jobs/{}/complete", encode_segment(id)),
+            result,
         )
         .await
     }
 
     async fn fail_job(&self, token: &str, id: &str, failure: &JobFailure) -> Result<Job> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/jobs/{}/fail", encode_segment(id)),
-                Some(token),
-            )
-            .json(failure),
+        self.post_json(
+            token,
+            &format!("/jobs/{}/fail", encode_segment(id)),
+            failure,
         )
         .await
     }
@@ -619,11 +439,10 @@ impl Api for HttpApi {
     }
 
     async fn capture_settings(&self, token: &str, project: &str) -> Result<RecaptureSettings> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/capture-settings", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -633,36 +452,31 @@ impl Api for HttpApi {
         project: &str,
         patch: &RecaptureSettingsPatch,
     ) -> Result<RecaptureSettings> {
-        Self::read(
-            self.request(
-                Method::PATCH,
-                &format!("/projects/{}/capture-settings", encode_segment(project)),
-                Some(token),
-            )
-            .json(patch),
+        self.patch_json(
+            token,
+            &format!("/projects/{}/capture-settings", encode_segment(project)),
+            patch,
         )
         .await
     }
 
     async fn scenarios(&self, token: &str, project: &str) -> Result<Vec<ScenarioSummary>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/scenarios", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn scenario(&self, token: &str, project: &str, name: &str) -> Result<ScenarioVersion> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!(
                 "/projects/{}/scenarios/{}",
                 encode_segment(project),
                 encode_segment(name)
             ),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -673,16 +487,15 @@ impl Api for HttpApi {
         name: &str,
         hash: &str,
     ) -> Result<ScenarioVersion> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!(
                 "/projects/{}/scenarios/{}/{}",
                 encode_segment(project),
                 encode_segment(name),
                 encode_segment(hash)
             ),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -692,13 +505,10 @@ impl Api for HttpApi {
         project: &str,
         scenario: &Scenario,
     ) -> Result<ScenarioVersion> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/scenarios", encode_segment(project)),
-                Some(token),
-            )
-            .json(scenario),
+        self.post_json(
+            token,
+            &format!("/projects/{}/scenarios", encode_segment(project)),
+            scenario,
         )
         .await
     }
@@ -710,41 +520,28 @@ impl Api for HttpApi {
         id: &str,
         record: &rupicola_api::record::CaptureRecord,
     ) -> Result<Capture> {
-        Self::read(
-            self.request(
-                Method::PUT,
-                &format!(
-                    "/projects/{}/captures/{}",
-                    encode_segment(project),
-                    encode_segment(id)
-                ),
-                Some(token),
-            )
-            .json(record),
+        self.put_json(
+            token,
+            &format!(
+                "/projects/{}/captures/{}",
+                encode_segment(project),
+                encode_segment(id)
+            ),
+            record,
         )
         .await
     }
 
     async fn add_step(&self, token: &str, id: &str, form: &NewStep) -> Result<Step> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/fixes/{}/steps", encode_segment(id)),
-                Some(token),
-            )
-            .json(form),
-        )
-        .await
+        self.post_json(token, &format!("/fixes/{}/steps", encode_segment(id)), form)
+            .await
     }
 
     async fn review_fix(&self, token: &str, id: &str, form: &NewReview) -> Result<Fix> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/fixes/{}/reviews", encode_segment(id)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/fixes/{}/reviews", encode_segment(id)),
+            form,
         )
         .await
     }
@@ -790,13 +587,10 @@ impl Api for HttpApi {
         project: &str,
         query: &MissingQuery,
     ) -> Result<Missing> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/blobs/missing", encode_segment(project)),
-                Some(token),
-            )
-            .json(query),
+        self.post_json(
+            token,
+            &format!("/projects/{}/blobs/missing", encode_segment(project)),
+            query,
         )
         .await
     }
@@ -824,65 +618,42 @@ impl Api for HttpApi {
     }
 
     async fn delete_problem(&self, token: &str, id: &str) -> Result<()> {
-        Self::send(self.request(
-            Method::DELETE,
-            &format!("/problems/{}", encode_segment(id)),
-            Some(token),
-        ))
-        .await?;
-        Ok(())
+        self.delete_empty(token, &format!("/problems/{}", encode_segment(id)))
+            .await
     }
 
     async fn project(&self, token: &str, id: &str) -> Result<Project> {
-        Self::read(self.request(
-            Method::GET,
-            &format!("/projects/{}", encode_segment(id)),
-            Some(token),
-        ))
-        .await
+        self.get_json(token, &format!("/projects/{}", encode_segment(id)))
+            .await
     }
 
     async fn update_project(&self, token: &str, id: &str, form: &ProjectUpdate) -> Result<Project> {
-        Self::read(
-            self.request(
-                Method::PATCH,
-                &format!("/projects/{}", encode_segment(id)),
-                Some(token),
-            )
-            .json(form),
+        self.patch_json(token, &format!("/projects/{}", encode_segment(id)), form)
+            .await
+    }
+
+    async fn delete_project(&self, token: &str, id: &str) -> Result<()> {
+        self.delete_empty(token, &format!("/projects/{}", encode_segment(id)))
+            .await
+    }
+
+    async fn project_limits(&self, token: &str, project: &str) -> Result<Limits> {
+        self.get_json(
+            token,
+            &format!("/projects/{}/limits", encode_segment(project)),
         )
         .await
     }
 
-    async fn delete_project(&self, token: &str, id: &str) -> Result<()> {
-        Self::send(self.request(
-            Method::DELETE,
-            &format!("/projects/{}", encode_segment(id)),
-            Some(token),
-        ))
-        .await?;
-        Ok(())
-    }
-
-    async fn project_limits(&self, token: &str, project: &str) -> Result<Limits> {
-        Self::read(self.request(
-            Method::GET,
-            &format!("/projects/{}/limits", encode_segment(project)),
-            Some(token),
-        ))
-        .await
-    }
-
     async fn capture_capabilities(&self, token: &str) -> Result<CaptureCapabilities> {
-        Self::read(self.request(Method::GET, "/capture-capabilities", Some(token))).await
+        self.get_json(token, "/capture-capabilities").await
     }
 
     async fn capture_citations(&self, token: &str, id: &str) -> Result<Citations> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/captures/{}/citations", encode_segment(id)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -910,16 +681,12 @@ impl Api for HttpApi {
             Some(d) => format!("/captures/{id}/lineage?depth={d}"),
             None => format!("/captures/{id}/lineage"),
         };
-        Self::read(self.request(Method::GET, &path, Some(token))).await
+        self.get_json(token, &path).await
     }
 
     async fn capture_parents(&self, token: &str, id: &str) -> Result<Lineage> {
-        Self::read(self.request(
-            Method::GET,
-            &format!("/captures/{}/parents", encode_segment(id)),
-            Some(token),
-        ))
-        .await
+        self.get_json(token, &format!("/captures/{}/parents", encode_segment(id)))
+            .await
     }
 
     async fn edit_capture_parents(
@@ -928,13 +695,10 @@ impl Api for HttpApi {
         id: &str,
         form: &ParentsEdit,
     ) -> Result<Lineage> {
-        Self::read(
-            self.request(
-                Method::PUT,
-                &format!("/captures/{}/parents", encode_segment(id)),
-                Some(token),
-            )
-            .json(form),
+        self.put_json(
+            token,
+            &format!("/captures/{}/parents", encode_segment(id)),
+            form,
         )
         .await
     }
@@ -945,15 +709,14 @@ impl Api for HttpApi {
         before: &str,
         after: &str,
     ) -> Result<CaptureDiff> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!(
                 "/captures/{}/compare/{}",
                 encode_segment(before),
                 encode_segment(after)
             ),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -981,15 +744,14 @@ impl Api for HttpApi {
         id: &str,
         selection: &str,
     ) -> Result<Problem> {
-        Self::read(self.request(
-            Method::DELETE,
+        self.delete_json(
+            token,
             &format!(
                 "/problems/{}/selections/{}",
                 encode_segment(id),
                 encode_segment(selection)
             ),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -1000,31 +762,27 @@ impl Api for HttpApi {
         selection: &str,
         link: &FixSelectionLink,
     ) -> Result<Fix> {
-        Self::read(
-            self.request(
-                Method::PUT,
-                &format!(
-                    "/fixes/{}/selections/{}",
-                    encode_segment(id),
-                    encode_segment(selection)
-                ),
-                Some(token),
-            )
-            .json(link),
-        )
-        .await
-    }
-
-    async fn uncite_fix_selection(&self, token: &str, id: &str, selection: &str) -> Result<Fix> {
-        Self::read(self.request(
-            Method::DELETE,
+        self.put_json(
+            token,
             &format!(
                 "/fixes/{}/selections/{}",
                 encode_segment(id),
                 encode_segment(selection)
             ),
-            Some(token),
-        ))
+            link,
+        )
+        .await
+    }
+
+    async fn uncite_fix_selection(&self, token: &str, id: &str, selection: &str) -> Result<Fix> {
+        self.delete_json(
+            token,
+            &format!(
+                "/fixes/{}/selections/{}",
+                encode_segment(id),
+                encode_segment(selection)
+            ),
+        )
         .await
     }
 
@@ -1034,79 +792,56 @@ impl Api for HttpApi {
         project: &str,
         form: &NewSelection,
     ) -> Result<Selection> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/selections", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/projects/{}/selections", encode_segment(project)),
+            form,
         )
         .await
     }
 
     async fn selection(&self, token: &str, id: &str) -> Result<Selection> {
-        Self::read(self.request(
-            Method::GET,
-            &format!("/selections/{}", encode_segment(id)),
-            Some(token),
-        ))
-        .await
+        self.get_json(token, &format!("/selections/{}", encode_segment(id)))
+            .await
     }
 
     async fn topic_tree(&self, token: &str, project: &str) -> Result<TopicTree> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/topics", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn create_topic(&self, token: &str, project: &str, form: &NewTopic) -> Result<Topic> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/topics", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/projects/{}/topics", encode_segment(project)),
+            form,
         )
         .await
     }
 
     async fn rename_topic(&self, token: &str, id: &str, form: &TopicRename) -> Result<Topic> {
-        Self::read(
-            self.request(
-                Method::PUT,
-                &format!("/topics/{}/name", encode_segment(id)),
-                Some(token),
-            )
-            .json(form),
-        )
-        .await
+        self.put_json(token, &format!("/topics/{}/name", encode_segment(id)), form)
+            .await
     }
 
     async fn move_topic(&self, token: &str, id: &str, form: &TopicMove) -> Result<Topic> {
-        Self::read(
-            self.request(
-                Method::PUT,
-                &format!("/topics/{}/parent", encode_segment(id)),
-                Some(token),
-            )
-            .json(form),
+        self.put_json(
+            token,
+            &format!("/topics/{}/parent", encode_segment(id)),
+            form,
         )
         .await
     }
 
     async fn delete_topic(&self, token: &str, id: &str, recursive: bool) -> Result<()> {
-        Self::send(self.request(
-            Method::DELETE,
+        self.delete_empty(
+            token,
             &format!("/topics/{}?recursive={recursive}", encode_segment(id)),
-            Some(token),
-        ))
-        .await?;
-        Ok(())
+        )
+        .await
     }
 
     async fn topic_captures(
@@ -1115,48 +850,42 @@ impl Api for HttpApi {
         id: &str,
         direct: bool,
     ) -> Result<Vec<CaptureSummary>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/topics/{}/captures?direct={direct}", encode_segment(id)),
-            Some(token),
-        ))
+        )
         .await
     }
 
     async fn file_topic_capture(&self, token: &str, id: &str, capture: &str) -> Result<()> {
-        Self::send(self.request(
-            Method::PUT,
+        self.put_empty(
+            token,
             &format!(
                 "/topics/{}/captures/{}",
                 encode_segment(id),
                 encode_segment(capture)
             ),
-            Some(token),
-        ))
-        .await?;
-        Ok(())
+        )
+        .await
     }
 
     async fn unfile_topic_capture(&self, token: &str, id: &str, capture: &str) -> Result<()> {
-        Self::send(self.request(
-            Method::DELETE,
+        self.delete_empty(
+            token,
             &format!(
                 "/topics/{}/captures/{}",
                 encode_segment(id),
                 encode_segment(capture)
             ),
-            Some(token),
-        ))
-        .await?;
-        Ok(())
+        )
+        .await
     }
 
     async fn list_devices(&self, token: &str, project: &str) -> Result<Vec<Credential>> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/devices", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -1166,37 +895,31 @@ impl Api for HttpApi {
         project: &str,
         form: &NewCredential,
     ) -> Result<IssuedCredential> {
-        Self::read(
-            self.request(
-                Method::POST,
-                &format!("/projects/{}/devices", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.post_json(
+            token,
+            &format!("/projects/{}/devices", encode_segment(project)),
+            form,
         )
         .await
     }
 
     async fn delete_device(&self, token: &str, project: &str, device: &str) -> Result<()> {
-        Self::send(self.request(
-            Method::DELETE,
+        self.delete_empty(
+            token,
             &format!(
                 "/projects/{}/devices/{}",
                 encode_segment(project),
                 encode_segment(device)
             ),
-            Some(token),
-        ))
-        .await?;
-        Ok(())
+        )
+        .await
     }
 
     async fn deletion_policy(&self, token: &str, project: &str) -> Result<PolicyView> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/deletion-policy", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -1206,23 +929,19 @@ impl Api for HttpApi {
         project: &str,
         form: &PolicyView,
     ) -> Result<PolicyView> {
-        Self::read(
-            self.request(
-                Method::PUT,
-                &format!("/projects/{}/deletion-policy", encode_segment(project)),
-                Some(token),
-            )
-            .json(form),
+        self.put_json(
+            token,
+            &format!("/projects/{}/deletion-policy", encode_segment(project)),
+            form,
         )
         .await
     }
 
     async fn project_settings(&self, token: &str, project: &str) -> Result<LimitSettings> {
-        Self::read(self.request(
-            Method::GET,
+        self.get_json(
+            token,
             &format!("/projects/{}/settings", encode_segment(project)),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -1233,17 +952,14 @@ impl Api for HttpApi {
         key: &str,
         value: &LimitValue,
     ) -> Result<LimitSettings> {
-        Self::read(
-            self.request(
-                Method::PUT,
-                &format!(
-                    "/projects/{}/settings/{}",
-                    encode_segment(project),
-                    encode_segment(key)
-                ),
-                Some(token),
-            )
-            .json(value),
+        self.put_json(
+            token,
+            &format!(
+                "/projects/{}/settings/{}",
+                encode_segment(project),
+                encode_segment(key)
+            ),
+            value,
         )
         .await
     }
@@ -1254,15 +970,14 @@ impl Api for HttpApi {
         project: &str,
         key: &str,
     ) -> Result<LimitSettings> {
-        Self::read(self.request(
-            Method::DELETE,
+        self.delete_json(
+            token,
             &format!(
                 "/projects/{}/settings/{}",
                 encode_segment(project),
                 encode_segment(key)
             ),
-            Some(token),
-        ))
+        )
         .await
     }
 
@@ -1283,19 +998,5 @@ impl Api for HttpApi {
             .await
             .map_err(|e| ClientError::Unavailable(e.to_string()))?;
         Ok(McpReply { status, body })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::encode_segment;
-
-    #[test]
-    fn encode_segment_escapes_delimiters_and_dot_segments() {
-        assert_eq!(encode_segment("demo-project_1.0~a"), "demo-project_1.0~a");
-        assert_eq!(encode_segment(".."), "%2E%2E");
-        assert_eq!(encode_segment("."), "%2E");
-        assert_eq!(encode_segment("../etc/passwd"), "..%2Fetc%2Fpasswd");
-        assert_eq!(encode_segment("a/b?c#d%e"), "a%2Fb%3Fc%23d%25e");
     }
 }
