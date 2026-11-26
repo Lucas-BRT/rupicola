@@ -56,6 +56,18 @@ pub struct NewJob {
     pub fix: Option<String>,
 }
 
+/// `POST /v1/captures/{id}/recapture`: queues a deterministic recapture job pinned to the
+/// source capture's frozen [`crate::CapturePlanSpec`].
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub struct RecaptureRequest {
+    /// Trees to capture; defaults to a single tree on the project's `base_ref` when empty.
+    #[serde(default)]
+    pub trees: Vec<TreeSpec>,
+    /// Optional fix id associated with this recapture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
+}
+
 /// A capture a runner made for a job: which tree, viewport and theme it is.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct JobCapture {
@@ -89,6 +101,12 @@ pub struct Job {
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
+    /// Frozen plan spec when this job was created from `capture_recapture`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_spec: Option<crate::CapturePlanSpec>,
+    /// Source capture id when this job was created from `capture_recapture`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_capture_id: Option<String>,
 }
 
 /// `POST /v1/jobs/{id}/progress`: how far the runner is. Also tells the server it is alive.

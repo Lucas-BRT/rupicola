@@ -329,6 +329,13 @@ pub trait Api: Send + Sync {
 
     async fn delete_capture(&self, token: &str, id: &str, form: &CaptureRemoval) -> Result<()>;
 
+    async fn recapture_capture(
+        &self,
+        token: &str,
+        id: &str,
+        form: &rupicola_api::RecaptureRequest,
+    ) -> Result<Job>;
+
     async fn capture_lineage(
         &self,
         token: &str,

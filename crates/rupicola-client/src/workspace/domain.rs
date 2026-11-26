@@ -110,6 +110,14 @@ impl<A: Api> CaptureLifecycleOps for WorkspaceClient<A> {
     async fn capture_delete(&self, id: &str, form: &CaptureRemoval) -> Result<()> {
         self.api.delete_capture(&self.token, id, form).await
     }
+
+    async fn capture_recapture(
+        &self,
+        id: &str,
+        form: &rupicola_api::RecaptureRequest,
+    ) -> Result<rupicola_api::Job> {
+        self.api.recapture_capture(&self.token, id, form).await
+    }
 }
 
 #[async_trait]

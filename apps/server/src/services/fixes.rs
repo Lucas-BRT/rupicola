@@ -427,6 +427,8 @@ async fn enqueue_integrated_recaptures(
                 cells_total: u32::try_from(cells).map_err(anyhow::Error::from)?,
                 created_by: principal.handle.as_deref(),
                 now,
+                plan_spec: None,
+                parent_capture_id: None,
             },
         )
         .await?;

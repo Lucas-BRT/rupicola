@@ -80,6 +80,57 @@ pub async fn create(
             cells_total: u32::try_from(cells).map_err(anyhow::Error::from)?,
             created_by: principal.handle.as_deref(),
             now: now_ms(),
+            plan_spec: None,
+            parent_capture_id: None,
+        },
+    )
+    .await?;
+    one(state, &id).await
+}
+
+/// Queues a deterministic recapture job pinned to `capture_id`'s frozen [`rupicola_api::CapturePlanSpec`].
+pub async fn recapture_from_capture(
+    state: &AppState,
+    principal: &Principal,
+    capture_id: &str,
+    form: &rupicola_api::RecaptureRequest,
+) -> Result<Job, ApiError> {
+    let source = captures::load(&state.db, capture_id).await?;
+    require(state, principal, &source.project_id, Role::Reviewer).await?;
+    let spec = source.plan_spec.ok_or_else(|| {
+        ApiError::invalid(
+            "source capture has no canonical plan_spec; cannot recapture deterministically",
+        )
+    })?;
+    let trees = if form.trees.is_empty() {
+        let base_ref =
+            crate::services::settings::project_base_ref(state, &source.project_id).await?;
+        vec![rupicola_api::TreeSpec {
+            name: "recapture".to_owned(),
+            base: base_ref,
+            merge: Vec::new(),
+            fixes: Vec::new(),
+        }]
+    } else {
+        form.trees.clone()
+    };
+    let id = uuid::Uuid::now_v7().to_string();
+    let norm = spec.normalized();
+    let digest = norm.digest();
+    jobs::insert(
+        &state.db,
+        &jobs::NewRow {
+            id: &id,
+            project: &source.project_id,
+            scenario: &source.scenario,
+            hash: &digest,
+            fix: form.fix.as_deref(),
+            trees: &trees,
+            cells_total: u32::try_from(trees.len()).map_err(anyhow::Error::from)?,
+            created_by: principal.handle.as_deref(),
+            now: now_ms(),
+            plan_spec: Some(&norm),
+            parent_capture_id: Some(capture_id),
         },
     )
     .await?;

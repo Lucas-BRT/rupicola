@@ -42,6 +42,7 @@ pub const WORKSPACE_OP_NAMES: &[&str] = &[
     "capture_review",
     "capture_citations",
     "capture_delete",
+    "capture_recapture",
     "capture_lineage",
     "capture_parents_get",
     "capture_parents_edit",

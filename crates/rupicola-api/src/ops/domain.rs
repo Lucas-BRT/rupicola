@@ -70,6 +70,11 @@ pub trait CapturePublishOps: OpsBase {
 pub trait CaptureLifecycleOps: OpsBase {
     async fn capture_citations(&self, id: &str) -> Result<Citations, Self::Error>;
     async fn capture_delete(&self, id: &str, form: &CaptureRemoval) -> Result<(), Self::Error>;
+    async fn capture_recapture(
+        &self,
+        id: &str,
+        form: &crate::RecaptureRequest,
+    ) -> Result<crate::Job, Self::Error>;
 }
 
 #[async_trait]

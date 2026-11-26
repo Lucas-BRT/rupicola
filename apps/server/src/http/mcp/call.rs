@@ -81,6 +81,11 @@ pub(super) enum Call {
         #[serde(flatten)]
         form: CaptureRemoval,
     },
+    CaptureRecapture {
+        id: String,
+        #[serde(flatten)]
+        form: rupicola_api::RecaptureRequest,
+    },
     CaptureLineage {
         id: String,
         #[serde(default)]
@@ -401,6 +406,7 @@ impl Call {
                 ops.capture_delete(&id, &form).await?;
                 Ok(json!({"deleted": id}))
             }
+            Self::CaptureRecapture { id, form } => value(&ops.capture_recapture(&id, &form).await?),
             Self::CaptureLineage { id, depth } => value(&ops.capture_lineage(&id, depth).await?),
             Self::CaptureParentsGet { id } => value(&ops.capture_parents_get(&id).await?),
             Self::CaptureParentsEdit { id, form } => {

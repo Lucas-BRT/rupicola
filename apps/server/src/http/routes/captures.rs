@@ -8,6 +8,7 @@ pub fn routes() -> Router<Shared> {
     Router::new()
         .route("/{id}", routing::get(captures::get).delete(removal::remove))
         .route("/{id}/findings", routing::post(captures::add_finding))
+        .route("/{id}/recapture", routing::post(captures::recapture))
         .route("/{id}/citations", routing::get(removal::citations))
         .route(
             "/{id}/parents",

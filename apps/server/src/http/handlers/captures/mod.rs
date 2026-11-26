@@ -99,6 +99,17 @@ pub async fn add_finding(
     Ok((StatusCode::CREATED, Json(finding)))
 }
 
+/// `POST /v1/captures/{id}/recapture`
+pub async fn recapture(
+    State(state): State<Shared>,
+    principal: Principal,
+    Path(id): Path<String>,
+    Json(form): Json<rupicola_api::RecaptureRequest>,
+) -> Result<(StatusCode, Json<rupicola_api::Job>), ApiError> {
+    let job = crate::services::jobs::recapture_from_capture(&state, &principal, &id, &form).await?;
+    Ok((StatusCode::CREATED, Json(job)))
+}
+
 /// `GET /v1/artifacts/{id}`: the file's bytes, for readers of its project.
 pub async fn artifact(
     State(state): State<Shared>,

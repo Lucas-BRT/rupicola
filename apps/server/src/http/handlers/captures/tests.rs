@@ -570,3 +570,69 @@ async fn capture_capabilities_is_served_and_legacy_run_route_is_gone() {
     let caps = call(port, "GET", "/v1/capture-capabilities", Some(&ana), None).await;
     assert_eq!(status(&caps), StatusCode::OK, "{caps}");
 }
+
+#[tokio::test]
+async fn recapture_queues_frozen_plan_job_and_rejects_capture_without_plan() {
+    let (port, [ana, bruno, _]) = demo_with_artifacts().await;
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+    let sha = stream_blob(port, &ana, "demo", png).await;
+
+    let mut with_plan = capture_record(
+        "01936f2c-3333-7bbb-8ccc-000000000001",
+        &sha,
+        png.len() as u64,
+        vec![],
+    );
+    let expected_digest = with_plan.plan_spec.as_ref().unwrap().digest();
+    let r = publish_record(port, &ana, &with_plan).await;
+    assert_eq!(status(&r), StatusCode::CREATED, "{r}");
+
+    // Reader cannot trigger recapture
+    let forbidden = call(
+        port,
+        "POST",
+        "/v1/captures/01936f2c-3333-7bbb-8ccc-000000000001/recapture",
+        Some(&bruno),
+        Some("{}"),
+    )
+    .await;
+    assert_eq!(status(&forbidden), StatusCode::FORBIDDEN);
+
+    // Reviewer/Owner queues frozen-plan recapture job linked to source capture
+    let queued = call(
+        port,
+        "POST",
+        "/v1/captures/01936f2c-3333-7bbb-8ccc-000000000001/recapture",
+        Some(&ana),
+        Some("{}"),
+    )
+    .await;
+    assert_eq!(status(&queued), StatusCode::CREATED, "{queued}");
+    let job: rupicola_api::Job = json(&queued);
+    assert_eq!(job.hash, expected_digest);
+    assert_eq!(
+        job.parent_capture_id.as_deref(),
+        Some("01936f2c-3333-7bbb-8ccc-000000000001")
+    );
+    assert!(job.plan_spec.is_some());
+    assert_eq!(job.cells_total, 1);
+
+    // Capture without plan_spec is rejected with 422
+    with_plan.id = "01936f2c-3333-7bbb-8ccc-000000000002".to_owned();
+    with_plan.plan_spec = None;
+    let r2 = publish_record(port, &ana, &with_plan).await;
+    assert_eq!(status(&r2), StatusCode::CREATED, "{r2}");
+    let no_plan = call(
+        port,
+        "POST",
+        "/v1/captures/01936f2c-3333-7bbb-8ccc-000000000002/recapture",
+        Some(&ana),
+        Some("{}"),
+    )
+    .await;
+    assert_eq!(
+        status(&no_plan),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{no_plan}"
+    );
+}

@@ -335,6 +335,14 @@ impl CaptureLifecycleOps for ServerOps {
     async fn capture_delete(&self, id: &str, form: &CaptureRemoval) -> Result<(), ApiError> {
         removal::remove(&self.state, &self.principal, id, form).await
     }
+
+    async fn capture_recapture(
+        &self,
+        id: &str,
+        form: &rupicola_api::RecaptureRequest,
+    ) -> Result<rupicola_api::Job, ApiError> {
+        crate::services::jobs::recapture_from_capture(&self.state, &self.principal, id, form).await
+    }
 }
 
 #[async_trait]

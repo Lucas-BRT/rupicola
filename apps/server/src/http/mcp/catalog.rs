@@ -212,6 +212,18 @@ pub(super) const TOOLS: &[Tool] = &[
         properties: || json!({"id": text(), "reason": text(), "confirm": text()}),
     },
     Tool {
+        name: "capture_recapture",
+        description: "Queue a deterministic recapture job pinned to the source capture's frozen CapturePlanSpec (same route, viewport, DPR, zoom, theme, and steps)",
+        required: &["id"],
+        properties: || {
+            json!({
+                "id": text(),
+                "fix": text(),
+                "trees": { "type": "array", "items": { "type": "object" } }
+            })
+        },
+    },
+    Tool {
         name: "capture_lineage",
         description: "Read the lineage graph around a capture up to `depth` steps",
         required: &["id"],

@@ -670,6 +670,20 @@ impl Api for HttpApi {
         Ok(())
     }
 
+    async fn recapture_capture(
+        &self,
+        token: &str,
+        id: &str,
+        form: &rupicola_api::RecaptureRequest,
+    ) -> Result<Job> {
+        self.post_json(
+            token,
+            &format!("/captures/{}/recapture", encode_segment(id)),
+            form,
+        )
+        .await
+    }
+
     async fn capture_lineage(
         &self,
         token: &str,

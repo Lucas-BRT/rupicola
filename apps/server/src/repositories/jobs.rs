@@ -23,6 +23,8 @@ struct JobRow {
     created_at: i64,
     started_at: Option<i64>,
     finished_at: Option<i64>,
+    plan_spec_json: Option<String>,
+    parent_capture_id: Option<String>,
 }
 
 /// `SELECT` of every job column, followed by `$tail`; sqlx takes only literal SQL.
@@ -30,7 +32,8 @@ macro_rules! select_jobs {
     ($tail:literal) => {
         concat!(
             "SELECT id, project_id, scenario, hash, fix_id, trees, status, cells_total,
-                cells_done, runner, error, created_by, created_at, started_at, finished_at
+                cells_done, runner, error, created_by, created_at, started_at, finished_at,
+                plan_spec_json, parent_capture_id
              FROM capture_jobs ",
             $tail
         )
@@ -51,6 +54,12 @@ impl JobRow {
     fn into_job(self, captures: Vec<JobCapture>) -> Result<Job, ApiError> {
         let trees: Vec<TreeSpec> =
             serde_json::from_str(&self.trees).map_err(anyhow::Error::from)?;
+        let plan_spec = self
+            .plan_spec_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(anyhow::Error::from)?;
         Ok(Job {
             id: self.id,
             project_id: self.project_id,
@@ -68,6 +77,8 @@ impl JobRow {
             created_at: self.created_at,
             started_at: self.started_at,
             finished_at: self.finished_at,
+            plan_spec,
+            parent_capture_id: self.parent_capture_id,
         })
     }
 }
@@ -83,14 +94,21 @@ pub struct NewRow<'a> {
     pub cells_total: u32,
     pub created_by: Option<&'a str>,
     pub now: i64,
+    pub plan_spec: Option<&'a rupicola_api::CapturePlanSpec>,
+    pub parent_capture_id: Option<&'a str>,
 }
 
 /// Queues a job.
 pub async fn insert(db: &SqlitePool, job: &NewRow<'_>) -> Result<(), ApiError> {
+    let plan_spec_json = job
+        .plan_spec
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(anyhow::Error::from)?;
     sqlx::query(
         "INSERT INTO capture_jobs (id, project_id, scenario, hash, fix_id, trees, status,
-           cells_total, created_by, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+           cells_total, created_by, created_at, plan_spec_json, parent_capture_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
     )
     .bind(job.id)
     .bind(job.project)
@@ -102,6 +120,8 @@ pub async fn insert(db: &SqlitePool, job: &NewRow<'_>) -> Result<(), ApiError> {
     .bind(i64::from(job.cells_total))
     .bind(job.created_by)
     .bind(job.now)
+    .bind(&plan_spec_json)
+    .bind(job.parent_capture_id)
     .execute(db)
     .await?;
     Ok(())
@@ -362,6 +382,8 @@ mod tests {
                 cells_total: 4,
                 created_by: None,
                 now,
+                plan_spec: None,
+                parent_capture_id: None,
             },
         )
         .await
