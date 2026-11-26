@@ -35,6 +35,7 @@ pub struct Capture {
     pub citations: Option<Citations>,
     pub lineage: Option<LineageGraph>,
     pub diff: Option<CaptureDiff>,
+    pub parity_mismatches: Option<Vec<rupicola_api::PlanMismatch>>,
     pub diff_artifact_id: Option<String>,
     pub motion_report: Option<MotionDiffReport>,
     pub topics: Vec<Topic>,

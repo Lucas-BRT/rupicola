@@ -26,6 +26,7 @@ pub(super) async fn inspector_rail(cx: &Cx, data: &Capture) -> Result<impl View>
         citations,
         lineage,
         diff,
+        parity_mismatches,
         diff_artifact_id,
         motion_report,
         topics,
@@ -44,6 +45,7 @@ pub(super) async fn inspector_rail(cx: &Cx, data: &Capture) -> Result<impl View>
                     form_url: form_url,
                     token: &account.csrf,
                     diff: diff,
+                    parity_mismatches: parity_mismatches.as_deref(),
                     checkpoints: &run.checkpoints,
                     before_artifact_ids: before_artifact_ids,
                     requested_before: requested.as_deref().unwrap_or(""),
@@ -62,6 +64,15 @@ pub(super) async fn inspector_rail(cx: &Cx, data: &Capture) -> Result<impl View>
                 findings(items: &run.findings)
             }
             if *may_review {
+                if run.plan_spec.is_some() {
+                    <section class="surface" id="recapture">
+                        <h2>"Deterministic recapture"</h2>
+                        stack_form(action: form_url, token: &account.csrf,
+                            <input type="hidden" name="action" value="recapture">
+                            <button type="submit" class="button primary">"Recapture with exact plan"</button>
+                        )
+                    </section>
+                }
                 review_form(form_url: form_url, token: &account.csrf, checkpoints: &run.checkpoints)
                 organize_section(
                     form_url: form_url,
@@ -238,6 +249,7 @@ async fn capture_diff_section(
     form_url: &str,
     token: &str,
     diff: &CaptureDiff,
+    parity_mismatches: Option<&[rupicola_api::PlanMismatch]>,
     checkpoints: &[Checkpoint],
     before_artifact_ids: &BTreeMap<String, String>,
     requested_before: &str,
@@ -251,6 +263,20 @@ async fn capture_diff_section(
     Ok(view! {
         <section class="surface" id="visual-diff">
             <h2>"Capture diff"</h2>
+            if let Some(mismatches) = parity_mismatches {
+                if mismatches.is_empty() {
+                    <p class="status">"Parity verified ✓ (identical route, viewport, DPR, zoom, theme & steps)"</p>
+                } else {
+                    <div class="notice" role="alert">
+                        <strong>"Plan mismatch ⚠"</strong>
+                        <ul class="audit">
+                            for m in mismatches {
+                                <li><code class="mono">(&m.field)</code> ": " (&m.before) " → " (&m.after)</li>
+                            }
+                        </ul>
+                    </div>
+                }
+            }
             <p class="muted">
                 (format!("{} changed · {} added · {} removed · {} same", diff.changed.len(), diff.added.len(), diff.removed.len(), diff.same.len()))
             </p>

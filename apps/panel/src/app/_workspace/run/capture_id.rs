@@ -83,6 +83,13 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
         .capture_lineage(&acc.session, &key, Some(2))
         .await
         .ok();
+    let parity_mismatches =
+        before.as_ref().and_then(
+            |(before_cap, _)| match (&before_cap.plan_spec, &run.plan_spec) {
+                (Some(a), Some(b)) => Some(a.diff(b)),
+                _ => None,
+            },
+        );
     let diff = if let Some((before_cap, _)) = &before {
         p.api
             .compare_captures(&acc.session, &before_cap.id, &key)
@@ -127,6 +134,7 @@ async fn load(cx: &Cx, comparison: Comparison, id: String) -> PageResult<Capture
         citations,
         lineage,
         diff,
+        parity_mismatches,
         diff_artifact_id: comparison.diff_art,
         motion_report,
         topics,
@@ -240,6 +248,21 @@ async fn review(cx: &Cx, id: String, form: Review) -> PageResult<Response> {
                 .await
                 .map_err(|e| auth::api_error(&e))?;
             Ok(redirect(&format!("/run/{id}#organize")))
+        }
+        "recapture" => {
+            panel
+                .api
+                .recapture_capture(
+                    &account.session,
+                    &id,
+                    &rupicola_api::RecaptureRequest::default(),
+                )
+                .await
+                .map_err(|e| auth::api_error(&e))?;
+            Ok(redirect(&format!(
+                "/projects/{}/captures",
+                run.capture.project_id
+            )))
         }
         "create-selection" => {
             create_selection_action(&panel, &account, &run, &id, &form).await?;
