@@ -5,20 +5,27 @@
 
 mod error;
 mod http;
+mod infra;
+mod workspace;
 
 use async_trait::async_trait;
 use rupicola_api::{
-    AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
-    DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Job,
-    JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewComment,
-    NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem, NewProject,
-    NewReview, NewStep, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
-    RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, Scenario, ScenarioSummary,
-    ScenarioVersion, SessionToken, Setup, Step, SystemActionForm, SystemList, SystemVersion,
+    AuditEvent, Capture, CaptureCapabilities, CaptureDiff, CapturePage, CaptureRemoval,
+    CaptureSummary, Citations, Comment, Credential, Credentials, DesignEntry, DocumentEdit,
+    Finding, Fix, FixSelectionLink, FixSummary, IssuedCredential, IssuedInvite, Job, JobFailure,
+    JobProgress, JobResult, Limits, Lineage, LineageGraph, Me, Member, Missing, MissingQuery,
+    NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem,
+    NewProject, NewReview, NewSelection, NewStep, NewTopic, ParentsEdit, PasswordChange, Problem,
+    ProblemPatch, ProblemSummary, Project, ProjectUpdate, RecaptureSettings,
+    RecaptureSettingsPatch, Redeem, Register, Scenario, ScenarioSummary, ScenarioVersion,
+    Selection, SessionToken, Setup, Step, SystemActionForm, SystemList, SystemVersion, Topic,
+    TopicMove, TopicRename, TopicTree,
 };
 
 pub use error::{ClientError, Result};
 pub use http::HttpApi;
+pub use infra::{CredentialStore, McpTransport, StoredSession, upload_missing_blobs};
+pub use workspace::WorkspaceClient;
 
 /// The raw answer of the MCP endpoint. Any HTTP status is data here, because an MCP
 /// client relays it instead of failing.
@@ -307,6 +314,93 @@ pub trait Api: Send + Sync {
 
     /// Permanently deletes a problem from its project.
     async fn delete_problem(&self, token: &str, id: &str) -> Result<()>;
+
+    async fn project(&self, token: &str, id: &str) -> Result<Project>;
+
+    async fn update_project(&self, token: &str, id: &str, form: &ProjectUpdate) -> Result<Project>;
+
+    async fn delete_project(&self, token: &str, id: &str) -> Result<()>;
+
+    async fn project_limits(&self, token: &str, project: &str) -> Result<Limits>;
+
+    async fn capture_capabilities(&self, token: &str) -> Result<CaptureCapabilities>;
+
+    async fn capture_citations(&self, token: &str, id: &str) -> Result<Citations>;
+
+    async fn delete_capture(&self, token: &str, id: &str, form: &CaptureRemoval) -> Result<()>;
+
+    async fn capture_lineage(
+        &self,
+        token: &str,
+        id: &str,
+        depth: Option<u32>,
+    ) -> Result<LineageGraph>;
+
+    async fn capture_parents(&self, token: &str, id: &str) -> Result<Lineage>;
+
+    async fn edit_capture_parents(
+        &self,
+        token: &str,
+        id: &str,
+        form: &ParentsEdit,
+    ) -> Result<Lineage>;
+
+    async fn compare_captures(&self, token: &str, before: &str, after: &str)
+    -> Result<CaptureDiff>;
+
+    async fn cite_problem_selection(
+        &self,
+        token: &str,
+        id: &str,
+        selection: &str,
+    ) -> Result<Problem>;
+
+    async fn uncite_problem_selection(
+        &self,
+        token: &str,
+        id: &str,
+        selection: &str,
+    ) -> Result<Problem>;
+
+    async fn cite_fix_selection(
+        &self,
+        token: &str,
+        id: &str,
+        selection: &str,
+        link: &FixSelectionLink,
+    ) -> Result<Fix>;
+
+    async fn uncite_fix_selection(&self, token: &str, id: &str, selection: &str) -> Result<Fix>;
+
+    async fn create_selection(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewSelection,
+    ) -> Result<Selection>;
+
+    async fn selection(&self, token: &str, id: &str) -> Result<Selection>;
+
+    async fn topic_tree(&self, token: &str, project: &str) -> Result<TopicTree>;
+
+    async fn create_topic(&self, token: &str, project: &str, form: &NewTopic) -> Result<Topic>;
+
+    async fn rename_topic(&self, token: &str, id: &str, form: &TopicRename) -> Result<Topic>;
+
+    async fn move_topic(&self, token: &str, id: &str, form: &TopicMove) -> Result<Topic>;
+
+    async fn delete_topic(&self, token: &str, id: &str, recursive: bool) -> Result<()>;
+
+    async fn topic_captures(
+        &self,
+        token: &str,
+        id: &str,
+        direct: bool,
+    ) -> Result<Vec<CaptureSummary>>;
+
+    async fn file_topic_capture(&self, token: &str, id: &str, capture: &str) -> Result<()>;
+
+    async fn unfile_topic_capture(&self, token: &str, id: &str, capture: &str) -> Result<()>;
 
     /// Sends one MCP JSON-RPC message.
     ///

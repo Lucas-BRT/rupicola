@@ -14,9 +14,11 @@ mock = ["dep:mockall"]
 
 [dependencies]
 async-trait.workspace = true
+base64.workspace = true
 mockall = { workspace = true, optional = true }
 reqwest.workspace = true
 rupicola-api.workspace = true
+rupicola-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

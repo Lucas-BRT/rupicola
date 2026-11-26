@@ -2,14 +2,16 @@ use crate::{Api, ArtifactBody, ClientError, McpReply, Result};
 use async_trait::async_trait;
 use reqwest::{Method, RequestBuilder, header};
 use rupicola_api::{
-    AuditEvent, Capture, CapturePage, CaptureSummary, Comment, Credential, Credentials,
-    DesignEntry, DocumentEdit, Finding, Fix, FixSummary, IssuedCredential, IssuedInvite, Job,
-    JobFailure, JobProgress, JobResult, Me, Member, Missing, MissingQuery, NewComment,
-    NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem, NewProject,
-    NewReview, NewStep, PREFIX, PasswordChange, Problem, ProblemPatch, ProblemSummary, Project,
-    RecaptureSettings, RecaptureSettingsPatch, Redeem, Register, Scenario, ScenarioSummary,
-    ScenarioVersion, SessionToken, Setup, SetupStatus, Step, SystemActionForm, SystemList,
-    SystemVersion,
+    AuditEvent, Capture, CaptureCapabilities, CaptureDiff, CapturePage, CaptureRemoval,
+    CaptureSummary, Citations, Comment, Credential, Credentials, DesignEntry, DocumentEdit,
+    Finding, Fix, FixSelectionLink, FixSummary, IssuedCredential, IssuedInvite, Job, JobFailure,
+    JobProgress, JobResult, Limits, Lineage, LineageGraph, Me, Member, Missing, MissingQuery,
+    NewComment, NewCredential, NewDesignEntry, NewFinding, NewFix, NewInvite, NewJob, NewProblem,
+    NewProject, NewReview, NewSelection, NewStep, NewTopic, PREFIX, ParentsEdit, PasswordChange,
+    Problem, ProblemPatch, ProblemSummary, Project, ProjectUpdate, RecaptureSettings,
+    RecaptureSettingsPatch, Redeem, Register, Scenario, ScenarioSummary, ScenarioVersion,
+    Selection, SessionToken, Setup, SetupStatus, Step, SystemActionForm, SystemList, SystemVersion,
+    Topic, TopicMove, TopicRename, TopicTree,
 };
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -825,6 +827,324 @@ impl Api for HttpApi {
         Self::send(self.request(
             Method::DELETE,
             &format!("/problems/{}", encode_segment(id)),
+            Some(token),
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn project(&self, token: &str, id: &str) -> Result<Project> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{}", encode_segment(id)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn update_project(&self, token: &str, id: &str, form: &ProjectUpdate) -> Result<Project> {
+        Self::read(
+            self.request(
+                Method::PATCH,
+                &format!("/projects/{}", encode_segment(id)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn delete_project(&self, token: &str, id: &str) -> Result<()> {
+        Self::send(self.request(
+            Method::DELETE,
+            &format!("/projects/{}", encode_segment(id)),
+            Some(token),
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn project_limits(&self, token: &str, project: &str) -> Result<Limits> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{}/limits", encode_segment(project)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn capture_capabilities(&self, token: &str) -> Result<CaptureCapabilities> {
+        Self::read(self.request(Method::GET, "/capture-capabilities", Some(token))).await
+    }
+
+    async fn capture_citations(&self, token: &str, id: &str) -> Result<Citations> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/captures/{}/citations", encode_segment(id)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn delete_capture(&self, token: &str, id: &str, form: &CaptureRemoval) -> Result<()> {
+        Self::send(
+            self.request(
+                Method::DELETE,
+                &format!("/captures/{}", encode_segment(id)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn capture_lineage(
+        &self,
+        token: &str,
+        id: &str,
+        depth: Option<u32>,
+    ) -> Result<LineageGraph> {
+        let id = encode_segment(id);
+        let path = match depth {
+            Some(d) => format!("/captures/{id}/lineage?depth={d}"),
+            None => format!("/captures/{id}/lineage"),
+        };
+        Self::read(self.request(Method::GET, &path, Some(token))).await
+    }
+
+    async fn capture_parents(&self, token: &str, id: &str) -> Result<Lineage> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/captures/{}/parents", encode_segment(id)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn edit_capture_parents(
+        &self,
+        token: &str,
+        id: &str,
+        form: &ParentsEdit,
+    ) -> Result<Lineage> {
+        Self::read(
+            self.request(
+                Method::PUT,
+                &format!("/captures/{}/parents", encode_segment(id)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn compare_captures(
+        &self,
+        token: &str,
+        before: &str,
+        after: &str,
+    ) -> Result<CaptureDiff> {
+        Self::read(self.request(
+            Method::GET,
+            &format!(
+                "/captures/{}/compare/{}",
+                encode_segment(before),
+                encode_segment(after)
+            ),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn cite_problem_selection(
+        &self,
+        token: &str,
+        id: &str,
+        selection: &str,
+    ) -> Result<Problem> {
+        Self::read(self.request(
+            Method::PUT,
+            &format!(
+                "/problems/{}/selections/{}",
+                encode_segment(id),
+                encode_segment(selection)
+            ),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn uncite_problem_selection(
+        &self,
+        token: &str,
+        id: &str,
+        selection: &str,
+    ) -> Result<Problem> {
+        Self::read(self.request(
+            Method::DELETE,
+            &format!(
+                "/problems/{}/selections/{}",
+                encode_segment(id),
+                encode_segment(selection)
+            ),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn cite_fix_selection(
+        &self,
+        token: &str,
+        id: &str,
+        selection: &str,
+        link: &FixSelectionLink,
+    ) -> Result<Fix> {
+        Self::read(
+            self.request(
+                Method::PUT,
+                &format!(
+                    "/fixes/{}/selections/{}",
+                    encode_segment(id),
+                    encode_segment(selection)
+                ),
+                Some(token),
+            )
+            .json(link),
+        )
+        .await
+    }
+
+    async fn uncite_fix_selection(&self, token: &str, id: &str, selection: &str) -> Result<Fix> {
+        Self::read(self.request(
+            Method::DELETE,
+            &format!(
+                "/fixes/{}/selections/{}",
+                encode_segment(id),
+                encode_segment(selection)
+            ),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn create_selection(
+        &self,
+        token: &str,
+        project: &str,
+        form: &NewSelection,
+    ) -> Result<Selection> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{}/selections", encode_segment(project)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn selection(&self, token: &str, id: &str) -> Result<Selection> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/selections/{}", encode_segment(id)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn topic_tree(&self, token: &str, project: &str) -> Result<TopicTree> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/projects/{}/topics", encode_segment(project)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn create_topic(&self, token: &str, project: &str, form: &NewTopic) -> Result<Topic> {
+        Self::read(
+            self.request(
+                Method::POST,
+                &format!("/projects/{}/topics", encode_segment(project)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn rename_topic(&self, token: &str, id: &str, form: &TopicRename) -> Result<Topic> {
+        Self::read(
+            self.request(
+                Method::PUT,
+                &format!("/topics/{}/name", encode_segment(id)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn move_topic(&self, token: &str, id: &str, form: &TopicMove) -> Result<Topic> {
+        Self::read(
+            self.request(
+                Method::PUT,
+                &format!("/topics/{}/parent", encode_segment(id)),
+                Some(token),
+            )
+            .json(form),
+        )
+        .await
+    }
+
+    async fn delete_topic(&self, token: &str, id: &str, recursive: bool) -> Result<()> {
+        Self::send(self.request(
+            Method::DELETE,
+            &format!("/topics/{}?recursive={recursive}", encode_segment(id)),
+            Some(token),
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn topic_captures(
+        &self,
+        token: &str,
+        id: &str,
+        direct: bool,
+    ) -> Result<Vec<CaptureSummary>> {
+        Self::read(self.request(
+            Method::GET,
+            &format!("/topics/{}/captures?direct={direct}", encode_segment(id)),
+            Some(token),
+        ))
+        .await
+    }
+
+    async fn file_topic_capture(&self, token: &str, id: &str, capture: &str) -> Result<()> {
+        Self::send(self.request(
+            Method::PUT,
+            &format!(
+                "/topics/{}/captures/{}",
+                encode_segment(id),
+                encode_segment(capture)
+            ),
+            Some(token),
+        ))
+        .await?;
+        Ok(())
+    }
+
+    async fn unfile_topic_capture(&self, token: &str, id: &str, capture: &str) -> Result<()> {
+        Self::send(self.request(
+            Method::DELETE,
+            &format!(
+                "/topics/{}/captures/{}",
+                encode_segment(id),
+                encode_segment(capture)
+            ),
             Some(token),
         ))
         .await?;
