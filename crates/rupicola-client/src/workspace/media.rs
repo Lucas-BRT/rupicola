@@ -1,9 +1,7 @@
 use super::WorkspaceClient;
 use crate::{Api, Result};
 use async_trait::async_trait;
-use rupicola_api::{
-    ArtifactChunk, Capture, CaptureExecutionOps, MediaInspectOps, VisualDiffOps,
-};
+use rupicola_api::{ArtifactChunk, Capture, CaptureExecutionOps, MediaInspectOps, VisualDiffOps};
 use serde_json::json;
 
 #[async_trait]
