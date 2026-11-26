@@ -13,10 +13,7 @@ use rupicola_api::{
     },
 };
 use rupicola_capture::{
-    asynchronous::{
-        CaptureBackend, CdpBackend, CdpDiscovery, WebBackend, WebDiscovery, probe_environment,
-        run_plan,
-    },
+    asynchronous::{CaptureBackend, CdpBackend, CdpDiscovery, probe_environment, run_plan},
     session::{ColorScheme, Plan},
 };
 use rupicola_client::Api;
@@ -29,7 +26,6 @@ use std::{
 };
 use uuid::Uuid;
 
-const DEFAULT_BROWSER_ENGINE: &str = "chromium";
 const PNG_MIME: &str = "image/png";
 const MP4_MIME: &str = "video/mp4";
 const MILLI_SCALE: u32 = 1000;
@@ -67,21 +63,26 @@ pub trait CellCapturer: Send + Sync {
     async fn capture_cell(&self, plan: &Plan, out_dir: &Path) -> Result<CellOutcome>;
 }
 
-/// Real capturer backed by `rupicola-capture` (`WebBackend` preferred, `CdpBackend` fallback).
+/// Real capturer backed by `rupicola-capture`'s in-house Chromium CDP backend.
 pub struct ProtocolCapturer {
     backend: Box<dyn CaptureBackend>,
 }
 
 impl ProtocolCapturer {
-    /// Discovers an installed web capture backend on the host OS without installing anything.
+    /// Uses an explicitly configured Chromium binary, or discovers one from the host.
     ///
     /// # Errors
     ///
-    /// Fails with installation guidance if no web capture backend is available.
-    pub async fn discover() -> Result<Self> {
-        if let Some(web) = WebBackend::discover(DEFAULT_BROWSER_ENGINE).await {
+    /// Fails when the configured path is not a file or no Chromium CDP backend is available.
+    pub async fn discover_with_browser_bin(browser_bin: Option<PathBuf>) -> Result<Self> {
+        if let Some(browser_bin) = browser_bin {
+            anyhow::ensure!(
+                tokio::fs::metadata(&browser_bin).await?.is_file(),
+                "configured Chromium binary is not a file: {}",
+                browser_bin.display()
+            );
             return Ok(Self {
-                backend: Box::new(web),
+                backend: Box::new(CdpBackend::new(browser_bin)),
             });
         }
         if let Some(cdp) = CdpBackend::discover().await {
@@ -92,11 +93,13 @@ impl ProtocolCapturer {
         let reports = probe_environment().await;
         let guidance = reports
             .into_iter()
-            .filter(|r| !r.available)
+            .filter(|r| r.id == "web-chromium-cdp")
             .map(|r| format!("{}: {}", r.label, r.install_guidance))
             .collect::<Vec<_>>()
             .join("; ");
-        bail!("no headless web capture backend available ({guidance})")
+        bail!(
+            "Chromium CDP is unavailable; this runner does not fall back to Playwright ({guidance})"
+        )
     }
 }
 
@@ -395,4 +398,31 @@ pub async fn check_determinism<A: Api>(
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProtocolCapturer;
+
+    #[tokio::test]
+    async fn explicit_chromium_binary_selects_the_cdp_backend() {
+        let dir = tempfile::tempdir().unwrap();
+        let browser = dir.path().join("chromium");
+        tokio::fs::write(&browser, b"browser").await.unwrap();
+
+        let capturer = ProtocolCapturer::discover_with_browser_bin(Some(browser))
+            .await
+            .unwrap();
+
+        assert_eq!(capturer.backend.id(), "web-chromium-cdp");
+    }
+
+    #[tokio::test]
+    async fn explicit_chromium_path_must_be_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let result =
+            ProtocolCapturer::discover_with_browser_bin(Some(dir.path().join("missing"))).await;
+
+        assert!(result.is_err());
+    }
 }

@@ -11,7 +11,7 @@ use anyhow::Result;
 use capture::ProtocolCapturer;
 use clap::Parser;
 use rupicola_client::HttpApi;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 const DEFAULT_POLL_SECS: u64 = 5;
 
@@ -34,6 +34,9 @@ struct Args {
     /// Bearer token (person or project device token; defaults to `RUPICOLA_RUNNER_TOKEN` or stored token).
     #[arg(long)]
     token: Option<String>,
+    /// Chromium binary used by the CDP-only capture backend.
+    #[arg(long, env = "RUPICOLA_CHROMIUM_BIN")]
+    chromium_bin: Option<PathBuf>,
     /// Project ID to claim jobs for (defaults to `.rupicola/project.toml` or Git checkout hash).
     #[arg(long)]
     project: Option<String>,
@@ -74,7 +77,7 @@ async fn main() -> Result<()> {
     )?;
 
     let api = HttpApi::new(&server_url)?;
-    let capturer = ProtocolCapturer::discover().await?;
+    let capturer = ProtocolCapturer::discover_with_browser_bin(args.chromium_bin).await?;
     runner::run_loop(
         &api,
         &token,

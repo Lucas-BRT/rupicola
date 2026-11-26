@@ -1,6 +1,7 @@
 //! Spawns a worktree's preview server on a free port and waits until it answers `ready`.
 
 use anyhow::{Context, Result, bail};
+use async_trait::async_trait;
 use rupicola_api::PreviewConfig;
 use std::{
     net::{Ipv4Addr, SocketAddr},
@@ -16,6 +17,33 @@ use tokio::{
     sync::Mutex,
     time::Instant,
 };
+
+/// Strategy for starting a live preview for a checked-out tree (local process, container, or remote URL).
+#[async_trait]
+pub trait PreviewRuntime: Send + Sync {
+    async fn start(
+        &self,
+        worktree_path: &Path,
+        repo_root: &Path,
+        config: &PreviewConfig,
+    ) -> Result<PreviewProcess>;
+}
+
+/// Default [`PreviewRuntime`] that spawns `config.command` on a free loopback port.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ProcessPreviewRuntime;
+
+#[async_trait]
+impl PreviewRuntime for ProcessPreviewRuntime {
+    async fn start(
+        &self,
+        worktree_path: &Path,
+        repo_root: &Path,
+        config: &PreviewConfig,
+    ) -> Result<PreviewProcess> {
+        PreviewProcess::start(worktree_path, repo_root, config).await
+    }
+}
 
 const PORT_PLACEHOLDER: &str = "{port}";
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -204,5 +232,11 @@ mod tests {
             .unwrap();
         proc.stop().await;
         server.abort();
+    }
+
+    #[test]
+    fn process_preview_runtime_implements_preview_runtime_trait() {
+        fn assert_impl<T: PreviewRuntime>() {}
+        assert_impl::<ProcessPreviewRuntime>();
     }
 }

@@ -1,9 +1,37 @@
 //! Ephemeral Git worktrees for building and capturing each tree in a job.
 
 use anyhow::{Context, Result, bail};
+use async_trait::async_trait;
 use rupicola_api::TreeSpec;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
+
+/// Strategy for preparing a buildable checkout of a [`TreeSpec`] (e.g. git worktree, container, Nix).
+#[async_trait]
+pub trait TreeCheckout: Send + Sync {
+    async fn checkout(
+        &self,
+        repo_root: &Path,
+        scratch_dir: &Path,
+        tree: &TreeSpec,
+    ) -> Result<Worktree>;
+}
+
+/// Default [`TreeCheckout`] backed by detached `git worktree add` + `git merge`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GitWorktreeCheckout;
+
+#[async_trait]
+impl TreeCheckout for GitWorktreeCheckout {
+    async fn checkout(
+        &self,
+        repo_root: &Path,
+        scratch_dir: &Path,
+        tree: &TreeSpec,
+    ) -> Result<Worktree> {
+        Worktree::create(repo_root, scratch_dir, tree).await
+    }
+}
 
 const GIT_USER_NAME: &str = "rupicola-runner";
 const GIT_USER_EMAIL: &str = "runner@rupicola.local";
@@ -241,5 +269,11 @@ mod tests {
             .unwrap();
         assert!(err.to_string().contains("merge"), "{err}");
         assert!(!scratch.join("broken").exists());
+    }
+
+    #[test]
+    fn git_worktree_checkout_implements_tree_checkout_trait() {
+        fn assert_impl<T: TreeCheckout>() {}
+        assert_impl::<GitWorktreeCheckout>();
     }
 }

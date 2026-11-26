@@ -3,8 +3,8 @@
 
 use crate::{
     capture::{CellCapturer, CellContext, capture_and_publish, check_determinism},
-    preview::PreviewProcess,
-    worktree::Worktree,
+    preview::{PreviewRuntime, ProcessPreviewRuntime},
+    worktree::{GitWorktreeCheckout, TreeCheckout},
 };
 use anyhow::{Context, Result, bail};
 use rupicola_api::{
@@ -196,8 +196,13 @@ async fn run_job_trees<A: Api>(
         if cancelled.load(Ordering::Relaxed) {
             break;
         }
-        let mut worktree = Worktree::create(repo_root, scratch_root, tree).await?;
-        let preview = match PreviewProcess::start(worktree.path(), repo_root, preview_cfg).await {
+        let mut worktree = GitWorktreeCheckout
+            .checkout(repo_root, scratch_root, tree)
+            .await?;
+        let preview = match ProcessPreviewRuntime
+            .start(worktree.path(), repo_root, preview_cfg)
+            .await
+        {
             Ok(proc) => proc,
             Err(err) => {
                 let _ = worktree.remove().await;
