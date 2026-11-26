@@ -35,8 +35,15 @@ impl ClientError {
     /// The error for a non-success answer; `body` is the raw response body.
     pub(crate) fn from_response(status: StatusCode, retry_after: Option<u64>, body: &str) -> Self {
         let message = || {
-            serde_json::from_str::<ErrorBody>(body)
-                .map_or_else(|_| body.to_owned(), |error| error.message)
+            let parsed = serde_json::from_str::<ErrorBody>(body).map_or_else(
+                |_| body.trim().to_owned(),
+                |error| error.message.trim().to_owned(),
+            );
+            if parsed.is_empty() {
+                format!("HTTP {status}")
+            } else {
+                parsed
+            }
         };
         match status {
             StatusCode::UNAUTHORIZED => Self::Unauthorized,
@@ -47,5 +54,29 @@ impl ClientError {
             status if status.is_client_error() => Self::Invalid(message()),
             status => Self::Unavailable(format!("HTTP {status}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_4xx_body_falls_back_to_http_status() {
+        let err = ClientError::from_response(StatusCode::METHOD_NOT_ALLOWED, None, "");
+        assert_eq!(err.to_string(), "HTTP 405 Method Not Allowed");
+
+        let conflict = ClientError::from_response(StatusCode::CONFLICT, None, "   ");
+        assert_eq!(conflict.to_string(), "HTTP 409 Conflict");
+    }
+
+    #[test]
+    fn json_error_body_message_is_preserved() {
+        let err = ClientError::from_response(
+            StatusCode::BAD_REQUEST,
+            None,
+            r#"{"code":"invalid","message":"bad record"}"#,
+        );
+        assert_eq!(err.to_string(), "bad record");
     }
 }
