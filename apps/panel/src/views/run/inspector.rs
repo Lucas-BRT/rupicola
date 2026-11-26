@@ -65,11 +65,11 @@ pub(super) async fn inspector_rail(cx: &Cx, data: &Capture) -> Result<impl View>
             }
             if *may_review {
                 if run.plan_spec.is_some() {
-                    <section class="surface" id="recapture">
+                    <section class="surface review" id="recapture">
                         <h2>"Deterministic recapture"</h2>
                         stack_form(action: form_url, token: &account.csrf,
                             <input type="hidden" name="action" value="recapture">
-                            <button type="submit" class="button primary">"Recapture with exact plan"</button>
+                            <button type="submit" class="button">"Recapture with exact plan"</button>
                         )
                     </section>
                 }
@@ -190,33 +190,35 @@ async fn delete_capture_section(
     citations: &Citations,
 ) -> Result<impl View> {
     Ok(view! {
-        <section class="surface danger-zone" id="delete-capture">
-            <h2>"Delete capture"</h2>
-            if !citations.citations.is_empty() {
-                <p class="notice">
-                    (format!("Cited by {} record(s). Removing leaves a tombstone and reopens uncited problems.", citations.citations.len()))
-                </p>
-                <ul class="audit">
-                    for c in &citations.citations {
-                        <li><strong class="mono">(c.kind.as_str())</strong> " · " <span class="mono">(&c.id)</span></li>
-                    }
-                </ul>
-            }
-            if !citations.allowed {
-                <p class="muted">"Deletion is blocked by project or server policy for this capture."</p>
-            } else {
-                stack_form(action: form_url, token: token,
-                    <input type="hidden" name="action" value="delete">
-                    if let Some(confirm) = &citations.confirm {
-                        <input type="hidden" name="confirm" value=(confirm)>
-                    }
-                    <label for="delete-reason">"Reason for removal"</label>
-                    <input id="delete-reason" name="reason" type="text" required="" maxlength="500" placeholder="Superseded or captured with wrong env">
-                    <button type="submit" class="button button-danger">
-                        if citations.confirm.is_some() { "Confirm & delete cited capture" } else { "Delete capture" }
-                    </button>
-                )
-            }
+        <section class="surface review danger-zone" id="delete-capture">
+            <details class="triage-note-drawer">
+                <summary>"Delete capture…"</summary>
+                if !citations.citations.is_empty() {
+                    <p class="notice">
+                        (format!("Cited by {} record(s). Removing leaves a tombstone and reopens uncited problems.", citations.citations.len()))
+                    </p>
+                    <ul class="audit">
+                        for c in &citations.citations {
+                            <li><strong class="mono">(c.kind.as_str())</strong> " · " <span class="mono">(&c.id)</span></li>
+                        }
+                    </ul>
+                }
+                if !citations.allowed {
+                    <p class="muted">"Deletion is blocked by project or server policy for this capture."</p>
+                } else {
+                    stack_form(action: form_url, token: token,
+                        <input type="hidden" name="action" value="delete">
+                        if let Some(confirm) = &citations.confirm {
+                            <input type="hidden" name="confirm" value=(confirm)>
+                        }
+                        <label for="delete-reason">"Reason for removal"</label>
+                        <input id="delete-reason" name="reason" type="text" required="" maxlength="500" placeholder="Superseded or captured with wrong env">
+                        <button type="submit" class="button button-danger">
+                            if citations.confirm.is_some() { "Confirm & delete cited capture" } else { "Delete capture" }
+                        </button>
+                    )
+                }
+            </details>
         </section>
     })
 }
@@ -225,7 +227,7 @@ async fn delete_capture_section(
 #[component]
 async fn lineage_section(cx: &Cx, graph: &LineageGraph) -> Result<impl View> {
     Ok(view! {
-        <section class="surface" id="lineage">
+        <section class="surface review" id="lineage">
             <h2>"Lineage"</h2>
             <ul class="audit">
                 for node in &graph.nodes {
@@ -261,7 +263,7 @@ async fn capture_diff_section(
             .map(|before_id| (before_id.clone(), cp.artifact.id.clone()))
     });
     Ok(view! {
-        <section class="surface" id="visual-diff">
+        <section class="surface review" id="visual-diff">
             <h2>"Capture diff"</h2>
             if let Some(mismatches) = parity_mismatches {
                 if mismatches.is_empty() {
@@ -269,11 +271,9 @@ async fn capture_diff_section(
                 } else {
                     <div class="notice" role="alert">
                         <strong>"Plan mismatch ⚠"</strong>
-                        <ul class="audit">
-                            for m in mismatches {
-                                <li><code class="mono">(&m.field)</code> ": " (&m.before) " → " (&m.after)</li>
-                            }
-                        </ul>
+                        for m in mismatches {
+                            <p class="mono">(format!("{}: {} → {}", m.field, m.before, m.after))</p>
+                        }
                     </div>
                 }
             }
@@ -292,7 +292,7 @@ async fn capture_diff_section(
                         <option value="heatmap">"Heatmap"</option>
                         <option value="side_by_side">"Side by side"</option>
                     </select>
-                    <button type="submit" class="button primary">"Generate visual diff"</button>
+                    <button type="submit" class="button">"Generate visual diff"</button>
                 )
             }
             if let Some(art_id) = diff_artifact_id {
@@ -316,7 +316,7 @@ async fn motion_spikes_section(
     motion_report: Option<&MotionDiffReport>,
 ) -> Result<impl View> {
     Ok(view! {
-        <section class="surface" id="motion-spikes">
+        <section class="surface review" id="motion-spikes">
             <h2>"Motion spikes"</h2>
             for clip in clips {
                 if let Some(video) = &clip.video {
@@ -355,7 +355,7 @@ async fn organize_section(
     problems: &[ProblemSummary],
 ) -> Result<impl View> {
     Ok(view! {
-        <section class="surface" id="organize">
+        <section class="surface review" id="organize">
             <h2>"Topics & selections"</h2>
             if !topics.is_empty() {
                 stack_form(action: form_url, token: token,
@@ -368,6 +368,9 @@ async fn organize_section(
                     </select>
                     <button type="submit" class="button">"File in topic"</button>
                 )
+                if !checkpoints.is_empty() {
+                    <hr>
+                }
             }
             if !checkpoints.is_empty() {
                 stack_form(action: form_url, token: token,
